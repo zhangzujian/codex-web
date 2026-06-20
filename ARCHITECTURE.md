@@ -67,9 +67,12 @@ management code. since a normal browser cannot host Electron's native
 `<webview>` element, [`patch_browser_panel_iframe.mjs](./scripts/patch_browser_panel_iframe.mjs)
 rewrites the bundled browser sidebar manager during `prepare_asar` so browser
 panel hosts are iframes with a small Electron-webview compatibility surface.
-this supports opening and keeping browser panel pages visible in codex-web,
-while native Electron-only actions such as screenshots, find-in-page, devtools
-and cross-origin annotation capture remain best-effort or unavailable.
+the web runtime in [main.ts](./src/server/main.ts) synthesizes browser sidebar
+state for URL navigation, back/forward history, reload/stop, zoom controls,
+annotation toolbar state and find UI state. this keeps browser panel pages
+visible and controllable in codex-web. native Electron-only actions such as
+real page screenshots, cross-origin find matching, devtools, printing and
+cross-origin annotation capture remain best-effort or unavailable.
 
 [preload script]: https://www.electronjs.org/docs/latest/tutorial/tutorial-preload
 [`ipcRenderer`]: https://www.electronjs.org/docs/latest/api/ipc-renderer

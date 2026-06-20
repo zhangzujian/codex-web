@@ -18,6 +18,10 @@ import {
   defaultTerminalCwd,
   terminalStylesheetHrefs,
 } from "./terminal";
+import {
+  createBrowserPanelRuntime,
+  handleBrowserPanelRuntimeIpcMessage,
+} from "./browser-panel-runtime";
 
 type ServerOptions = {
   host: string;
@@ -517,6 +521,9 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
       }
     }
   };
+  const browserPanelRuntime = createBrowserPanelRuntime({
+    broadcastToRenderer: (message) => bridgeState.broadcastToRenderer?.(message),
+  });
 
   websocketServer.on("connection", (socket) => {
     sockets.add(socket);
@@ -566,6 +573,14 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
 
       if (message.type === "ipc-renderer-send") {
         const ports = message.portIds?.map(getVirtualPort) ?? [];
+        const handledByBrowserPanelRuntime = handleBrowserPanelRuntimeIpcMessage(
+          browserPanelRuntime,
+          message.channel,
+          message.args,
+        );
+        if (handledByBrowserPanelRuntime) {
+          return;
+        }
         bridgeState.handleRendererSend?.(
           message.channel,
           message.args,
@@ -605,6 +620,20 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
 
       if (message.type === "ipc-renderer-invoke") {
         const { channel, requestId, args, sourceUrl } = message;
+        const handledByBrowserPanelRuntime = handleBrowserPanelRuntimeIpcMessage(
+          browserPanelRuntime,
+          channel,
+          args,
+        );
+        if (handledByBrowserPanelRuntime) {
+          sendSocketMessage(socket, {
+            type: "ipc-renderer-invoke-result",
+            requestId,
+            ok: true,
+            result: undefined,
+          });
+          return;
+        }
         Promise.resolve(
           bridgeState.handleRendererInvoke?.(channel, args, sourceUrl) ??
             Promise.reject(

@@ -9,7 +9,7 @@ const IFRAME_FACTORY = "codexWebCreateBrowserPanelFrame()";
 const PATCH_MARKER = "data-codex-web-browser-panel-frame";
 
 const helperSource =
-  "function codexWebCreateBrowserPanelFrame(){let e=document.createElement(`iframe`);return e.setAttribute(`data-codex-web-browser-panel-frame`,`true`),e.setAttribute(`sandbox`,`allow-downloads allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-presentation allow-same-origin allow-scripts`),e.setAttribute(`referrerpolicy`,`no-referrer-when-downgrade`),e.setAttribute(`loading`,`eager`),e.isLoading=()=>!1,e.stop=()=>{},e.reload=()=>{try{e.contentWindow?.location.reload()}catch{codexWebSetBrowserPanelFrameSrc(e,e.getAttribute(`src`)??`about:blank`)}},e.goBack=()=>{try{e.contentWindow?.history.back()}catch{}},e.goForward=()=>{try{e.contentWindow?.history.forward()}catch{}},e.canGoBack=()=>!1,e.canGoForward=()=>!1,e.getURL=()=>e.getAttribute(`src`)??`about:blank`,e.loadURL=t=>(codexWebSetBrowserPanelFrameSrc(e,t),Promise.resolve()),e.destroy=()=>{e.dispatchEvent(new Event(`destroyed`)),e.remove()},e.addEventListener(`load`,()=>{codexWebDispatchBrowserPanelFrameEvent(e,`did-attach`),codexWebDispatchBrowserPanelFrameEvent(e,`did-stop-loading`)}),e.addEventListener(`error`,()=>{codexWebDispatchBrowserPanelFrameEvent(e,`did-fail-load`)}),e}function codexWebDispatchBrowserPanelFrameEvent(e,t){e.dispatchEvent(new Event(t))}function codexWebSetBrowserPanelFrameSrc(e,t){let n=t&&t.length>0?t:`about:blank`;e.setAttribute(`src`,n),queueMicrotask(()=>{codexWebDispatchBrowserPanelFrameEvent(e,`did-attach`),codexWebDispatchBrowserPanelFrameEvent(e,`did-stop-loading`)})}";
+  "function codexWebCreateBrowserPanelFrame(){let e=document.createElement(`iframe`);return e.setAttribute(`data-codex-web-browser-panel-frame`,`true`),e.setAttribute(`sandbox`,`allow-downloads allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-presentation allow-same-origin allow-scripts`),e.setAttribute(`referrerpolicy`,`no-referrer-when-downgrade`),e.setAttribute(`loading`,`eager`),e.isLoading=()=>!1,e.stop=()=>{},e.reload=()=>{try{e.contentWindow?.location.reload()}catch{codexWebSetBrowserPanelFrameSrc(e,e.getAttribute(`src`)??`about:blank`)}},e.goBack=()=>{try{e.contentWindow?.history.back()}catch{}},e.goForward=()=>{try{e.contentWindow?.history.forward()}catch{}},e.canGoBack=()=>!1,e.canGoForward=()=>!1,e.getURL=()=>e.getAttribute(`src`)??`about:blank`,e.loadURL=t=>(codexWebSetBrowserPanelFrameSrc(e,t),Promise.resolve()),e.destroy=()=>{e.dispatchEvent(new Event(`destroyed`)),e.remove()},e.addEventListener(`load`,()=>{codexWebDispatchBrowserPanelFrameEvent(e,`did-attach`),codexWebDispatchBrowserPanelFrameEvent(e,`did-stop-loading`)}),e.addEventListener(`error`,()=>{codexWebDispatchBrowserPanelFrameEvent(e,`did-fail-load`)}),e}function codexWebDispatchBrowserPanelFrameEvent(e,t){e.dispatchEvent(new Event(t))}function codexWebSetBrowserPanelFrameSrc(e,t){let n=t&&t.length>0?t:`about:blank`;e.setAttribute(`src`,n),queueMicrotask(()=>{codexWebDispatchBrowserPanelFrameEvent(e,`did-attach`),codexWebDispatchBrowserPanelFrameEvent(e,`did-stop-loading`)})}function codexWebSyncBrowserPanelSnapshotUrl(e,t){let n=t?.url&&t.url.length>0?t.url:`about:blank`;t?.tabType===`web`&&e?.webview!=null&&e.webview.getAttribute(`src`)!==n&&codexWebSetBrowserPanelFrameSrc(e.webview,n)}";
 
 export function findBrowserSidebarManagerAsset(assetsDir) {
   const candidates = fs
@@ -43,45 +43,90 @@ export function findBrowserSidebarManagerAsset(assetsDir) {
 }
 
 export function patchBrowserPanelIframeSupport(source) {
-  if (source.includes(PATCH_MARKER)) {
-    return source;
-  }
+  const alreadyPatched = source.includes(PATCH_MARKER);
+  let patched = source;
 
-  const webviewCreateCount = countOccurrences(source, WEBVIEW_CREATE);
-  if (webviewCreateCount !== 2) {
-    throw new Error(
-      `Expected 2 browser panel webview hosts, found ${webviewCreateCount}`,
+  if (!alreadyPatched) {
+    const webviewCreateCount = countOccurrences(source, WEBVIEW_CREATE);
+    if (webviewCreateCount !== 2) {
+      throw new Error(
+        `Expected 2 browser panel webview hosts, found ${webviewCreateCount}`,
+      );
+    }
+
+    patched = source.replaceAll(WEBVIEW_CREATE, IFRAME_FACTORY);
+
+    patched = replaceOnce(
+      patched,
+      "var me=`about:blank`,",
+      `${helperSource}var me=\`about:blank\`,`,
+      "browser panel constants",
+    );
+
+    patched = replaceOnce(
+      patched,
+      "u.setAttribute(`src`,me);let d=()=>{this.finishPendingDetach()};",
+      "codexWebSetBrowserPanelFrameSrc(u,s.length===0?me:s);let d=()=>{this.finishPendingDetach()};",
+      "visible browser panel initial URL",
+    );
+
+    patched = replaceOnce(
+      patched,
+      "this.webview.setAttribute(`src`,o.length===0?Ee:o),this.container.append(this.webview,this.cursorOverlayHost)",
+      "codexWebSetBrowserPanelFrameSrc(this.webview,o.length===0?Ee:o),this.container.append(this.webview,this.cursorOverlayHost)",
+      "retained browser panel initial URL",
+    );
+
+    patched = replaceOnce(
+      patched,
+      "this.webview.removeAttribute(k),this.webview.removeAttribute(A),this.webview.removeAttribute(j);return}this.webview.setAttribute(k,e),this.webview.setAttribute(A,t.toString()),this.webview.setAttribute(j,n)}}",
+      "this.webview.removeAttribute(k),this.webview.removeAttribute(A),this.webview.removeAttribute(j),codexWebSetBrowserPanelFrameSrc(this.webview,n.length===0?me:n);return}this.webview.setAttribute(k,e),this.webview.setAttribute(A,t.toString()),this.webview.setAttribute(j,n),codexWebSetBrowserPanelFrameSrc(this.webview,n.length===0?me:n)}}",
+      "browser panel adoption URL updates",
     );
   }
 
-  let patched = source.replaceAll(WEBVIEW_CREATE, IFRAME_FACTORY);
-
-  patched = replaceOnce(
+  patched = replaceFirstAvailable(
     patched,
-    "var me=`about:blank`,",
-    `${helperSource}var me=\`about:blank\`,`,
-    "browser panel constants",
+    [
+      {
+        before:
+          "if(s instanceof P)return s.setHostKind(c),a!=null&&(s.setAdoptionAttributes(a.adoptionLease??null,a.adoptedWebContentsId??null,i),",
+        after:
+          "if(s instanceof P)return s.setHostKind(c),s.setAdoptionAttributes(a?.adoptionLease??null,a?.adoptedWebContentsId??null,i),a!=null&&(",
+      },
+      {
+        before:
+          "if(s instanceof P)return s.setHostKind(c),a!=null&&(s.setAdoptionAttributes(a.adoptionLease??null,a.adoptedWebContentsId??null,i)),s;",
+        after:
+          "if(s instanceof P)return s.setHostKind(c),s.setAdoptionAttributes(a?.adoptionLease??null,a?.adoptedWebContentsId??null,i),s;",
+      },
+    ],
+    "s.setAdoptionAttributes(a?.adoptionLease??null,a?.adoptedWebContentsId??null,i)",
+    "existing visible browser panel URL updates",
   );
 
-  patched = replaceOnce(
+  patched = replaceOnceIfMissing(
     patched,
-    "u.setAttribute(`src`,me);let d=()=>{this.finishPendingDetach()};",
-    "codexWebSetBrowserPanelFrameSrc(u,s.length===0?me:s);let d=()=>{this.finishPendingDetach()};",
-    "visible browser panel initial URL",
+    "if(o!=null)return o.setHostKind(s),o;let c=new G({browserTabId:n",
+    "if(o!=null)return o.setHostKind(s),codexWebSetBrowserPanelFrameSrc(o.webview,r.length===0?Ee:r),o;let c=new G({browserTabId:n",
+    "codexWebSetBrowserPanelFrameSrc(o.webview,r.length===0?Ee:r)",
+    "existing retained browser panel URL updates",
   );
 
-  patched = replaceOnce(
+  patched = replaceOnceIfMissing(
     patched,
-    "this.webview.setAttribute(`src`,o.length===0?Ee:o),this.container.append(this.webview,this.cursorOverlayHost)",
-    "codexWebSetBrowserPanelFrameSrc(this.webview,o.length===0?Ee:o),this.container.append(this.webview,this.cursorOverlayHost)",
-    "retained browser panel initial URL",
+    "function codexWebSetBrowserPanelFrameSrc(e,t){let n=t&&t.length>0?t:`about:blank`;e.setAttribute(`src`,n),queueMicrotask(()=>{codexWebDispatchBrowserPanelFrameEvent(e,`did-attach`),codexWebDispatchBrowserPanelFrameEvent(e,`did-stop-loading`)})}",
+    "function codexWebSetBrowserPanelFrameSrc(e,t){let n=t&&t.length>0?t:`about:blank`;e.setAttribute(`src`,n),queueMicrotask(()=>{codexWebDispatchBrowserPanelFrameEvent(e,`did-attach`),codexWebDispatchBrowserPanelFrameEvent(e,`did-stop-loading`)})}function codexWebSyncBrowserPanelSnapshotUrl(e,t){let n=t?.url&&t.url.length>0?t.url:`about:blank`;t?.tabType===`web`&&e?.webview!=null&&e.webview.getAttribute(`src`)!==n&&codexWebSetBrowserPanelFrameSrc(e.webview,n)}",
+    "function codexWebSyncBrowserPanelSnapshotUrl",
+    "browser panel snapshot URL sync helper",
   );
 
-  patched = replaceOnce(
+  patched = replaceOnceIfMissing(
     patched,
-    "this.webview.removeAttribute(k),this.webview.removeAttribute(A),this.webview.removeAttribute(j);return}this.webview.setAttribute(k,e),this.webview.setAttribute(A,t.toString()),this.webview.setAttribute(j,n)}}",
-    "this.webview.removeAttribute(k),this.webview.removeAttribute(A),this.webview.removeAttribute(j),codexWebSetBrowserPanelFrameSrc(this.webview,n.length===0?me:n);return}this.webview.setAttribute(k,e),this.webview.setAttribute(A,t.toString()),this.webview.setAttribute(j,n),codexWebSetBrowserPanelFrameSrc(this.webview,n.length===0?me:n)}}",
-    "browser panel adoption URL updates",
+    "this.snapshots.set(o,a),this.browserUseTabKeys.has(o)&&this.syncBrowserUseTabKeys(e),a.tabType!==n.WEB",
+    "this.snapshots.set(o,a),codexWebSyncBrowserPanelSnapshotUrl(this.webviews.get(o),a),this.browserUseTabKeys.has(o)&&this.syncBrowserUseTabKeys(e),a.tabType!==n.WEB",
+    "this.snapshots.set(o,a),codexWebSyncBrowserPanelSnapshotUrl(this.webviews.get(o),a)",
+    "browser panel snapshot URL updates",
   );
 
   return patched;
@@ -102,6 +147,27 @@ function replaceOnce(source, before, after, label) {
     throw new Error(`Unable to patch ${label}`);
   }
   return source.replace(before, after);
+}
+
+function replaceOnceIfMissing(source, before, after, marker, label) {
+  if (source.includes(marker)) {
+    return source;
+  }
+  return replaceOnce(source, before, after, label);
+}
+
+function replaceFirstAvailable(source, replacements, marker, label) {
+  if (source.includes(marker)) {
+    return source;
+  }
+
+  for (const { before, after } of replacements) {
+    if (source.includes(before)) {
+      return source.replace(before, after);
+    }
+  }
+
+  throw new Error(`Unable to patch ${label}`);
 }
 
 function countOccurrences(source, needle) {

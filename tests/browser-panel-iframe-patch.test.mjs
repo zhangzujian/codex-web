@@ -16,6 +16,9 @@ const browserSidebarManagerFixture = [
   "u.setAttribute(`src`,me);let d=()=>{this.finishPendingDetach()};",
   "this.webview.setAttribute(`src`,o.length===0?Ee:o),this.container.append(this.webview,this.cursorOverlayHost)",
   "this.webview.removeAttribute(k),this.webview.removeAttribute(A),this.webview.removeAttribute(j);return}this.webview.setAttribute(k,e),this.webview.setAttribute(A,t.toString()),this.webview.setAttribute(j,n)}}",
+  "this.snapshots.set(o,a),this.browserUseTabKeys.has(o)&&this.syncBrowserUseTabKeys(e),a.tabType!==n.WEB",
+  "if(s instanceof P)return s.setHostKind(c),a!=null&&(s.setAdoptionAttributes(a.adoptionLease??null,a.adoptedWebContentsId??null,i)),s;",
+  "if(o!=null)return o.setHostKind(s),o;let c=new G({browserTabId:n",
 ].join("");
 
 test("findBrowserSidebarManagerAsset locates the bundled browser sidebar manager", () => {
@@ -69,5 +72,25 @@ test("patchBrowserPanelIframeSupport replaces Electron webview hosts with iframe
     patched,
     /codexWebSetBrowserPanelFrameSrc\(this\.webview,n\.length===0\?me:n\)/,
     "updated adoption attributes should navigate iframe hosts to the new URL",
+  );
+  assert.match(
+    patched,
+    /codexWebSyncBrowserPanelSnapshotUrl/,
+    "browser-sidebar-state snapshot updates should navigate existing iframe hosts",
+  );
+  assert.match(
+    patched,
+    /this\.snapshots\.set\(o,a\),codexWebSyncBrowserPanelSnapshotUrl\(this\.webviews\.get\(o\),a\)/,
+    "snapshot updates should synchronize the iframe URL before notifying listeners",
+  );
+  assert.match(
+    patched,
+    /s\.setAdoptionAttributes\(a\?\.adoptionLease\?\?null,a\?\.adoptedWebContentsId\?\?null,i\)/,
+    "existing visible iframe hosts should navigate when their tab URL changes",
+  );
+  assert.match(
+    patched,
+    /codexWebSetBrowserPanelFrameSrc\(o\.webview,r\.length===0\?Ee:r\)/,
+    "existing retained iframe hosts should navigate when their tab URL changes",
   );
 });

@@ -17,6 +17,7 @@ const static_1 = __importDefault(require("@fastify/static"));
 const module_1 = require("./module");
 const glob_1 = require("glob");
 const terminal_1 = require("./terminal");
+const browser_panel_runtime_1 = require("./browser-panel-runtime");
 function workspaceDirectoryEntryTypeRank(entry) {
     return entry.type === "directory" ? 0 : 1;
 }
@@ -297,6 +298,9 @@ async function startIpcBridgeServer(options) {
             }
         }
     };
+    const browserPanelRuntime = (0, browser_panel_runtime_1.createBrowserPanelRuntime)({
+        broadcastToRenderer: (message) => bridgeState.broadcastToRenderer?.(message),
+    });
     websocketServer.on("connection", (socket) => {
         sockets.add(socket);
         const virtualPorts = new Map();
@@ -340,6 +344,10 @@ async function startIpcBridgeServer(options) {
             }
             if (message.type === "ipc-renderer-send") {
                 const ports = message.portIds?.map(getVirtualPort) ?? [];
+                const handledByBrowserPanelRuntime = (0, browser_panel_runtime_1.handleBrowserPanelRuntimeIpcMessage)(browserPanelRuntime, message.channel, message.args);
+                if (handledByBrowserPanelRuntime) {
+                    return;
+                }
                 bridgeState.handleRendererSend?.(message.channel, message.args, message.sourceUrl, ports);
                 return;
             }
@@ -372,6 +380,16 @@ async function startIpcBridgeServer(options) {
             }
             if (message.type === "ipc-renderer-invoke") {
                 const { channel, requestId, args, sourceUrl } = message;
+                const handledByBrowserPanelRuntime = (0, browser_panel_runtime_1.handleBrowserPanelRuntimeIpcMessage)(browserPanelRuntime, channel, args);
+                if (handledByBrowserPanelRuntime) {
+                    sendSocketMessage(socket, {
+                        type: "ipc-renderer-invoke-result",
+                        requestId,
+                        ok: true,
+                        result: undefined,
+                    });
+                    return;
+                }
                 Promise.resolve(bridgeState.handleRendererInvoke?.(channel, args, sourceUrl) ??
                     Promise.reject(new Error(`[ipc-bridge] no ipcMain.handle for channel ${channel}`)))
                     .then((result) => {

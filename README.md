@@ -113,7 +113,10 @@ some parts of the desktop experience are not fully wired up yet:
 - computer use on linux, which could become a very powerful feature
 - git worker integration
 - browser panel features that require Electron's native `<webview>` runtime,
-  such as page screenshots, in-page find and cross-origin annotation capture
+  such as real page screenshots, cross-origin find matching, devtools,
+  printing and cross-origin annotation capture. the iframe fallback already
+  supports visible pages, URL navigation, back/forward history, reload/stop
+  state, zoom state and find UI state.
 - whatever else people find and file issues for
 
 ## issues welcome
