@@ -127,14 +127,6 @@ export function patchTerminalSidePanelSource(
 ) {
   const functionRange = findFunctionRange(source, functionName);
   const functionSource = source.slice(functionRange.start, functionRange.end);
-  if (
-    functionSource.includes(PATCH_MARKER) &&
-    functionSource.includes("globalThis.location.origin") &&
-    functionSource.includes("browserTabId:")
-  ) {
-    return source;
-  }
-
   const params = splitTopLevel(functionRange.params, ",").map((part) =>
     part.trim(),
   );
@@ -143,7 +135,16 @@ export function patchTerminalSidePanelSource(
   const cwdSymbol = findCurrentCwdSymbol(source);
   const randomUuidSymbol = findRandomUuidSymbol(source);
 
-  const replacement = `function ${functionName}(${functionRange.params}){let r=${appScopeParam}.get(${cwdSymbol});return ${openBrowserPanelFunctionName}(${appScopeParam},{browserConversationId:${conversationIdParam}??void 0,browserTabId:${randomUuidSymbol}(crypto.randomUUID()),initialUrl:\`\${globalThis.location.origin}/__terminal?cwd=\${encodeURIComponent(r??\`\`)}\`,initiator:\`side_panel_terminal\`,source:\`manual\`,target:\`right\`,cwd:r??void 0})!=null}`;
+  if (
+    functionSource.includes(PATCH_MARKER) &&
+    functionSource.includes("globalThis.location.origin") &&
+    functionSource.includes(`browserConversationId:${randomUuidSymbol}(crypto.randomUUID())`) &&
+    functionSource.includes(`browserTabId:${randomUuidSymbol}(crypto.randomUUID())`)
+  ) {
+    return source;
+  }
+
+  const replacement = `function ${functionName}(${functionRange.params}){let r=${appScopeParam}.get(${cwdSymbol});return ${openBrowserPanelFunctionName}(${appScopeParam},{browserConversationId:${randomUuidSymbol}(crypto.randomUUID()),browserTabId:${randomUuidSymbol}(crypto.randomUUID()),initialUrl:\`\${globalThis.location.origin}/__terminal?cwd=\${encodeURIComponent(r??\`\`)}\`,initiator:\`side_panel_terminal\`,source:\`manual\`,target:\`right\`,cwd:r??void 0})!=null}`;
 
   return (
     source.slice(0, functionRange.start) +
@@ -176,6 +177,232 @@ export function patchTerminalActionSource(
     `${match[1]}${terminalActionFunctionName}${match[2]}` +
     source.slice(match.index + match[0].length)
   );
+}
+
+export function patchTerminalBrowserPanelOpenSource(
+  source,
+  { openBrowserPanelFunctionName },
+) {
+  const functionRange = findFunctionRange(source, openBrowserPanelFunctionName);
+  let functionSource = source.slice(functionRange.start, functionRange.end);
+  const initiatorSymbol = findDestructuredParamSymbol(
+    functionRange.params,
+    "initiator",
+  );
+  const browserTabIdSymbol = findDestructuredParamSymbol(
+    functionRange.params,
+    "browserTabId",
+  );
+  const targetSymbol = findDestructuredParamSymbol(functionRange.params, "target");
+  const terminalInitiatorCondition = `${initiatorSymbol}===\`side_panel_terminal\`||${initiatorSymbol}===\`side_panel_browser\``;
+
+  if (
+    !functionSource.includes(
+      `${terminalInitiatorCondition}?${browserTabIdSymbol}??crypto.randomUUID():Hp`,
+    )
+  ) {
+    const tabIdPattern = new RegExp(
+      `let\\s+([$A-Za-z_][\\w$]*)=Hp\\(([^)]*${escapeRegex(browserTabIdSymbol)})\\),`,
+    );
+    const tabIdMatch = tabIdPattern.exec(functionSource);
+    if (!tabIdMatch) {
+      throw new Error("Browser panel tab id resolution not found");
+    }
+    functionSource =
+      functionSource.slice(0, tabIdMatch.index) +
+      `let ${tabIdMatch[1]}=${terminalInitiatorCondition}?${browserTabIdSymbol}??crypto.randomUUID():Hp(${tabIdMatch[2]}),` +
+      functionSource.slice(tabIdMatch.index + tabIdMatch[0].length);
+  }
+
+  const tabSelectionPattern = new RegExp(
+    `let\\s+([$A-Za-z_][\\w$]*)=${escapeRegex(targetSymbol)}===\\\`right\\\`\\?([^;]+);return`,
+  );
+  const match = tabSelectionPattern.exec(functionSource);
+  if (match) {
+    const rightPanelExpression = match[2];
+    const requestedTabIdSymbol = rightPanelExpression.match(
+      /:([$A-Za-z_][\w$]*)$/,
+    )?.[1];
+    if (!requestedTabIdSymbol) {
+      throw new Error("Unable to infer requested browser tab id symbol");
+    }
+
+    functionSource =
+      functionSource.slice(0, match.index) +
+      `let ${match[1]}=${terminalInitiatorCondition}?${requestedTabIdSymbol}:${targetSymbol}===\`right\`?${rightPanelExpression};return` +
+      functionSource.slice(match.index + match[0].length);
+  } else if (
+    !functionSource.includes(`${terminalInitiatorCondition}?${browserTabIdSymbol}`)
+  ) {
+    throw new Error("Browser panel tab selection not found");
+  }
+
+  if (
+    !functionSource.includes(
+      `codexWebPreserveBrowserTabId:${terminalInitiatorCondition}`,
+    )
+  ) {
+    const openTabPattern = new RegExp(
+      `!Ip\\(([$A-Za-z_][\\w$]*),!0,\\{browserConversationId:([$A-Za-z_][\\w$]*),browserHostDisplayName:([$A-Za-z_][\\w$]*),browserTabId:([$A-Za-z_][\\w$]*),cwd:([$A-Za-z_][\\w$]*),insertAfterTabId:([$A-Za-z_][\\w$]*)\\},${escapeRegex(targetSymbol)}\\)`,
+    );
+    const openTabMatch = openTabPattern.exec(functionSource);
+    if (!openTabMatch) {
+      throw new Error("Browser panel openTab call not found");
+    }
+    functionSource =
+      functionSource.slice(0, openTabMatch.index) +
+      `!Ip(${openTabMatch[1]},!0,{codexWebPreserveBrowserTabId:${terminalInitiatorCondition},browserConversationId:${openTabMatch[2]},browserHostDisplayName:${openTabMatch[3]},browserTabId:${openTabMatch[4]},cwd:${openTabMatch[5]},insertAfterTabId:${openTabMatch[6]}},${targetSymbol})` +
+      functionSource.slice(openTabMatch.index + openTabMatch[0].length);
+  }
+  if (!functionSource.includes("codexWebIsTerminal:")) {
+    functionSource = replaceOnce(
+      functionSource,
+      `codexWebPreserveBrowserTabId:${terminalInitiatorCondition},`,
+      `codexWebIsTerminal:${initiatorSymbol}===\`side_panel_terminal\`,codexWebPreserveBrowserTabId:${terminalInitiatorCondition},`,
+      "Browser panel terminal marker option not found",
+    );
+  }
+
+  return (
+    source.slice(0, functionRange.start) +
+    functionSource +
+    source.slice(functionRange.end)
+  );
+}
+
+export function patchTerminalBrowserTabMarkerSource(source) {
+  let patched = source;
+
+  if (
+    !patched.includes(
+      "codexWebPreserveBrowserTabId===!0?n.browserTabId??crypto.randomUUID():Hp",
+    )
+  ) {
+    patched = patched.replace(
+      /let\s+([$A-Za-z_][\w$]*)=Hp\(([$A-Za-z_][\w$]*),([$A-Za-z_][\w$]*),([$A-Za-z_][\w$]*)\.browserTabId\),/,
+      "let $1=$4.codexWebPreserveBrowserTabId===!0?$4.browserTabId??crypto.randomUUID():Hp($2,$3,$4.browserTabId),",
+    );
+    if (
+      !patched.includes(
+        "codexWebPreserveBrowserTabId===!0?n.browserTabId??crypto.randomUUID():Hp",
+      )
+    ) {
+      throw new Error("Browser tab id preservation target not found");
+    }
+  }
+
+  if (!patched.includes("n.codexWebIsTerminal===!0||u.isTerminal===!0")) {
+    patched = replaceOnce(
+      patched,
+      "),d=Mr(c),f=s?.tab??e.get(d.tabById$,o),p=u.preserveExistingTitle&&f?.title!=null?f.title:u.title,m=n.browserHostDisplayName??e.get(kr).display_name,g=n.cwd??e.get(Or);return",
+      "),y=n.codexWebIsTerminal===!0||u.isTerminal===!0,d=Mr(c),f=s?.tab??e.get(d.tabById$,o),p=y?(n.cwd?.split(/[\\\\/]/).filter(Boolean).at(-1)??`Terminal`):u.preserveExistingTitle&&f?.title!=null?f.title:u.title,m=n.browserHostDisplayName??e.get(kr).display_name,g=n.cwd??e.get(Or);return",
+      "Browser tab terminal initial metadata target not found",
+    );
+  }
+
+  patched = patched.replaceAll("icon:u.isTerminal?", "icon:y?");
+  patched = patched.replaceAll(
+    "codexWebIsTerminal:u.isTerminal===!0",
+    "codexWebIsTerminal:y",
+  );
+  patched = patched.replaceAll("kind:dt.BROWSER", "kind:y?dt.SANDBOX:dt.BROWSER");
+
+  if (
+    !patched.includes(
+      "props:{browserConversationId:a,browserHostDisplayName:m,browserTabId:o,cwd:g,target:c,codexWebIsTerminal:y",
+    )
+  ) {
+    patched = replaceOnce(
+      patched,
+      "props:{browserConversationId:a,browserHostDisplayName:m,browserTabId:o,cwd:g,target:c},id:o,",
+      "props:{browserConversationId:a,browserHostDisplayName:m,browserTabId:o,cwd:g,target:c,codexWebIsTerminal:y},codexWebIsTerminal:y,id:o,",
+      "Browser tab props target not found",
+    );
+  }
+  if (
+    !patched.includes(
+      "props:{browserConversationId:a,browserHostDisplayName:m,browserTabId:o,cwd:g,target:t.panelId,codexWebIsTerminal:y}",
+    )
+  ) {
+    patched = replaceIfPresent(
+      patched,
+      "props:{browserConversationId:a,browserHostDisplayName:m,browserTabId:o,cwd:g,target:t.panelId}})",
+      "props:{browserConversationId:a,browserHostDisplayName:m,browserTabId:o,cwd:g,target:t.panelId,codexWebIsTerminal:y}})",
+    );
+  }
+
+  if (!patched.includes("updateTab(d,l,{codexWebIsTerminal:")) {
+    patched = replaceIfPresent(
+      patched,
+      "w.updateTab(d,l,{icon:S.isTerminal?",
+      "w.updateTab(d,l,{codexWebIsTerminal:S.isTerminal===!0,icon:S.isTerminal?",
+    );
+    patched = replaceIfPresent(
+      patched,
+      "w.updateTab(d,l,{icon:",
+      "w.updateTab(d,l,{codexWebIsTerminal:S.isTerminal===!0,icon:",
+    );
+    patched = replaceIfPresent(
+      patched,
+      "w.updateTab(d,l,{highlightedIcon:",
+      "w.updateTab(d,l,{codexWebIsTerminal:S.isTerminal===!0,highlightedIcon:",
+    );
+  }
+  if (
+    !patched.includes(
+      "let r=a!=null&&a!==i&&S.title===i,e=r||S.preserveExistingTitle",
+    )
+  ) {
+    patched = replaceIfPresent(
+      patched,
+      "T=()=>{let e=S.preserveExistingTitle&&a!=null?a:S.title;w.updateTab(d,l,{codexWebIsTerminal:S.isTerminal===!0,highlightedIcon:",
+      "T=()=>{let r=a!=null&&a!==i&&S.title===i,e=r||S.preserveExistingTitle&&a!=null?a:S.title;w.updateTab(d,l,{codexWebIsTerminal:r||S.isTerminal===!0,highlightedIcon:",
+    );
+    patched = replaceIfPresent(
+      patched,
+      "icon:S.isTerminal?(0,$.jsx)(codexWebTerminalTabIcon",
+      "icon:r||S.isTerminal?(0,$.jsx)(codexWebTerminalTabIcon",
+    );
+    patched = replaceIfPresent(
+      patched,
+      "icon:S.isTerminal?Q.createElement(codexWebTerminalTabIcon",
+      "icon:r||S.isTerminal?Q.createElement(codexWebTerminalTabIcon",
+    );
+  }
+
+  if (!patched.includes("codexWebIsTerminal:")) {
+    throw new Error("Browser tab terminal marker target not found");
+  }
+
+  return patched;
+}
+
+export function patchTerminalNewTabMenuSource(source) {
+  let patched = source;
+  if (
+    !patched.includes(
+      "e.props?.codexWebIsTerminal!==!0&&e.codexWebIsTerminal!==!0",
+    )
+  ) {
+    patched = replaceOnce(
+      patched,
+      "function it(e){return de(e)}",
+      "function it(e){return de(e)&&e.props?.codexWebIsTerminal!==!0&&e.codexWebIsTerminal!==!0}",
+      "Browser new tab filter predicate not found",
+    );
+  }
+
+  if (!patched.includes("initiator:`side_panel_browser`")) {
+    patched = patched.replace(
+      /oe\(([$A-Za-z_][\w$]*),\{browserConversationId:([^,]+),browserHostDisplayName:([^,]+),cwd:([^,]+),initiator:`side_panel_menu`,source:`manual`,target:([^}]+)\}\)/,
+      "oe($1,{browserConversationId:$2,browserTabId:crypto.randomUUID(),browserHostDisplayName:$3,cwd:$4,initiator:`side_panel_browser`,source:`manual`,target:$5})",
+    );
+    if (!patched.includes("initiator:`side_panel_browser`")) {
+      throw new Error("Browser new tab action not found");
+    }
+  }
+
+  return patched;
 }
 
 export function patchTerminalBrowserChromeSource(source) {
@@ -301,7 +528,12 @@ export function patchTerminalSidePanelAsset(assetsDir) {
   const patchTarget = findTerminalSidePanelAsset(assetsDir);
   const source = fs.readFileSync(patchTarget.assetPath, "utf8");
   const patched = patchTerminalBrowserChromeSource(
-    patchTerminalSidePanelSource(source, patchTarget),
+    patchTerminalBrowserTabMarkerSource(
+      patchTerminalBrowserPanelOpenSource(
+        patchTerminalSidePanelSource(source, patchTarget),
+        patchTarget,
+      ),
+    ),
   );
   if (patched !== source) {
     fs.writeFileSync(patchTarget.assetPath, patched);
@@ -312,7 +544,9 @@ export function patchTerminalSidePanelAsset(assetsDir) {
 export function patchTerminalActionAsset(assetsDir, terminalPatchTarget) {
   const patchTarget = findTerminalActionAsset(assetsDir, terminalPatchTarget);
   const source = fs.readFileSync(patchTarget.assetPath, "utf8");
-  const patched = patchTerminalActionSource(source, patchTarget);
+  const patched = patchTerminalNewTabMenuSource(
+    patchTerminalActionSource(source, patchTarget),
+  );
   if (patched !== source) {
     fs.writeFileSync(patchTarget.assetPath, patched);
   }
@@ -333,7 +567,12 @@ export function patchTerminalSidePanelSupport(assetsDir) {
   const terminalPatchTarget = findTerminalSidePanelAsset(assetsDir);
   const source = fs.readFileSync(terminalPatchTarget.assetPath, "utf8");
   const patched = patchTerminalBrowserChromeSource(
-    patchTerminalSidePanelSource(source, terminalPatchTarget),
+    patchTerminalBrowserTabMarkerSource(
+      patchTerminalBrowserPanelOpenSource(
+        patchTerminalSidePanelSource(source, terminalPatchTarget),
+        terminalPatchTarget,
+      ),
+    ),
   );
   if (patched !== source) {
     fs.writeFileSync(terminalPatchTarget.assetPath, patched);
@@ -581,6 +820,17 @@ function paramName(param) {
     throw new Error(`Unable to parse terminal side panel parameter: ${param}`);
   }
   return name;
+}
+
+function findDestructuredParamSymbol(params, propertyName) {
+  const pattern = new RegExp(
+    `\\b${escapeRegex(propertyName)}\\s*:\\s*([$A-Za-z_][\\w$]*)`,
+  );
+  const symbol = params.match(pattern)?.[1];
+  if (!symbol) {
+    throw new Error(`Unable to infer ${propertyName} option symbol`);
+  }
+  return symbol;
 }
 
 function escapeRegex(value) {

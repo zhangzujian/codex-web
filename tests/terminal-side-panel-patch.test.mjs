@@ -9,7 +9,10 @@ import {
   findTerminalSidePanelAsset,
   patchApplicationMenuSource,
   patchTerminalActionSource,
+  patchTerminalBrowserPanelOpenSource,
+  patchTerminalBrowserTabMarkerSource,
   patchTerminalBrowserChromeSource,
+  patchTerminalNewTabMenuSource,
   patchTerminalSidePanelAsset,
   patchTerminalSidePanelSource,
   patchTerminalSidePanelSupport,
@@ -63,7 +66,25 @@ const applicationMenuChunk = [
   "function ni(){let n=(0,$.jsx)($n,{}),r=null,i=(0,$.jsx)(zn,{});return(0,$.jsxs)(`div`,{children:[n,r,i]})}",
 ].join("");
 
-const sourceWithBrowserChromeChunk = `${sourceChunk}${browserChromeChunk}`;
+const browserPanelOpenChunk =
+  "function Rp(e,{browserConversationId:t,browserHostDisplayName:n,browserTabId:r,cwd:i,hostId:a,initialUrl:o,initiator:s,insertAfterTabId:c,source:l,target:u=`right`}={}){let d=t??vt(e);if(d==null)return null;let f=Hp(e,d,r),p=!e.get(h)&&!v(e,d,f);if(p&&Lr(e,d,f)==null&&Gt.removeTab(d,f),p&&qt(d,f,{initialUrl:o,initiator:s,source:l}),!Ip(e,!0,{browserConversationId:d,browserHostDisplayName:n,browserTabId:f,cwd:i,insertAfterTabId:c},u))return p&&$t(d,f),null;let m=u===`right`?Gp(e,d,f)??f:f;return p?m!==f&&($t(d,f),qt(d,m,{initialUrl:o,initiator:s,source:l})):qt(d,m,{initialUrl:o,initiator:s,source:l}),o!=null&&w.dispatchMessage(`browser-sidebar-command`,{browserTabId:m,conversationId:d,command:{hostId:a??e.get(Dr),initiator:s??`toggle_browser_command`,source:l??`manual`,type:`navigate`,url:o}}),m}";
+
+const browserTabOpenChunk =
+  "function Ip(e,t=!0,n={},r=`right`){let i=vt(e),a=n.browserConversationId??i;if(a==null)return!1;let o=Hp(e,a,n.browserTabId),s=Lr(e,a,o,r),c=s?.target??r,l=e.get(Rr).formatMessage({id:`thread.sidePanel.emptyBrowserTab`,defaultMessage:`New tab`}),u=ps({browserSnapshot:Gt.getSnapshot(a,o),browserTabFallbackTitle:l,isBrowserUseActive:Gt.isBrowserUseActive(a,o),isBrowserUseTab:Gt.isBrowserUseTab(a,o)}),d=Mr(c),f=s?.tab??e.get(d.tabById$,o),p=u.preserveExistingTitle&&f?.title!=null?f.title:u.title,m=n.browserHostDisplayName??e.get(kr).display_name,g=n.cwd??e.get(Or);return d.openTab(e,Mp,{icon:u.isTerminal?Q.createElement(codexWebTerminalTabIcon,{className:`icon-xs shrink-0`}):(0,Q.createElement)(Dt,{alt:``,className:`icon-xs shrink-0 rounded-2xs`,logoUrl:u.faviconUrl,fallback:(0,Q.createElement)(bi,{className:`size-full`})}),props:{browserConversationId:a,browserHostDisplayName:m,browserTabId:o,cwd:g,target:c},id:o,kind:dt.BROWSER,onMove:(e,t)=>({props:{browserConversationId:a,browserHostDisplayName:m,browserTabId:o,cwd:g,target:t.panelId}}),title:p}),!0}";
+
+const newTabMenuChunk = [
+  "function tt(){",
+  "let E=!0,D=!1,S=[],A={display_name:`host`},O={cwd:`/tmp`},N=`conversation`,r=`right`,a={},n=()=>{};",
+  "let pe=E&&(D||!S.some(it));",
+  "let ke=()=>{oe(a,{browserConversationId:N??void 0,browserHostDisplayName:A.display_name,cwd:O.cwd,initiator:`side_panel_menu`,source:`manual`,target:D?r:`right`})!=null&&n?.()};",
+  "return [...pe?[{id:`browser`,onSelect:ke}]:[]]",
+  "}",
+  "function it(e){return de(e)}",
+].join("");
+
+const sidePanelActionWithNewTabMenuChunk = `${sidePanelActionChunk}${newTabMenuChunk}`;
+
+const sourceWithBrowserChromeChunk = `${sourceChunk.replace("function Rp(e,t){return t}", browserPanelOpenChunk)}${browserChromeChunk}${browserTabOpenChunk}`;
 
 test("patchTerminalSidePanelSource replaces the openSessionSandboxSidePanel stub", () => {
   const patched = patchTerminalSidePanelSource(sourceChunk, {
@@ -74,6 +95,10 @@ test("patchTerminalSidePanelSource replaces the openSessionSandboxSidePanel stub
   assert.match(
     patched,
     /initialUrl:`\$\{globalThis\.location\.origin\}\/__terminal\?cwd=\$\{encodeURIComponent/,
+  );
+  assert.match(
+    patched,
+    /browserConversationId:re\(crypto\.randomUUID\(\)\)/,
   );
   assert.match(patched, /browserTabId:re\(crypto\.randomUUID\(\)\)/);
   assert.match(patched, /initiator:`side_panel_terminal`/);
@@ -100,8 +125,89 @@ test("patchTerminalSidePanelSource upgrades an older terminal patch even when th
 
   assert.match(
     patched,
-    /function rm\(e,t,n=!0\)\{let r=e\.get\(Or\);return Rp\(e,\{browserConversationId:t\?\?void 0,browserTabId:re\(crypto\.randomUUID\(\)\)/,
+    /function rm\(e,t,n=!0\)\{let r=e\.get\(Or\);return Rp\(e,\{browserConversationId:re\(crypto\.randomUUID\(\)\),browserTabId:re\(crypto\.randomUUID\(\)\)/,
   );
+});
+
+test("patchTerminalBrowserPanelOpenSource keeps terminal opens on their requested tab id", () => {
+  const patched = patchTerminalBrowserPanelOpenSource(browserPanelOpenChunk, {
+    openBrowserPanelFunctionName: "Rp",
+  });
+
+  assert.match(
+    patched,
+    /let f=s===`side_panel_terminal`\|\|s===`side_panel_browser`\?r\?\?crypto\.randomUUID\(\):Hp\(e,d,r\),p=/,
+  );
+  assert.match(
+    patched,
+    /let m=s===`side_panel_terminal`\|\|s===`side_panel_browser`\?f:u===`right`\?Gp\(e,d,f\)\?\?f:f;/,
+  );
+  assert.match(
+    patched,
+    /!Ip\(e,!0,\{codexWebIsTerminal:s===`side_panel_terminal`,codexWebPreserveBrowserTabId:s===`side_panel_terminal`\|\|s===`side_panel_browser`,browserConversationId:d,browserHostDisplayName:n,browserTabId:f,cwd:i,insertAfterTabId:c\},u\)/,
+  );
+  assert.equal(
+    patchTerminalBrowserPanelOpenSource(patched, {
+      openBrowserPanelFunctionName: "Rp",
+    }),
+    patched,
+  );
+});
+
+test("patchTerminalBrowserPanelOpenSource keeps Browser menu opens on their requested tab id", () => {
+  const patched = patchTerminalBrowserPanelOpenSource(browserPanelOpenChunk, {
+    openBrowserPanelFunctionName: "Rp",
+  });
+
+  assert.match(
+    patched,
+    /let f=s===`side_panel_terminal`\|\|s===`side_panel_browser`\?r\?\?crypto\.randomUUID\(\):Hp\(e,d,r\),p=/,
+  );
+  assert.match(
+    patched,
+    /let m=s===`side_panel_terminal`\|\|s===`side_panel_browser`\?f:u===`right`\?Gp\(e,d,f\)\?\?f:f;/,
+  );
+  assert.match(patched, /codexWebPreserveBrowserTabId:/);
+  assert.match(patched, /codexWebIsTerminal:s===`side_panel_terminal`/);
+});
+
+test("patchTerminalBrowserTabMarkerSource marks terminal browser tabs", () => {
+  const patched = patchTerminalBrowserTabMarkerSource(
+    `${browserChromeChunk}${browserTabOpenChunk}`,
+  );
+
+  assert.match(
+    patched,
+    /y=n\.codexWebIsTerminal===!0\|\|u\.isTerminal===!0/,
+  );
+  assert.match(
+    patched,
+    /p=y\?\(n\.cwd\?\.split\(\//,
+  );
+  assert.match(patched, /codexWebIsTerminal:y/);
+  assert.match(
+    patched,
+    /props:\{browserConversationId:a,browserHostDisplayName:m,browserTabId:o,cwd:g,target:c,codexWebIsTerminal:y\}/,
+  );
+  assert.match(patched, /icon:y\?/);
+  assert.match(patched, /kind:y\?dt\.SANDBOX:dt\.BROWSER/);
+  assert.match(
+    patched,
+    /w\.updateTab\(d,l,\{codexWebIsTerminal:S\.isTerminal===!0,/,
+  );
+  assert.equal(patchTerminalBrowserTabMarkerSource(patched), patched);
+});
+
+test("patchTerminalNewTabMenuSource shows Browser when only terminal browser tabs exist", () => {
+  const patched = patchTerminalNewTabMenuSource(newTabMenuChunk);
+
+  assert.match(
+    patched,
+    /function it\(e\)\{return de\(e\)&&e\.props\?\.codexWebIsTerminal!==!0&&e\.codexWebIsTerminal!==!0\}/,
+  );
+  assert.match(patched, /browserTabId:crypto\.randomUUID\(\)/);
+  assert.match(patched, /initiator:`side_panel_browser`/);
+  assert.equal(patchTerminalNewTabMenuSource(patched), patched);
 });
 
 test("findTerminalSidePanelAsset follows the public re-export to the source chunk", () => {
@@ -188,7 +294,7 @@ test("patchTerminalSidePanelSupport patches the source and Terminal action", () 
   const sourcePath = path.join(assetsDir, "thread-side-panel-tabs-source.js");
   fs.writeFileSync(sourcePath, sourceWithBrowserChromeChunk);
   const actionPath = path.join(assetsDir, "thread-app-shell-chrome.js");
-  fs.writeFileSync(actionPath, sidePanelActionChunk);
+  fs.writeFileSync(actionPath, sidePanelActionWithNewTabMenuChunk);
   const applicationMenuPath = path.join(assetsDir, "app-shell.js");
   fs.writeFileSync(applicationMenuPath, applicationMenuChunk);
 
@@ -204,6 +310,10 @@ test("patchTerminalSidePanelSupport patches the source and Terminal action", () 
   assert.match(
     fs.readFileSync(applicationMenuPath, "utf8"),
     /function In\(\)\{return!1\/\*codexWebDisableApplicationMenu\*\/\}/,
+  );
+  assert.match(
+    fs.readFileSync(actionPath, "utf8"),
+    /e\.props\?\.codexWebIsTerminal!==!0/,
   );
 });
 
