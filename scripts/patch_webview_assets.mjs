@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { patchBrowserPanelIframeAsset } from "./patch_browser_panel_iframe.mjs";
 import { patchTerminalSidePanelSupport } from "./patch_terminal_side_panel.mjs";
+import { patchWebviewAutomationsNavAssets } from "./patch_webview_automations_nav.mjs";
 import { patchWebviewConsoleNoiseAssets } from "./patch_webview_console_noise.mjs";
 import { patchWebviewI18nAssets } from "./patch_webview_i18n.mjs";
 import { patchWebviewOpenTargetLabelsAssets } from "./patch_webview_open_target_labels.mjs";
@@ -14,6 +15,7 @@ export function patchWebviewAssets(assetsDir) {
     ...patchWebviewI18nAssets(assetsDir),
     ...patchWebviewConsoleNoiseAssets(assetsDir),
     ...patchTerminalSidePanelSupport(assetsDir),
+    ...patchWebviewAutomationsNavAssets(assetsDir),
     patchBrowserPanelIframeAsset(assetsDir),
   ];
 
