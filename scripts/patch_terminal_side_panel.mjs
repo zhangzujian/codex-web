@@ -305,7 +305,7 @@ export function patchTerminalBrowserTabMarkerSource(source) {
     "codexWebIsTerminal:u.isTerminal===!0",
     "codexWebIsTerminal:y",
   );
-  patched = patched.replaceAll("kind:dt.BROWSER", "kind:y?dt.SANDBOX:dt.BROWSER");
+  patched = patchTerminalBrowserTabKindSource(patched);
 
   if (
     !patched.includes(
@@ -375,6 +375,26 @@ export function patchTerminalBrowserTabMarkerSource(source) {
   }
 
   return patched;
+}
+
+function patchTerminalBrowserTabKindSource(source) {
+  const functionRange = findFunctionRange(source, "Ip");
+  let functionSource = source.slice(functionRange.start, functionRange.end);
+
+  if (!functionSource.includes("kind:y?dt.SANDBOX:dt.BROWSER")) {
+    functionSource = replaceOnce(
+      functionSource,
+      "kind:dt.BROWSER",
+      "kind:y?dt.SANDBOX:dt.BROWSER",
+      "Browser tab kind target not found",
+    );
+  }
+
+  return (
+    source.slice(0, functionRange.start) +
+    functionSource +
+    source.slice(functionRange.end)
+  );
 }
 
 export function patchTerminalNewTabMenuSource(source) {

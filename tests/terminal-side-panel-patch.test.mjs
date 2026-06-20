@@ -198,6 +198,23 @@ test("patchTerminalBrowserTabMarkerSource marks terminal browser tabs", () => {
   assert.equal(patchTerminalBrowserTabMarkerSource(patched), patched);
 });
 
+test("patchTerminalBrowserTabMarkerSource leaves unrelated browser tab kinds unchanged", () => {
+  const unrelatedBrowserTabOpenChunk =
+    "function Other(e){return e.openTab(e,Foo,{id:`other`,kind:dt.BROWSER,onActivate:()=>{}})}";
+  const patched = patchTerminalBrowserTabMarkerSource(
+    `${browserChromeChunk}${unrelatedBrowserTabOpenChunk}${browserTabOpenChunk}`,
+  );
+
+  assert.match(
+    patched,
+    /function Other\(e\)\{return e\.openTab\(e,Foo,\{id:`other`,kind:dt\.BROWSER,onActivate:/,
+  );
+  assert.match(
+    patched,
+    /function Ip\(e,t=!0,n=\{\},r=`right`\)[\s\S]*kind:y\?dt\.SANDBOX:dt\.BROWSER,onMove:/,
+  );
+});
+
 test("patchTerminalNewTabMenuSource shows Browser when only terminal browser tabs exist", () => {
   const patched = patchTerminalNewTabMenuSource(newTabMenuChunk);
 
