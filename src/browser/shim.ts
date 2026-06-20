@@ -119,6 +119,7 @@ type StatsigGateEvaluation = {
 
 declare global {
   interface Window {
+    __CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__?: string;
     __ELECTRON_SHIM__?: ElectronShimState;
   }
 }
@@ -244,9 +245,14 @@ function ensureSocket(): void {
     return;
   }
 
-  socket = new WebSocket(
+  const socketUrl = new URL(
     `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/__backend/ipc`,
   );
+  const token = window.__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__;
+  if (token) {
+    socketUrl.searchParams.set("token", token);
+  }
+  socket = new WebSocket(socketUrl);
   socket.addEventListener("open", () => {
     flushOutboundQueue();
   });
@@ -550,8 +556,7 @@ export const ipcRenderer = {
     return handleSyncIpc(channel, {
       appVersion: __CODEX_APP_VERSION__,
       buildFlavor,
-      getSystemThemeVariant: () =>
-        themeMediaQuery.matches ? "dark" : "light",
+      getSystemThemeVariant: () => (themeMediaQuery.matches ? "dark" : "light"),
     });
   },
 };

@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { parseArgs as parseCliArgs } from "node:util";
 import { WebSocket, WebSocketServer } from "ws";
-import Fastify from "fastify";
+import Fastify, { type FastifyReply } from "fastify";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import { installModuleAliasHook } from "./module";
@@ -22,6 +22,10 @@ import {
   createBrowserPanelRuntime,
   handleBrowserPanelRuntimeIpcMessage,
 } from "./browser-panel-runtime";
+import {
+  canHandleNativeOpenFetchMessage,
+  handleNativeOpenFetchMessage,
+} from "./native-open";
 
 type ServerOptions = {
   host: string;
@@ -409,6 +413,7 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
   const websocketServer = new WebSocketServer({ noServer: true });
   const terminalWebsocketServer = new WebSocketServer({ noServer: true });
   const sockets = new Set<WebSocket>();
+  const backendWebSocketToken = randomUUID();
   const terminalSessionFactory = createNodePtyTerminalSessionFactory();
   const handleTerminalSocket = createTerminalSocketHandler(
     terminalSessionFactory,
@@ -423,6 +428,12 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
   const uploadRoot = await fs.mkdtemp(
     path.join(os.tmpdir(), "codex-web-uploads-"),
   );
+
+  app.addHook("onRequest", async (request, reply) => {
+    if (shouldBlockFsRequestPath(request.url, request.headers)) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+  });
 
   app.post("/__backend/upload", async (request, reply) => {
     if (!request.isMultipart()) {
@@ -464,12 +475,13 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
   });
 
   app.get("/", async (_request, reply) => {
-    return reply.sendFile("index.html");
+    return sendWebviewIndex(reply, webviewRoot, backendWebSocketToken);
   });
 
   app.get("/__terminal", async (request, reply) => {
     return reply.type("text/html").send(
       createTerminalHtml({
+        backendWebSocketToken,
         cwd: getTerminalCwdFromQuery(request.query),
         stylesheetHrefs: getTerminalStylesheetHrefs(webviewRoot),
       }),
@@ -481,8 +493,8 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
       return reply.code(404).send({ error: "Not Found" });
     }
 
-    if (request.method === "GET") {
-      return reply.sendFile("index.html");
+    if (request.method === "GET" && shouldServeWebviewShellPath(request.url)) {
+      return sendWebviewIndex(reply, webviewRoot, backendWebSocketToken);
     }
     return reply.code(404).send({ error: "Not Found" });
   });
@@ -491,6 +503,22 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
     const requestUrl = request.url ?? "/";
     const host = request.headers.host ?? "localhost";
     const url = new URL(requestUrl, `http://${host}`);
+    const isBackendWebSocket =
+      url.pathname === "/__backend/terminal" ||
+      url.pathname === "/__backend/ipc";
+    if (
+      isBackendWebSocket &&
+      !isAllowedBackendWebSocketRequest({
+        host: request.headers.host,
+        origin: request.headers.origin,
+        requestUrl,
+        token: backendWebSocketToken,
+      })
+    ) {
+      socket.destroy();
+      return;
+    }
+
     if (url.pathname === "/__backend/terminal") {
       terminalWebsocketServer.handleUpgrade(
         request,
@@ -522,7 +550,8 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
     }
   };
   const browserPanelRuntime = createBrowserPanelRuntime({
-    broadcastToRenderer: (message) => bridgeState.broadcastToRenderer?.(message),
+    broadcastToRenderer: (message) =>
+      bridgeState.broadcastToRenderer?.(message),
   });
 
   websocketServer.on("connection", (socket) => {
@@ -573,11 +602,21 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
 
       if (message.type === "ipc-renderer-send") {
         const ports = message.portIds?.map(getVirtualPort) ?? [];
-        const handledByBrowserPanelRuntime = handleBrowserPanelRuntimeIpcMessage(
-          browserPanelRuntime,
-          message.channel,
-          message.args,
-        );
+        if (
+          message.channel === "codex_desktop:message-from-view" &&
+          canHandleNativeOpenFetchMessage(message.args[0])
+        ) {
+          void handleNativeOpenFetchMessage(message.args[0], {
+            respond: (payload) => bridgeState.broadcastToRenderer?.(payload),
+          });
+          return;
+        }
+        const handledByBrowserPanelRuntime =
+          handleBrowserPanelRuntimeIpcMessage(
+            browserPanelRuntime,
+            message.channel,
+            message.args,
+          );
         if (handledByBrowserPanelRuntime) {
           return;
         }
@@ -620,11 +659,27 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
 
       if (message.type === "ipc-renderer-invoke") {
         const { channel, requestId, args, sourceUrl } = message;
-        const handledByBrowserPanelRuntime = handleBrowserPanelRuntimeIpcMessage(
-          browserPanelRuntime,
-          channel,
-          args,
-        );
+        if (
+          channel === "codex_desktop:message-from-view" &&
+          canHandleNativeOpenFetchMessage(args[0])
+        ) {
+          void handleNativeOpenFetchMessage(args[0], {
+            respond: (payload) => bridgeState.broadcastToRenderer?.(payload),
+          });
+          sendSocketMessage(socket, {
+            type: "ipc-renderer-invoke-result",
+            requestId,
+            ok: true,
+            result: undefined,
+          });
+          return;
+        }
+        const handledByBrowserPanelRuntime =
+          handleBrowserPanelRuntimeIpcMessage(
+            browserPanelRuntime,
+            channel,
+            args,
+          );
         if (handledByBrowserPanelRuntime) {
           sendSocketMessage(socket, {
             type: "ipc-renderer-invoke-result",
@@ -691,22 +746,159 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
   module.runMainAppStartup();
 }
 
+export function isAllowedBackendWebSocketRequest({
+  host,
+  origin,
+  requestUrl,
+  token,
+}: {
+  host?: string | string[];
+  origin?: string | string[];
+  requestUrl: string;
+  token: string;
+}): boolean {
+  const originValue = singleHeaderValue(origin);
+  if (originValue == null) {
+    return false;
+  }
+
+  const hostValue = singleHeaderValue(host);
+  if (hostValue == null) {
+    return false;
+  }
+
+  try {
+    const originHost = new URL(originValue).host.toLowerCase();
+    const request = new URL(requestUrl, `http://${hostValue}`);
+    return (
+      originHost === hostValue.toLowerCase() &&
+      request.searchParams.get("token") === token
+    );
+  } catch {
+    return false;
+  }
+}
+
+const ACTIVE_FS_EXTENSIONS = new Set([
+  ".html",
+  ".htm",
+  ".js",
+  ".mjs",
+  ".svg",
+  ".xml",
+  ".xhtml",
+]);
+
+const ACTIVE_FS_FETCH_DESTINATIONS = new Set([
+  "document",
+  "embed",
+  "frame",
+  "iframe",
+  "object",
+  "script",
+  "serviceworker",
+  "sharedworker",
+  "worker",
+  "xslt",
+]);
+
+const PASSIVE_FS_FETCH_DESTINATIONS = new Set([
+  "audio",
+  "font",
+  "image",
+  "manifest",
+  "style",
+  "track",
+  "video",
+]);
+
+export function shouldBlockFsRequestPath(
+  requestPath: string,
+  headers: Record<string, string | string[] | undefined> = {},
+): boolean {
+  let pathname: string;
+  try {
+    pathname = new URL(requestPath, "http://localhost").pathname;
+  } catch {
+    pathname = requestPath;
+  }
+  if (!pathname.startsWith("/@fs/")) {
+    return false;
+  }
+  let decodedPathname = pathname;
+  try {
+    decodedPathname = decodeURIComponent(pathname);
+  } catch {
+    // Fall back to the raw path for malformed escape sequences.
+  }
+  if (!ACTIVE_FS_EXTENSIONS.has(path.extname(decodedPathname).toLowerCase())) {
+    return false;
+  }
+
+  const fetchDestination = singleHeaderValue(headers["sec-fetch-dest"])
+    ?.toLowerCase()
+    .trim();
+  if (fetchDestination && PASSIVE_FS_FETCH_DESTINATIONS.has(fetchDestination)) {
+    return false;
+  }
+  if (fetchDestination && ACTIVE_FS_FETCH_DESTINATIONS.has(fetchDestination)) {
+    return true;
+  }
+
+  return true;
+}
+
+export function shouldServeWebviewShellPath(requestPath: string): boolean {
+  let pathname: string;
+  let search: string;
+  try {
+    const url = new URL(requestPath, "http://localhost");
+    pathname = url.pathname;
+    search = url.search;
+  } catch {
+    pathname = requestPath;
+    search = "";
+  }
+
+  if (pathname === "/") {
+    return true;
+  }
+  if (pathname === "/share/receive") {
+    return search.length > 0;
+  }
+  return /^\/thread\/[^/]+$/.test(pathname);
+}
+
+function singleHeaderValue(
+  value: string | string[] | undefined,
+): string | null {
+  if (Array.isArray(value)) {
+    return value.length === 1 ? value[0]! : null;
+  }
+  return value ?? null;
+}
+
 async function main(args: string[]) {
   const options = parseServerArgs(args);
 
   await startIpcBridgeServer(options);
 }
 
-main(process.argv.slice(2));
+if (require.main === module) {
+  void main(process.argv.slice(2));
+}
 
 function createTerminalHtml({
+  backendWebSocketToken,
   cwd: requestedCwd,
   stylesheetHrefs,
 }: {
+  backendWebSocketToken: string;
   cwd: string | undefined;
   stylesheetHrefs: string[];
 }): string {
   const cwd = escapeHtml(requestedCwd ?? defaultTerminalCwd());
+  const token = escapeHtml(backendWebSocketToken);
   const stylesheetLinks = stylesheetHrefs
     .map((href) => `    <link rel="stylesheet" href="${escapeHtml(href)}" />`)
     .join("\n");
@@ -719,10 +911,31 @@ function createTerminalHtml({
 ${stylesheetLinks}
     <script type="module" src="/assets/terminal-page.js"></script>
   </head>
-  <body data-terminal-cwd="${cwd}">
+  <body data-terminal-cwd="${cwd}" data-backend-websocket-token="${token}">
     <div id="terminal-root"></div>
   </body>
 </html>`;
+}
+
+async function sendWebviewIndex(
+  reply: FastifyReply,
+  webviewRoot: string,
+  backendWebSocketToken: string,
+): Promise<unknown> {
+  const indexHtml = await fs.readFile(
+    path.join(webviewRoot, "index.html"),
+    "utf8",
+  );
+  return reply
+    .type("text/html")
+    .send(injectBackendWebSocketToken(indexHtml, backendWebSocketToken));
+}
+
+function injectBackendWebSocketToken(html: string, token: string): string {
+  const script = `<script>window.__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__=${JSON.stringify(token)};</script>`;
+  return html.includes("</head>")
+    ? html.replace("</head>", `${script}</head>`)
+    : `${script}${html}`;
 }
 
 function getTerminalStylesheetHrefs(webviewRoot: string): string[] {

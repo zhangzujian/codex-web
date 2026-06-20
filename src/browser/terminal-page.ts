@@ -419,6 +419,10 @@ function terminalCwd(): string {
   return document.body.dataset.terminalCwd ?? "";
 }
 
+function backendWebSocketToken(): string {
+  return document.body.dataset.backendWebsocketToken ?? "";
+}
+
 function setStatus(message: string): void {
   status.textContent = message;
 }
@@ -529,7 +533,14 @@ document.addEventListener("keydown", (event) => {
 
 function socketUrl(): string {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/__backend/terminal`;
+  const url = new URL(
+    `${protocol}//${window.location.host}/__backend/terminal`,
+  );
+  const token = backendWebSocketToken();
+  if (token) {
+    url.searchParams.set("token", token);
+  }
+  return url.href;
 }
 
 function send(message: unknown): void {

@@ -4,6 +4,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.isAllowedBackendWebSocketRequest = isAllowedBackendWebSocketRequest;
+exports.shouldBlockFsRequestPath = shouldBlockFsRequestPath;
+exports.shouldServeWebviewShellPath = shouldServeWebviewShellPath;
 const node_crypto_1 = require("node:crypto");
 const node_fs_1 = __importDefault(require("node:fs"));
 const promises_1 = __importDefault(require("node:fs/promises"));
@@ -18,6 +21,7 @@ const module_1 = require("./module");
 const glob_1 = require("glob");
 const terminal_1 = require("./terminal");
 const browser_panel_runtime_1 = require("./browser-panel-runtime");
+const native_open_1 = require("./native-open");
 function workspaceDirectoryEntryTypeRank(entry) {
     return entry.type === "directory" ? 0 : 1;
 }
@@ -218,6 +222,7 @@ async function startIpcBridgeServer(options) {
     const websocketServer = new ws_1.WebSocketServer({ noServer: true });
     const terminalWebsocketServer = new ws_1.WebSocketServer({ noServer: true });
     const sockets = new Set();
+    const backendWebSocketToken = (0, node_crypto_1.randomUUID)();
     const terminalSessionFactory = (0, terminal_1.createNodePtyTerminalSessionFactory)();
     const handleTerminalSocket = (0, terminal_1.createTerminalSocketHandler)(terminalSessionFactory);
     await app.register(multipart_1.default, {
@@ -226,6 +231,11 @@ async function startIpcBridgeServer(options) {
         },
     });
     const uploadRoot = await promises_1.default.mkdtemp(node_path_1.default.join(node_os_1.default.tmpdir(), "codex-web-uploads-"));
+    app.addHook("onRequest", async (request, reply) => {
+        if (shouldBlockFsRequestPath(request.url, request.headers)) {
+            return reply.code(403).send({ error: "Forbidden" });
+        }
+    });
     app.post("/__backend/upload", async (request, reply) => {
         if (!request.isMultipart()) {
             return reply.code(400).send({ error: "expected multipart upload body" });
@@ -255,10 +265,11 @@ async function startIpcBridgeServer(options) {
         prefix: "/",
     });
     app.get("/", async (_request, reply) => {
-        return reply.sendFile("index.html");
+        return sendWebviewIndex(reply, webviewRoot, backendWebSocketToken);
     });
     app.get("/__terminal", async (request, reply) => {
         return reply.type("text/html").send(createTerminalHtml({
+            backendWebSocketToken,
             cwd: getTerminalCwdFromQuery(request.query),
             stylesheetHrefs: getTerminalStylesheetHrefs(webviewRoot),
         }));
@@ -267,8 +278,8 @@ async function startIpcBridgeServer(options) {
         if (request.url.startsWith("/@fs/")) {
             return reply.code(404).send({ error: "Not Found" });
         }
-        if (request.method === "GET") {
-            return reply.sendFile("index.html");
+        if (request.method === "GET" && shouldServeWebviewShellPath(request.url)) {
+            return sendWebviewIndex(reply, webviewRoot, backendWebSocketToken);
         }
         return reply.code(404).send({ error: "Not Found" });
     });
@@ -276,6 +287,18 @@ async function startIpcBridgeServer(options) {
         const requestUrl = request.url ?? "/";
         const host = request.headers.host ?? "localhost";
         const url = new URL(requestUrl, `http://${host}`);
+        const isBackendWebSocket = url.pathname === "/__backend/terminal" ||
+            url.pathname === "/__backend/ipc";
+        if (isBackendWebSocket &&
+            !isAllowedBackendWebSocketRequest({
+                host: request.headers.host,
+                origin: request.headers.origin,
+                requestUrl,
+                token: backendWebSocketToken,
+            })) {
+            socket.destroy();
+            return;
+        }
         if (url.pathname === "/__backend/terminal") {
             terminalWebsocketServer.handleUpgrade(request, socket, head, (upgradedSocket) => {
                 terminalWebsocketServer.emit("connection", upgradedSocket, request);
@@ -344,6 +367,13 @@ async function startIpcBridgeServer(options) {
             }
             if (message.type === "ipc-renderer-send") {
                 const ports = message.portIds?.map(getVirtualPort) ?? [];
+                if (message.channel === "codex_desktop:message-from-view" &&
+                    (0, native_open_1.canHandleNativeOpenFetchMessage)(message.args[0])) {
+                    void (0, native_open_1.handleNativeOpenFetchMessage)(message.args[0], {
+                        respond: (payload) => bridgeState.broadcastToRenderer?.(payload),
+                    });
+                    return;
+                }
                 const handledByBrowserPanelRuntime = (0, browser_panel_runtime_1.handleBrowserPanelRuntimeIpcMessage)(browserPanelRuntime, message.channel, message.args);
                 if (handledByBrowserPanelRuntime) {
                     return;
@@ -380,6 +410,19 @@ async function startIpcBridgeServer(options) {
             }
             if (message.type === "ipc-renderer-invoke") {
                 const { channel, requestId, args, sourceUrl } = message;
+                if (channel === "codex_desktop:message-from-view" &&
+                    (0, native_open_1.canHandleNativeOpenFetchMessage)(args[0])) {
+                    void (0, native_open_1.handleNativeOpenFetchMessage)(args[0], {
+                        respond: (payload) => bridgeState.broadcastToRenderer?.(payload),
+                    });
+                    sendSocketMessage(socket, {
+                        type: "ipc-renderer-invoke-result",
+                        requestId,
+                        ok: true,
+                        result: undefined,
+                    });
+                    return;
+                }
                 const handledByBrowserPanelRuntime = (0, browser_panel_runtime_1.handleBrowserPanelRuntimeIpcMessage)(browserPanelRuntime, channel, args);
                 if (handledByBrowserPanelRuntime) {
                     sendSocketMessage(socket, {
@@ -433,13 +476,123 @@ async function startIpcBridgeServer(options) {
     const module = require(matches[0]);
     module.runMainAppStartup();
 }
+function isAllowedBackendWebSocketRequest({ host, origin, requestUrl, token, }) {
+    const originValue = singleHeaderValue(origin);
+    if (originValue == null) {
+        return false;
+    }
+    const hostValue = singleHeaderValue(host);
+    if (hostValue == null) {
+        return false;
+    }
+    try {
+        const originHost = new URL(originValue).host.toLowerCase();
+        const request = new URL(requestUrl, `http://${hostValue}`);
+        return (originHost === hostValue.toLowerCase() &&
+            request.searchParams.get("token") === token);
+    }
+    catch {
+        return false;
+    }
+}
+const ACTIVE_FS_EXTENSIONS = new Set([
+    ".html",
+    ".htm",
+    ".js",
+    ".mjs",
+    ".svg",
+    ".xml",
+    ".xhtml",
+]);
+const ACTIVE_FS_FETCH_DESTINATIONS = new Set([
+    "document",
+    "embed",
+    "frame",
+    "iframe",
+    "object",
+    "script",
+    "serviceworker",
+    "sharedworker",
+    "worker",
+    "xslt",
+]);
+const PASSIVE_FS_FETCH_DESTINATIONS = new Set([
+    "audio",
+    "font",
+    "image",
+    "manifest",
+    "style",
+    "track",
+    "video",
+]);
+function shouldBlockFsRequestPath(requestPath, headers = {}) {
+    let pathname;
+    try {
+        pathname = new URL(requestPath, "http://localhost").pathname;
+    }
+    catch {
+        pathname = requestPath;
+    }
+    if (!pathname.startsWith("/@fs/")) {
+        return false;
+    }
+    let decodedPathname = pathname;
+    try {
+        decodedPathname = decodeURIComponent(pathname);
+    }
+    catch {
+        // Fall back to the raw path for malformed escape sequences.
+    }
+    if (!ACTIVE_FS_EXTENSIONS.has(node_path_1.default.extname(decodedPathname).toLowerCase())) {
+        return false;
+    }
+    const fetchDestination = singleHeaderValue(headers["sec-fetch-dest"])
+        ?.toLowerCase()
+        .trim();
+    if (fetchDestination && PASSIVE_FS_FETCH_DESTINATIONS.has(fetchDestination)) {
+        return false;
+    }
+    if (fetchDestination && ACTIVE_FS_FETCH_DESTINATIONS.has(fetchDestination)) {
+        return true;
+    }
+    return true;
+}
+function shouldServeWebviewShellPath(requestPath) {
+    let pathname;
+    let search;
+    try {
+        const url = new URL(requestPath, "http://localhost");
+        pathname = url.pathname;
+        search = url.search;
+    }
+    catch {
+        pathname = requestPath;
+        search = "";
+    }
+    if (pathname === "/") {
+        return true;
+    }
+    if (pathname === "/share/receive") {
+        return search.length > 0;
+    }
+    return /^\/thread\/[^/]+$/.test(pathname);
+}
+function singleHeaderValue(value) {
+    if (Array.isArray(value)) {
+        return value.length === 1 ? value[0] : null;
+    }
+    return value ?? null;
+}
 async function main(args) {
     const options = parseServerArgs(args);
     await startIpcBridgeServer(options);
 }
-main(process.argv.slice(2));
-function createTerminalHtml({ cwd: requestedCwd, stylesheetHrefs, }) {
+if (require.main === module) {
+    void main(process.argv.slice(2));
+}
+function createTerminalHtml({ backendWebSocketToken, cwd: requestedCwd, stylesheetHrefs, }) {
     const cwd = escapeHtml(requestedCwd ?? (0, terminal_1.defaultTerminalCwd)());
+    const token = escapeHtml(backendWebSocketToken);
     const stylesheetLinks = stylesheetHrefs
         .map((href) => `    <link rel="stylesheet" href="${escapeHtml(href)}" />`)
         .join("\n");
@@ -452,10 +605,22 @@ function createTerminalHtml({ cwd: requestedCwd, stylesheetHrefs, }) {
 ${stylesheetLinks}
     <script type="module" src="/assets/terminal-page.js"></script>
   </head>
-  <body data-terminal-cwd="${cwd}">
+  <body data-terminal-cwd="${cwd}" data-backend-websocket-token="${token}">
     <div id="terminal-root"></div>
   </body>
 </html>`;
+}
+async function sendWebviewIndex(reply, webviewRoot, backendWebSocketToken) {
+    const indexHtml = await promises_1.default.readFile(node_path_1.default.join(webviewRoot, "index.html"), "utf8");
+    return reply
+        .type("text/html")
+        .send(injectBackendWebSocketToken(indexHtml, backendWebSocketToken));
+}
+function injectBackendWebSocketToken(html, token) {
+    const script = `<script>window.__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__=${JSON.stringify(token)};</script>`;
+    return html.includes("</head>")
+        ? html.replace("</head>", `${script}</head>`)
+        : `${script}${html}`;
 }
 function getTerminalStylesheetHrefs(webviewRoot) {
     const assetsRoot = node_path_1.default.join(webviewRoot, "assets");
