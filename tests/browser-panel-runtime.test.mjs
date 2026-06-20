@@ -110,6 +110,12 @@ test("createBrowserPanelSnapshot titles terminal tabs from the cwd project name"
     createBrowserPanelSnapshot("http://localhost:9000/__terminal").title,
     "Terminal",
   );
+  assert.equal(
+    createBrowserPanelSnapshot(
+      "http://localhost:9000/__terminal?locale=zh-CN",
+    ).title,
+    "终端",
+  );
 });
 
 test("browser panel runtime broadcasts browser-sidebar-state for navigate commands", () => {

@@ -483,6 +483,7 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
       createTerminalHtml({
         backendWebSocketToken,
         cwd: getTerminalCwdFromQuery(request.query),
+        locale: getTerminalLocaleFromQuery(request.query),
         stylesheetHrefs: getTerminalStylesheetHrefs(webviewRoot),
       }),
     );
@@ -888,33 +889,46 @@ if (require.main === module) {
   void main(process.argv.slice(2));
 }
 
-function createTerminalHtml({
+export function createTerminalHtml({
   backendWebSocketToken,
   cwd: requestedCwd,
+  locale: requestedLocale,
   stylesheetHrefs,
 }: {
   backendWebSocketToken: string;
   cwd: string | undefined;
+  locale?: string | undefined;
   stylesheetHrefs: string[];
 }): string {
   const cwd = escapeHtml(requestedCwd ?? defaultTerminalCwd());
+  const locale = terminalHtmlLocale(requestedLocale);
+  const title = terminalHtmlTitle(locale);
   const token = escapeHtml(backendWebSocketToken);
   const stylesheetLinks = stylesheetHrefs
     .map((href) => `    <link rel="stylesheet" href="${escapeHtml(href)}" />`)
     .join("\n");
   return `<!doctype html>
-<html lang="en" data-codex-window-type="browser">
+<html lang="${locale}" data-codex-window-type="browser">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Terminal</title>
+    <title>${title}</title>
 ${stylesheetLinks}
     <script type="module" src="/assets/terminal-page.js"></script>
   </head>
-  <body data-terminal-cwd="${cwd}" data-backend-websocket-token="${token}">
+  <body data-terminal-cwd="${cwd}" data-terminal-locale="${locale}" data-backend-websocket-token="${token}">
     <div id="terminal-root"></div>
   </body>
 </html>`;
+}
+
+function terminalHtmlLocale(locale: string | undefined): "en" | "zh-CN" {
+  const normalized = locale?.trim().replaceAll("_", "-").toLowerCase();
+  return normalized === "zh" || normalized?.startsWith("zh-") ? "zh-CN" : "en";
+}
+
+function terminalHtmlTitle(locale: "en" | "zh-CN"): string {
+  return locale === "zh-CN" ? "终端" : "Terminal";
 }
 
 async function sendWebviewIndex(
@@ -928,14 +942,74 @@ async function sendWebviewIndex(
   );
   return reply
     .type("text/html")
-    .send(injectBackendWebSocketToken(indexHtml, backendWebSocketToken));
+    .send(injectWebviewRuntimeScripts(indexHtml, backendWebSocketToken));
 }
 
-function injectBackendWebSocketToken(html: string, token: string): string {
-  const script = `<script>window.__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__=${JSON.stringify(token)};</script>`;
-  return html.includes("</head>")
-    ? html.replace("</head>", `${script}</head>`)
-    : `${script}${html}`;
+export function injectWebviewRuntimeScripts(
+  html: string,
+  backendWebSocketToken: string,
+): string {
+  const scripts = `<script>${statsigOverrideBootstrapScript()}</script><script>window.__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__=${JSON.stringify(backendWebSocketToken)};</script>`;
+  return html.includes("<head>")
+    ? html.replace("<head>", `<head>${scripts}`)
+    : `${scripts}${html}`;
+}
+
+function statsigOverrideBootstrapScript(): string {
+  return `(() => {
+  const shim = (window.__ELECTRON_SHIM__ ??= {});
+  shim.overrideAdapter = {
+    getGateOverride(evaluation) {
+      if (evaluation?.name === "3075919032") {
+        return { ...evaluation, value: true };
+      }
+      if (evaluation?.name === "2929582856") {
+        return { ...evaluation, value: false };
+      }
+      return null;
+    },
+    getDynamicConfigOverride(config) {
+      if (config?.name !== "72216192") {
+        return null;
+      }
+      const originalValue =
+        config.value && typeof config.value === "object" ? config.value : {};
+      const value = {
+        ...originalValue,
+        enable_i18n: true,
+        locale_source: originalValue.locale_source ?? "IDE",
+      };
+      return {
+        ...config,
+        value,
+        get(key, fallback) {
+          const configValue = value[key];
+          return configValue == null ? (fallback ?? null) : configValue;
+        },
+      };
+    },
+    getLayerOverride(layer) {
+      if (layer?.name !== "72216192") {
+        return null;
+      }
+      const originalValue =
+        layer.__value && typeof layer.__value === "object" ? layer.__value : {};
+      const value = {
+        ...originalValue,
+        enable_i18n: true,
+        locale_source: originalValue.locale_source ?? "IDE",
+      };
+      return {
+        ...layer,
+        __value: value,
+        get(key, fallback) {
+          const configValue = value[key];
+          return configValue == null ? (fallback ?? null) : configValue;
+        },
+      };
+    },
+  };
+})();`;
 }
 
 function getTerminalStylesheetHrefs(webviewRoot: string): string[] {
@@ -956,6 +1030,19 @@ function getTerminalCwdFromQuery(query: unknown): string | undefined {
     query.cwd.trim()
   ) {
     return query.cwd;
+  }
+  return undefined;
+}
+
+function getTerminalLocaleFromQuery(query: unknown): string | undefined {
+  if (
+    typeof query === "object" &&
+    query !== null &&
+    "locale" in query &&
+    typeof query.locale === "string" &&
+    query.locale.trim()
+  ) {
+    return query.locale;
   }
   return undefined;
 }

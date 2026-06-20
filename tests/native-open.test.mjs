@@ -16,16 +16,23 @@ test("createOpenInTargetsPayload exposes host-side file manager and default app 
   assert.deepEqual(payload.availableTargets, ["systemDefault", "fileManager"]);
   assert.equal(payload.preferredTarget, "systemDefault");
   assert.deepEqual(
-    payload.targets.map(({ id, label, target }) => ({ id, label, target })),
+    payload.targets.map(({ id, label, labelKey, target }) => ({
+      id,
+      label,
+      labelKey,
+      target,
+    })),
     [
       {
         id: "system-default",
         label: "Default app",
+        labelKey: "openTarget.systemDefault",
         target: "systemDefault",
       },
       {
         id: "file-manager",
         label: "File manager",
+        labelKey: "openTarget.fileManager",
         target: "fileManager",
       },
     ],

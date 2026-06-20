@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { getPathForFile } from "../src/browser/web-utils.mts";
 import { handleSyncIpc } from "../src/browser/sync-ipc.mts";
+import { createStatsigOverrideAdapter } from "../src/browser/statsig-overrides.mts";
 
 test("getPathForFile returns Electron-provided absolute file paths", () => {
   assert.equal(getPathForFile({ path: "/tmp/upload.txt" }), "/tmp/upload.txt");
@@ -37,13 +38,16 @@ test("handleSyncIpc serves the synchronous preload channels used by Codex", () =
     getSystemThemeVariant: () => "dark",
   };
 
-  assert.deepEqual(handleSyncIpc("codex_desktop:get-sentry-init-options", env), {
-    codexAppSessionId: "42626fde-7064-471f-b44d-b1a7ad849c7f",
-    buildFlavor: "prod",
-    buildNumber: null,
-    appVersion: "1.2.3",
-    enabled: false,
-  });
+  assert.deepEqual(
+    handleSyncIpc("codex_desktop:get-sentry-init-options", env),
+    {
+      codexAppSessionId: "42626fde-7064-471f-b44d-b1a7ad849c7f",
+      buildFlavor: "prod",
+      buildNumber: null,
+      appVersion: "1.2.3",
+      enabled: false,
+    },
+  );
   assert.equal(handleSyncIpc("codex_desktop:get-build-flavor", env), "prod");
   assert.equal(
     handleSyncIpc("codex_desktop:get-uses-owl-app-shell", env),
@@ -54,10 +58,8 @@ test("handleSyncIpc serves the synchronous preload channels used by Codex", () =
     "dark",
   );
   assert.equal(
-    handleSyncIpc(
-      "codex_desktop:get-shared-object-snapshot",
-      env,
-    ).host_config.kind,
+    handleSyncIpc("codex_desktop:get-shared-object-snapshot", env).host_config
+      .kind,
     "local",
   );
 });
@@ -71,5 +73,45 @@ test("handleSyncIpc rejects unsupported synchronous channels with channel contex
         getSystemThemeVariant: () => "light",
       }),
     /Unsupported ipcRenderer\.sendSync channel: codex_desktop:missing-sync-channel/,
+  );
+});
+
+test("Statsig overrides enable localized application text", () => {
+  const adapter = createStatsigOverrideAdapter();
+  const originalConfig = {
+    name: "72216192",
+    value: {},
+    get(key, fallback) {
+      return this.value[key] ?? fallback ?? null;
+    },
+  };
+
+  const overriddenConfig = adapter.getDynamicConfigOverride(originalConfig);
+
+  assert.equal(overriddenConfig.get("enable_i18n", false), true);
+  assert.equal(overriddenConfig.get("locale_source", "SYSTEM"), "IDE");
+  assert.equal(adapter.getDynamicConfigOverride({ name: "other" }), null);
+
+  const originalLayer = {
+    name: "72216192",
+    __value: {},
+    get(key, fallback) {
+      return this.__value[key] ?? fallback ?? null;
+    },
+  };
+
+  const overriddenLayer = adapter.getLayerOverride(originalLayer);
+
+  assert.equal(overriddenLayer.get("enable_i18n", false), true);
+  assert.equal(overriddenLayer.get("locale_source", "SYSTEM"), "IDE");
+  assert.equal(adapter.getLayerOverride({ name: "other" }), null);
+});
+
+test("Statsig overrides keep the Automations navigation enabled", () => {
+  const adapter = createStatsigOverrideAdapter();
+
+  assert.deepEqual(
+    adapter.getGateOverride({ name: "3075919032", value: false }),
+    { name: "3075919032", value: true },
   );
 });

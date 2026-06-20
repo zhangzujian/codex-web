@@ -187,6 +187,34 @@ test("terminal socket handler ignores stale exit events from replaced sessions",
   ]);
 });
 
+test("terminal socket handler sends localized error keys with fallback text", async () => {
+  const socket = new FakeSocket();
+  const handler = createTerminalSocketHandler({
+    createSession() {
+      throw new Error("should not create a session");
+    },
+  });
+
+  handler(socket);
+  socket.emitMessage({ type: "create", cwd: 123 });
+  socket.emitMessage({ type: "create", cwd: "/tmp/not-a-directory" });
+
+  assert.deepEqual(socket.sentMessages, [
+    {
+      type: "error",
+      message: "Invalid terminal create message",
+      messageKey: "error.invalidCreateMessage",
+      messageValues: {},
+    },
+    {
+      type: "error",
+      message: "Terminal cwd is not a directory: /tmp/not-a-directory",
+      messageKey: "error.cwdNotDirectory",
+      messageValues: { cwd: "/tmp/not-a-directory" },
+    },
+  ]);
+});
+
 class FakeSocket extends EventEmitter {
   sentMessages = [];
   readyState = 1;

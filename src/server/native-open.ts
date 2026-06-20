@@ -23,6 +23,7 @@ type MainToRendererMessage = {
 type OpenTarget = {
   id: string;
   label: string;
+  labelKey?: string;
   target: string;
   appPath?: string;
   kind?: "editor" | "native";
@@ -121,12 +122,14 @@ export async function createOpenInTargetsPayload(
       {
         id: "system-default",
         label: "Default app",
+        labelKey: "openTarget.systemDefault",
         target: "systemDefault",
         kind: "native",
       },
       {
         id: "file-manager",
         label: "File manager",
+        labelKey: "openTarget.fileManager",
         target: "fileManager",
         kind: "native",
       },

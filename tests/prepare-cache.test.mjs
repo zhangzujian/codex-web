@@ -13,6 +13,11 @@ import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
+import {
+  hasUpstreamWebviewAssets,
+  patchBrowserBuildAssets,
+} from "../scripts/patch_browser_build_assets.mjs";
+
 const appVersion = "26.616.32156";
 const archiveName = `Codex-darwin-arm64-${appVersion}.zip`;
 const appZipPath = `Codex.app/Contents/Resources/app.asar`;
@@ -281,6 +286,26 @@ exit 0
   assert.match(prepareLog, new RegExp(`unzip -o ${zipPath}`));
   assert.match(
     prepareLog,
-    /node scripts\/patch_webview_console_noise\.mjs scratch\/asar\/webview\/assets/,
+    /node scripts\/patch_webview_assets\.mjs scratch\/asar\/webview\/assets/,
   );
+});
+
+test("build:browser uses the browser build asset patch wrapper", async () => {
+  const packageJson = JSON.parse(
+    await readFile(new URL("../package.json", import.meta.url), "utf8"),
+  );
+
+  assert.equal(
+    packageJson.scripts["build:browser"],
+    "vite build --config vite.browser.config.ts && node scripts/patch_browser_build_assets.mjs scratch/asar/webview/assets",
+  );
+});
+
+test("browser build asset patch skips incomplete upstream webview assets", async () => {
+  const assetsDir = await mkdtemp(join(tmpdir(), "codex-web-browser-assets-"));
+
+  await writeFile(join(assetsDir, "terminal-page.js"), "export{};");
+
+  assert.equal(hasUpstreamWebviewAssets(assetsDir), false);
+  assert.deepEqual(patchBrowserBuildAssets(assetsDir), []);
 });

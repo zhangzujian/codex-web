@@ -51,30 +51,40 @@ const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
 const DEFAULT_TERMINAL_TYPE = "xterm-256color";
 const TERMINAL_TYPE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+class TerminalMessageError extends Error {
+    messageKey;
+    messageValues;
+    constructor(message, messageKey, messageValues = {}) {
+        super(message);
+        this.messageKey = messageKey;
+        this.messageValues = messageValues;
+        this.name = "TerminalMessageError";
+    }
+}
 function parseTerminalClientMessage(value) {
     if (!isRecord(value) || typeof value.type !== "string") {
-        throw new Error("Unknown terminal message type");
+        throw new TerminalMessageError("Unknown terminal message type", "error.unknownMessageType");
     }
     if (value.type === "create") {
         if ("cwd" in value &&
             value.cwd !== undefined &&
             typeof value.cwd !== "string") {
-            throw new Error("Invalid terminal create message");
+            throw new TerminalMessageError("Invalid terminal create message", "error.invalidCreateMessage");
         }
         if ("cols" in value &&
             value.cols !== undefined &&
             !isPositiveInteger(value.cols)) {
-            throw new Error("Invalid terminal create message");
+            throw new TerminalMessageError("Invalid terminal create message", "error.invalidCreateMessage");
         }
         if ("rows" in value &&
             value.rows !== undefined &&
             !isPositiveInteger(value.rows)) {
-            throw new Error("Invalid terminal create message");
+            throw new TerminalMessageError("Invalid terminal create message", "error.invalidCreateMessage");
         }
         if ("terminalType" in value &&
             value.terminalType !== undefined &&
             !isTerminalType(value.terminalType)) {
-            throw new Error("Invalid terminal create message");
+            throw new TerminalMessageError("Invalid terminal create message", "error.invalidCreateMessage");
         }
         return {
             type: "create",
@@ -88,7 +98,7 @@ function parseTerminalClientMessage(value) {
     }
     if (value.type === "input") {
         if (typeof value.data !== "string") {
-            throw new Error("Invalid terminal input message");
+            throw new TerminalMessageError("Invalid terminal input message", "error.invalidInputMessage");
         }
         return {
             type: "input",
@@ -97,7 +107,7 @@ function parseTerminalClientMessage(value) {
     }
     if (value.type === "resize") {
         if (!isPositiveInteger(value.cols) || !isPositiveInteger(value.rows)) {
-            throw new Error("Invalid terminal resize message");
+            throw new TerminalMessageError("Invalid terminal resize message", "error.invalidResizeMessage");
         }
         return {
             type: "resize",
@@ -110,7 +120,7 @@ function parseTerminalClientMessage(value) {
             type: "close",
         };
     }
-    throw new Error("Unknown terminal message type");
+    throw new TerminalMessageError("Unknown terminal message type", "error.unknownMessageType");
 }
 function resolveTerminalCwd(requestedCwd) {
     const trimmed = requestedCwd?.trim();
@@ -118,9 +128,15 @@ function resolveTerminalCwd(requestedCwd) {
         return process.cwd();
     }
     const resolved = node_path_1.default.resolve(trimmed);
-    const stat = node_fs_1.default.statSync(resolved);
+    let stat;
+    try {
+        stat = node_fs_1.default.statSync(resolved);
+    }
+    catch {
+        throw new TerminalMessageError(`Terminal cwd is not a directory: ${trimmed}`, "error.cwdNotDirectory", { cwd: trimmed });
+    }
     if (!stat.isDirectory()) {
-        throw new Error(`Terminal cwd is not a directory: ${trimmed}`);
+        throw new TerminalMessageError(`Terminal cwd is not a directory: ${trimmed}`, "error.cwdNotDirectory", { cwd: trimmed });
     }
     return resolved;
 }
@@ -148,7 +164,7 @@ function createTerminalSocketHandler(factory) {
                     : String(rawData)));
             }
             catch (error) {
-                send({ type: "error", message: errorMessage(error) });
+                send(terminalErrorMessage(error));
                 return;
             }
             try {
@@ -188,7 +204,7 @@ function createTerminalSocketHandler(factory) {
                 closeSession();
             }
             catch (error) {
-                send({ type: "error", message: errorMessage(error) });
+                send(terminalErrorMessage(error));
             }
         });
         socket.on("close", closeSession);
@@ -280,5 +296,17 @@ function errorMessage(error) {
         return error.message;
     }
     return String(error);
+}
+function terminalErrorMessage(error) {
+    const message = errorMessage(error);
+    if (error instanceof TerminalMessageError) {
+        return {
+            type: "error",
+            message,
+            messageKey: error.messageKey,
+            messageValues: error.messageValues,
+        };
+    }
+    return { type: "error", message };
 }
 //# sourceMappingURL=terminal.js.map

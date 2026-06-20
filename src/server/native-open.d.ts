@@ -13,6 +13,7 @@ type MainToRendererMessage = {
 type OpenTarget = {
     id: string;
     label: string;
+    labelKey?: string;
     target: string;
     appPath?: string;
     kind?: "editor" | "native";

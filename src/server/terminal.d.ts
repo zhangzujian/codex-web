@@ -28,6 +28,8 @@ export type TerminalServerMessage = {
 } | {
     type: "error";
     message: string;
+    messageKey?: string;
+    messageValues?: Record<string, unknown>;
 };
 export type TerminalSession = {
     id: string;

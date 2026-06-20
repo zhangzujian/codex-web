@@ -7,6 +7,12 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const STATSIG_NOOP_WARNING =
   "(0,i.isNoopClient)(e)?(r.Log.warn(`Attempting to retrieve a StatsigClient but none was set.`),i.NoopEvaluationsClient):e";
 const STATSIG_NOOP_SILENT = "(0,i.isNoopClient)(e)?i.NoopEvaluationsClient:e";
+const QUERY_SILENT_CANCEL_REJECTION =
+  "if(this.state.data!==void 0&&t?.cancelRefetch)this.cancel({silent:!0});else if(this.#i)return this.#i.continueRetry(),this.#i.promise";
+const QUERY_SILENT_CANCEL_BAD_HANDLER =
+  "if(this.state.data!==void 0&&t?.cancelRefetch){let e=this.#i?.promise;this.cancel({silent:!0}),e?.catch(l)}else if(this.#i)return this.#i.continueRetry(),this.#i.promise";
+const QUERY_SILENT_CANCEL_HANDLED =
+  "if(this.state.data!==void 0&&t?.cancelRefetch){let e=this.#i?.promise;this.cancel({silent:!0}),e?.catch(()=>{})}else if(this.#i)return this.#i.continueRetry(),this.#i.promise";
 
 export function patchWebviewConsoleNoiseSource(source, assetName = "") {
   let patched = source;
@@ -19,6 +25,22 @@ export function patchWebviewConsoleNoiseSource(source, assetName = "") {
       patched,
       STATSIG_NOOP_WARNING,
       STATSIG_NOOP_SILENT,
+      "Statsig warning hook",
+    );
+  }
+
+  if (assetName.includes("app-scope") || patched.includes("CancelledError")) {
+    patched = replaceOnceIfPresent(
+      patched,
+      QUERY_SILENT_CANCEL_BAD_HANDLER,
+      QUERY_SILENT_CANCEL_HANDLED,
+      "React Query silent cancel branch with bad handler",
+    );
+    patched = replaceOnceIfPresent(
+      patched,
+      QUERY_SILENT_CANCEL_REJECTION,
+      QUERY_SILENT_CANCEL_HANDLED,
+      "React Query silent cancel branch",
     );
   }
 
@@ -28,6 +50,7 @@ export function patchWebviewConsoleNoiseSource(source, assetName = "") {
 export function patchWebviewConsoleNoiseAssets(assetsDir) {
   const patchedFiles = [];
   let sawStatsigHook = false;
+  let sawReactQuerySilentCancelBranch = false;
 
   for (const assetName of fs.readdirSync(assetsDir)) {
     if (!assetName.endsWith(".js")) {
@@ -40,6 +63,7 @@ export function patchWebviewConsoleNoiseAssets(assetsDir) {
 
     sawStatsigHook ||=
       hasStatsigHookPatch(source) || hasStatsigHookPatch(patched);
+    sawReactQuerySilentCancelBranch ||= hasReactQuerySilentCancelPatch(patched);
 
     if (patched !== source) {
       fs.writeFileSync(assetPath, patched);
@@ -50,18 +74,21 @@ export function patchWebviewConsoleNoiseAssets(assetsDir) {
   if (!sawStatsigHook) {
     throw new Error("Unable to patch Statsig Noop client warning");
   }
+  if (!sawReactQuerySilentCancelBranch) {
+    throw new Error("Unable to patch React Query silent cancel branch");
+  }
 
   return patchedFiles;
 }
 
-function replaceOnceIfPresent(source, before, after) {
+function replaceOnceIfPresent(source, before, after, label) {
   const first = source.indexOf(before);
   if (first === -1) {
     return source;
   }
   const second = source.indexOf(before, first + before.length);
   if (second !== -1) {
-    throw new Error(`Expected one Statsig warning hook, found multiple`);
+    throw new Error(`Expected one ${label}, found multiple`);
   }
   return source.slice(0, first) + after + source.slice(first + before.length);
 }
@@ -71,6 +98,10 @@ function hasStatsigHookPatch(source) {
     source.includes(STATSIG_NOOP_WARNING) ||
     source.includes(STATSIG_NOOP_SILENT)
   );
+}
+
+function hasReactQuerySilentCancelPatch(source) {
+  return source.includes(QUERY_SILENT_CANCEL_HANDLED);
 }
 
 const invokedPath = process.argv[1]

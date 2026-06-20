@@ -54,11 +54,13 @@ async function createOpenInTargetsPayload(environment = {}, request = {}) {
         targets.push({
             id: "system-default",
             label: "Default app",
+            labelKey: "openTarget.systemDefault",
             target: "systemDefault",
             kind: "native",
         }, {
             id: "file-manager",
             label: "File manager",
+            labelKey: "openTarget.fileManager",
             target: "fileManager",
             kind: "native",
         });

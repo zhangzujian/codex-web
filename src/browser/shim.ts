@@ -12,6 +12,7 @@ import {
   type WorkspaceDirectoryEntries,
 } from "./workspace-root-dialog";
 import { handleSyncIpc } from "./sync-ipc.mts";
+import { createStatsigOverrideAdapter } from "./statsig-overrides.mts";
 import { getPathForFile } from "./web-utils.mts";
 
 type IpcListener = (event: unknown, ...args: unknown[]) => void;
@@ -103,18 +104,7 @@ type ElectronShimState = {
   initialSidebarState?: boolean;
   closeSidebar?: () => void;
   onMemoryNavigationChanged?: (navigation: MemoryNavigationChange) => void;
-  overrideAdapter?: {
-    getGateOverride?: (
-      e: StatsigGateEvaluation,
-      ...args: unknown[]
-    ) => StatsigGateEvaluation | null;
-  };
-};
-
-type StatsigGateEvaluation = {
-  name: string;
-  value: boolean;
-  [key: string]: unknown;
+  overrideAdapter?: ReturnType<typeof createStatsigOverrideAdapter>;
 };
 
 declare global {
@@ -391,19 +381,7 @@ const mobileMediaQuery = matchMedia("(max-width: 768px)");
 const initialSidebarState = !mobileMediaQuery.matches;
 const electronShim = (window.__ELECTRON_SHIM__ ??= {});
 
-electronShim.overrideAdapter = {
-  getGateOverride(e) {
-    if (e.name === "2929582856") {
-      // codex_app_sunset
-      return {
-        ...e,
-        value: false,
-      };
-    }
-
-    return null;
-  },
-};
+electronShim.overrideAdapter = createStatsigOverrideAdapter();
 
 const initialRoute = mapBrowserPathToInitialRoute(
   window.location.pathname,

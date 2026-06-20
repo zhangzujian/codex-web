@@ -20,6 +20,7 @@ import {
 } from "../scripts/patch_terminal_side_panel.mjs";
 
 const sourceChunk = [
+  'import{t as Rr}from"./app-intl-signal-Bd_tJ6VJ.js";',
   "function gs(e,t,n){st(e,t,{routeKind:un(e.value.routeKind)})}",
   "function wf(){let a=s(ft),b=l(_r),c=a.value.routeKind===`local-thread`?a.value.conversationId:null;return b}",
   "function zu(){let x=l(Or),h=l(kr),f={cwd:x,hostConfig:h};return f}",
@@ -37,6 +38,9 @@ const sourceChunk = [
 
 const reexportChunk =
   'import{d as n,i,s as u}from"./thread-side-panel-tabs-source.js";export{i as openSessionSandboxSidePanel,n as openThreadBrowserSidePanelTabWithoutAnimation,u as openThreadBrowserSidePanelTabWithPendingState};';
+
+const oldTerminalLocaleHelper =
+  "function codexWebTerminalLocale(){let e=[`codex-web.locale`,`codex-web.app.locale`,`codex-web.appLanguage`,`codex.locale`,`app.locale`,`locale`,`language`],t=[];for(let n of e)try{let e=localStorage.getItem(n);if(e){t.push(e);try{let n=JSON.parse(e);typeof n==`string`?t.push(n):n&&typeof n==`object`&&t.push(n.locale,n.language,n.appLocale,n.appLanguage)}catch{}}}catch{}t.push(document.documentElement.lang);for(let e of t){if(typeof e!=`string`)continue;let t=e.trim();if(t)return t}return``}";
 
 const sidePanelActionChunk = [
   'import{a as Bs,i as js,s as Ks}from"./thread-side-panel-tabs-source.js";',
@@ -119,7 +123,8 @@ test("patchTerminalSidePanelSource replaces the openSessionSandboxSidePanel stub
     patched,
     /\$\{i\?`&locale=\$\{encodeURIComponent\(i\)\}`:``\}/,
   );
-  assert.match(patched, /function codexWebTerminalLocale\(\)/);
+  assert.match(patched, /i=codexWebTerminalLocale\(e\.get\(Rr\)\?\.locale\)/);
+  assert.match(patched, /function codexWebTerminalLocale\(e\)/);
   assert.doesNotMatch(patched, /navigator\.language/);
   assert.match(patched, /browserConversationId:re\(crypto\.randomUUID\(\)\)/);
   assert.match(patched, /browserTabId:re\(crypto\.randomUUID\(\)\)/);
@@ -134,6 +139,7 @@ test("patchTerminalSidePanelSource replaces the openSessionSandboxSidePanel stub
 test("patchTerminalSidePanelSource upgrades an older terminal patch even when the chunk has other browser tab ids", () => {
   const previouslyPatchedSource = [
     "function zu(){let x=l(Or),h=l(kr),f={cwd:x,hostConfig:h};return f}",
+    'import{t as Rr}from"./app-intl-signal-Bd_tJ6VJ.js";',
     "function Rp(e,t){return t}",
     "function Hp(e,t,n){return n??re(crypto.randomUUID())}",
     "function other(){return {browserTabId:re(crypto.randomUUID())}}",
@@ -147,8 +153,28 @@ test("patchTerminalSidePanelSource upgrades an older terminal patch even when th
 
   assert.match(
     patched,
-    /function rm\(e,t,n=!0\)\{let r=e\.get\(Or\),i=codexWebTerminalLocale\(\);return Rp\(e,\{browserConversationId:re\(crypto\.randomUUID\(\)\),browserTabId:re\(crypto\.randomUUID\(\)\)/,
+    /function rm\(e,t,n=!0\)\{let r=e\.get\(Or\),i=codexWebTerminalLocale\(e\.get\(Rr\)\?\.locale\);return Rp\(e,\{browserConversationId:re\(crypto\.randomUUID\(\)\),browserTabId:re\(crypto\.randomUUID\(\)\)/,
   );
+});
+
+test("patchTerminalSidePanelSource upgrades the old locale helper when the side panel function is already current", () => {
+  const alreadyCurrentSource = [
+    oldTerminalLocaleHelper,
+    'import{t as Rr}from"./app-intl-signal-Bd_tJ6VJ.js";',
+    "function zu(){let x=l(Or),h=l(kr),f={cwd:x,hostConfig:h};return f}",
+    "function Rp(e,t){return t}",
+    "function Hp(e,t,n){return n??re(crypto.randomUUID())}",
+    "function rm(e,t,n=!0){let r=e.get(Or),i=codexWebTerminalLocale(e.get(Rr)?.locale);return Rp(e,{browserConversationId:re(crypto.randomUUID()),browserTabId:re(crypto.randomUUID()),initialUrl:`${globalThis.location.origin}/__terminal?cwd=${encodeURIComponent(r??``)}${i?`&locale=${encodeURIComponent(i)}`:``}`,initiator:`side_panel_terminal`,source:`manual`,target:`right`,cwd:r??void 0})!=null}",
+  ].join("");
+
+  const patched = patchTerminalSidePanelSource(alreadyCurrentSource, {
+    functionName: "rm",
+    openBrowserPanelFunctionName: "Rp",
+  });
+
+  assert.doesNotMatch(patched, /function codexWebTerminalLocale\(\)/);
+  assert.match(patched, /function codexWebTerminalLocale\(e\)/);
+  assert.match(patched, /i=codexWebTerminalLocale\(e\.get\(Rr\)\?\.locale\)/);
 });
 
 test("patchTerminalBrowserPanelOpenSource keeps terminal opens on their requested tab id", () => {
