@@ -351,11 +351,23 @@ function titleFromUrl(url) {
     }
     try {
         const parsed = new URL(url);
+        if (parsed.pathname === "/__terminal") {
+            return terminalTitleFromUrl(parsed);
+        }
         return parsed.hostname || parsed.href;
     }
     catch {
         return url;
     }
+}
+function terminalTitleFromUrl(url) {
+    const cwd = url.searchParams.get("cwd")?.trim();
+    if (!cwd) {
+        return "Terminal";
+    }
+    const normalized = cwd.replace(/[\\/]+$/, "");
+    const basename = normalized.split(/[\\/]/).filter(Boolean).at(-1);
+    return basename || "Terminal";
 }
 function resolveBrowserTabRef(conversationId, browserTabId) {
     if (typeof conversationId !== "string") {

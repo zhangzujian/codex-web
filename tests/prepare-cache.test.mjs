@@ -276,6 +276,11 @@ exit 0
   });
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(await readFile(logPath, "utf8"), new RegExp(`unzip -tq ${zipPath}`));
-  assert.match(await readFile(logPath, "utf8"), new RegExp(`unzip -o ${zipPath}`));
+  const prepareLog = await readFile(logPath, "utf8");
+  assert.match(prepareLog, new RegExp(`unzip -tq ${zipPath}`));
+  assert.match(prepareLog, new RegExp(`unzip -o ${zipPath}`));
+  assert.match(
+    prepareLog,
+    /node scripts\/patch_webview_console_noise\.mjs scratch\/asar\/webview\/assets/,
+  );
 });

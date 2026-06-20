@@ -8,6 +8,9 @@ const PUBLIC_TERMINAL_EXPORT = "openSessionSandboxSidePanel";
 const PUBLIC_BROWSER_PANEL_EXPORT =
   "openThreadBrowserSidePanelTabWithPendingState";
 const PATCH_MARKER = "side_panel_terminal";
+const TERMINAL_BROWSER_CHROME_MARKER = "codexWebIsTerminalTab";
+const TERMINAL_TAB_ICON_FUNCTION =
+  "function codexWebTerminalTabIcon(e){return Q.createElement(`svg`,{width:20,height:20,viewBox:`0 0 20 20`,fill:`none`,xmlns:`http://www.w3.org/2000/svg`,...e},Q.createElement(`path`,{d:`M13.334 12.2529C13.701 12.2533 13.999 12.5509 13.999 12.918C13.9988 13.2849 13.7008 13.5827 13.334 13.583H6.66699C6.29984 13.583 6.00215 13.2851 6.00195 12.918C6.00195 12.5507 6.29972 12.2529 6.66699 12.2529H13.334Z`,fill:`currentColor`}),Q.createElement(`path`,{fillRule:`evenodd`,clipRule:`evenodd`,d:`M15 3.08594C16.748 3.08594 18.165 4.503 18.165 6.25098V13.751C18.165 15.499 16.748 16.916 15 16.916H5C3.25202 16.916 1.83496 15.499 1.83496 13.751V6.25098C1.83496 4.503 3.25202 3.08594 5 3.08594H15ZM5 4.41602C3.98656 4.41602 3.16504 5.23753 3.16504 6.25098V13.751C3.16504 14.7644 3.98656 15.5859 5 15.5859H15C16.0134 15.5859 16.835 14.7644 16.835 13.751V6.25098C16.835 5.23753 16.0134 4.41602 15 4.41602H5Z`,fill:`currentColor`}))}";
 
 export function findTerminalSidePanelAsset(assetsDir) {
   const terminal = resolvePublicExport(assetsDir, PUBLIC_TERMINAL_EXPORT);
@@ -79,22 +82,25 @@ export function patchTerminalSidePanelSource(
   source,
   { functionName, openBrowserPanelFunctionName },
 ) {
+  const functionRange = findFunctionRange(source, functionName);
+  const functionSource = source.slice(functionRange.start, functionRange.end);
   if (
-    source.includes(PATCH_MARKER) &&
-    source.includes("globalThis.location.origin")
+    functionSource.includes(PATCH_MARKER) &&
+    functionSource.includes("globalThis.location.origin") &&
+    functionSource.includes("browserTabId:")
   ) {
     return source;
   }
 
-  const functionRange = findFunctionRange(source, functionName);
   const params = splitTopLevel(functionRange.params, ",").map((part) =>
     part.trim(),
   );
   const appScopeParam = paramName(params[0]);
   const conversationIdParam = paramName(params[1]);
   const cwdSymbol = findCurrentCwdSymbol(source);
+  const randomUuidSymbol = findRandomUuidSymbol(source);
 
-  const replacement = `function ${functionName}(${functionRange.params}){let r=${appScopeParam}.get(${cwdSymbol});return ${openBrowserPanelFunctionName}(${appScopeParam},{browserConversationId:${conversationIdParam}??void 0,initialUrl:\`\${globalThis.location.origin}/__terminal?cwd=\${encodeURIComponent(r??\`\`)}\`,initiator:\`side_panel_terminal\`,source:\`manual\`,target:\`right\`,cwd:r??void 0})!=null}`;
+  const replacement = `function ${functionName}(${functionRange.params}){let r=${appScopeParam}.get(${cwdSymbol});return ${openBrowserPanelFunctionName}(${appScopeParam},{browserConversationId:${conversationIdParam}??void 0,browserTabId:${randomUuidSymbol}(crypto.randomUUID()),initialUrl:\`\${globalThis.location.origin}/__terminal?cwd=\${encodeURIComponent(r??\`\`)}\`,initiator:\`side_panel_terminal\`,source:\`manual\`,target:\`right\`,cwd:r??void 0})!=null}`;
 
   return (
     source.slice(0, functionRange.start) +
@@ -129,10 +135,131 @@ export function patchTerminalActionSource(
   );
 }
 
+export function patchTerminalBrowserChromeSource(source) {
+  if (
+    isTerminalBrowserChromePatched(source) &&
+    isTerminalBrowserTabSnapshotPatched(source)
+  ) {
+    return source;
+  }
+
+  let patched = source;
+  patched = patchTerminalTabIconFunction(patched);
+  patched = patchTerminalBrowserTabSnapshotSource(patched);
+  if (!patched.includes(TERMINAL_BROWSER_CHROME_MARKER)) {
+    patched = replaceOnce(
+      patched,
+      /((?:let\s+)?Ui=[\s\S]{0,240}?Wi=[^;]+);return\(0,\$\.jsxs\)\(`div`,\{ref:L,/,
+      `$1,codexWebIsTerminalTab=X.url?.includes(\`/__terminal\`)===!0;return(0,$.jsxs)(\`div\`,{ref:L,"data-codex-web-terminal-tab":codexWebIsTerminalTab?\`true\`:void 0,`,
+      "Terminal browser panel root not found",
+    );
+  }
+  if (
+    !patched.includes(
+      `"data-browser-sidebar-primary-focus-target":codexWebIsTerminalTab?`,
+    )
+  ) {
+    patched = replaceOnce(
+      patched,
+      `"data-browser-sidebar-primary-focus-target":Kt?\`webview\`:\`address\``,
+      `"data-browser-sidebar-primary-focus-target":codexWebIsTerminalTab?\`webview\`:Kt?\`webview\`:\`address\``,
+      "Terminal browser panel focus target not found",
+    );
+  }
+  if (!patched.includes("codexWebIsTerminalTab?`grid-rows-[1fr]`")) {
+    patched = replaceOnce(
+      patched,
+      "className:`relative grid h-full min-h-0 w-full min-w-0 grid-rows-[auto_1fr]`",
+      "className:J(`relative grid h-full min-h-0 w-full min-w-0`,codexWebIsTerminalTab?`grid-rows-[1fr]`:`grid-rows-[auto_1fr]`)",
+      "Terminal browser panel grid layout not found",
+    );
+  }
+  if (!patched.includes("children:[codexWebIsTerminalTab?null:")) {
+    patched = replaceOnce(
+      patched,
+      "children:[(0,$.jsxs)(`div`,{className:`relative z-10 h-toolbar-pane min-w-0 shrink-0 border-b border-token-border`",
+      "children:[codexWebIsTerminalTab?null:(0,$.jsxs)(`div`,{className:`relative z-10 h-toolbar-pane min-w-0 shrink-0 border-b border-token-border`",
+      "Terminal browser panel toolbar not found",
+    );
+  }
+
+  return patched;
+}
+
+function patchTerminalTabIconFunction(source) {
+  if (source.includes("function codexWebTerminalTabIcon")) {
+    return source;
+  }
+
+  if (source.includes("var fs=`about:blank#codex-browser-sidebar-attach-token=`")) {
+    return source.replace(
+      "var fs=`about:blank#codex-browser-sidebar-attach-token=`",
+      `${TERMINAL_TAB_ICON_FUNCTION}var fs=\`about:blank#codex-browser-sidebar-attach-token=\``,
+    );
+  }
+
+  return `${TERMINAL_TAB_ICON_FUNCTION}${source}`;
+}
+
+function patchTerminalBrowserTabSnapshotSource(source) {
+  let patched = source;
+  const snapshotPattern =
+    "let i=e?.tabType===ne.WEB,a=r&&i&&(e.url.length===0||e.url===`about:blank`),o=i&&(e.url.startsWith(fs)||e.title.startsWith(fs)),s=i&&!a&&!o?oi(e.url):``,c=i?e.title.trim():``,l=c.length===0||c===`about:blank`||c===t,u=i&&!a&&!o&&c.length>0;return{faviconUrl:i?e.faviconUrl:null,";
+  if (
+    patched.includes(snapshotPattern) &&
+    !patched.includes("d=i&&e.url.includes(`/__terminal`)")
+  ) {
+    patched = patched.replace(
+      snapshotPattern,
+      "let i=e?.tabType===ne.WEB,a=r&&i&&(e.url.length===0||e.url===`about:blank`),o=i&&(e.url.startsWith(fs)||e.title.startsWith(fs)),s=i&&!a&&!o?oi(e.url):``,c=i?e.title.trim():``,l=c.length===0||c===`about:blank`||c===t,u=i&&!a&&!o&&c.length>0,d=i&&e.url.includes(`/__terminal`);return{faviconUrl:i?e.faviconUrl:null,isTerminal:d,",
+    );
+  }
+  if (!patched.includes("isTerminal:")) {
+    throw new Error("Terminal browser tab snapshot metadata not found");
+  }
+
+  patched = replaceIfPresent(
+    patched,
+    "icon:(0,$.jsx)(Dt,{alt:``,className:`size-full rounded-2xs`,logoUrl:S.faviconUrl,fallback:(0,$.jsx)(bi,{className:`size-full`})})",
+    "icon:S.isTerminal?(0,$.jsx)(codexWebTerminalTabIcon,{className:`size-full`}):(0,$.jsx)(Dt,{alt:``,className:`size-full rounded-2xs`,logoUrl:S.faviconUrl,fallback:(0,$.jsx)(bi,{className:`size-full`})})",
+  );
+  patched = replaceIfPresent(
+    patched,
+    "icon:(0,Q.createElement)(Dt,{alt:``,className:`icon-xs shrink-0 rounded-2xs`,logoUrl:u.faviconUrl,fallback:(0,Q.createElement)(bi,{className:`size-full`})})",
+    "icon:u.isTerminal?Q.createElement(codexWebTerminalTabIcon,{className:`icon-xs shrink-0`}):(0,Q.createElement)(Dt,{alt:``,className:`icon-xs shrink-0 rounded-2xs`,logoUrl:u.faviconUrl,fallback:(0,Q.createElement)(bi,{className:`size-full`})})",
+  );
+  if (!isTerminalBrowserTabSnapshotPatched(patched)) {
+    throw new Error("Terminal browser tab icon target not found");
+  }
+
+  return patched;
+}
+
+function isTerminalBrowserChromePatched(source) {
+  return (
+    source.includes(TERMINAL_BROWSER_CHROME_MARKER) &&
+    source.includes(
+      `"data-browser-sidebar-primary-focus-target":codexWebIsTerminalTab?`,
+    ) &&
+    source.includes("codexWebIsTerminalTab?`grid-rows-[1fr]`") &&
+    source.includes("children:[codexWebIsTerminalTab?null:") &&
+    source.includes("codexWebTerminalTabIcon")
+  );
+}
+
+function isTerminalBrowserTabSnapshotPatched(source) {
+  return (
+    source.includes("isTerminal:") &&
+    (source.includes("S.isTerminal?") || source.includes("u.isTerminal?"))
+  );
+}
+
 export function patchTerminalSidePanelAsset(assetsDir) {
   const patchTarget = findTerminalSidePanelAsset(assetsDir);
   const source = fs.readFileSync(patchTarget.assetPath, "utf8");
-  const patched = patchTerminalSidePanelSource(source, patchTarget);
+  const patched = patchTerminalBrowserChromeSource(
+    patchTerminalSidePanelSource(source, patchTarget),
+  );
   if (patched !== source) {
     fs.writeFileSync(patchTarget.assetPath, patched);
   }
@@ -152,7 +279,9 @@ export function patchTerminalActionAsset(assetsDir, terminalPatchTarget) {
 export function patchTerminalSidePanelSupport(assetsDir) {
   const terminalPatchTarget = findTerminalSidePanelAsset(assetsDir);
   const source = fs.readFileSync(terminalPatchTarget.assetPath, "utf8");
-  const patched = patchTerminalSidePanelSource(source, terminalPatchTarget);
+  const patched = patchTerminalBrowserChromeSource(
+    patchTerminalSidePanelSource(source, terminalPatchTarget),
+  );
   if (patched !== source) {
     fs.writeFileSync(terminalPatchTarget.assetPath, patched);
   }
@@ -298,6 +427,29 @@ function findCurrentCwdSymbol(source) {
   }
 
   throw new Error("Unable to infer current cwd state symbol");
+}
+
+function findRandomUuidSymbol(source) {
+  const match = source.match(
+    /\b([$A-Za-z_][\w$]*)\s*\(\s*crypto\.randomUUID\(\)\s*\)/,
+  );
+  if (match) {
+    return match[1];
+  }
+
+  throw new Error("Unable to infer random browser tab id wrapper symbol");
+}
+
+function replaceOnce(source, search, replacement, errorMessage) {
+  const patched = source.replace(search, replacement);
+  if (patched === source) {
+    throw new Error(errorMessage);
+  }
+  return patched;
+}
+
+function replaceIfPresent(source, search, replacement) {
+  return source.includes(search) ? source.replace(search, replacement) : source;
 }
 
 function splitTopLevel(source, delimiter) {

@@ -99,6 +99,19 @@ test("createBrowserPanelSnapshot creates a web tab snapshot for renderer browser
   });
 });
 
+test("createBrowserPanelSnapshot titles terminal tabs from the cwd project name", () => {
+  assert.equal(
+    createBrowserPanelSnapshot(
+      "http://192.168.132.78:9000/__terminal?cwd=%2Fhome%2Fzhang%2Fcodex-web",
+    ).title,
+    "codex-web",
+  );
+  assert.equal(
+    createBrowserPanelSnapshot("http://localhost:9000/__terminal").title,
+    "Terminal",
+  );
+});
+
 test("browser panel runtime broadcasts browser-sidebar-state for navigate commands", () => {
   const broadcasts = [];
   const runtime = createBrowserPanelRuntime({

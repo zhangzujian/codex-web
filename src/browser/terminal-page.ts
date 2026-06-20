@@ -1,5 +1,9 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
+import {
+  resolveTerminalFontFamily,
+  resolveTerminalFontSize,
+} from "./terminal-options.mjs";
 import "./terminal-page.css";
 
 type TerminalServerMessage =
@@ -51,9 +55,8 @@ const terminal = new Terminal({
   allowProposedApi: false,
   cursorBlink: true,
   convertEol: true,
-  fontFamily:
-    'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-  fontSize: 13,
+  fontFamily: resolveTerminalFontFamily(),
+  fontSize: resolveTerminalFontSize(),
   lineHeight: 1.2,
   scrollback: 10_000,
   theme: {

@@ -8,6 +8,7 @@ import {
   findTerminalActionAsset,
   findTerminalSidePanelAsset,
   patchTerminalActionSource,
+  patchTerminalBrowserChromeSource,
   patchTerminalSidePanelAsset,
   patchTerminalSidePanelSource,
   patchTerminalSidePanelSupport,
@@ -18,6 +19,8 @@ const sourceChunk = [
   "function wf(){let a=s(ft),b=l(_r),c=a.value.routeKind===`local-thread`?a.value.conversationId:null;return b}",
   "function zu(){let x=l(Or),h=l(kr),f={cwd:x,hostConfig:h};return f}",
   "function Rp(e,t){return t}",
+  "function Hp(e,t,n){return n??re(crypto.randomUUID())}",
+  "function Eu(){let X={url:`http://localhost/__terminal?cwd=/tmp`,isLoading:!1},Kt=!0;let Ui=!1,Wi=`Show`;return(0,$.jsxs)(`div`,{ref:L,\"data-browser-sidebar-primary-focus-target\":Kt?`webview`:`address`,className:`relative grid h-full min-h-0 w-full min-w-0 grid-rows-[auto_1fr]`,tabIndex:-1,children:[(0,$.jsxs)(`div`,{className:`relative z-10 h-toolbar-pane min-w-0 shrink-0 border-b border-token-border`,children:[(0,$.jsx)(`input`,{\"data-browser-sidebar-address-input\":`true`})]}),(0,$.jsx)(`div`,{className:`relative flex min-h-0 min-w-0 flex-1 flex-col`})]})}",
   "function nm(e,t,n=!0,r=`right`){return t==null||e.value.routeKind,!1}",
   "function rm(e,t,n=!0){return t==null||e.value.routeKind,!1}",
   "export {",
@@ -40,6 +43,19 @@ const sidePanelActionChunk = [
   "}",
 ].join("");
 
+const browserChromeChunk = [
+  "var fs=`about:blank#codex-browser-sidebar-attach-token=`;",
+  "function ps({browserSnapshot:e,browserTabFallbackTitle:t,isBrowserUseActive:n,isBrowserUseTab:r}){let i=e?.tabType===ne.WEB,a=r&&i&&(e.url.length===0||e.url===`about:blank`),o=i&&(e.url.startsWith(fs)||e.title.startsWith(fs)),s=i&&!a&&!o?oi(e.url):``,c=i?e.title.trim():``,l=c.length===0||c===`about:blank`||c===t,u=i&&!a&&!o&&c.length>0;return{faviconUrl:i?e.faviconUrl:null,isAudible:i&&e.isAudible,isCapturingUserMedia:i&&e.isCapturingUserMedia,isHighlighted:n,preserveExistingTitle:o,title:u&&!l?c:s||t}}",
+  "function Np(){let S={isTerminal:true,faviconUrl:null};w.updateTab(d,l,{icon:(0,$.jsx)(Dt,{alt:``,className:`size-full rounded-2xs`,logoUrl:S.faviconUrl,fallback:(0,$.jsx)(bi,{className:`size-full`})}),title:e})}",
+  "function Eu(){",
+  "let X={url:`http://localhost/__terminal?cwd=/tmp`,isLoading:!1},Kt=!0;",
+  "let Ui=!1,Wi=`Show`;",
+  "return(0,$.jsxs)(`div`,{ref:L,\"data-browser-sidebar-primary-focus-target\":Kt?`webview`:`address`,className:`relative grid h-full min-h-0 w-full min-w-0 grid-rows-[auto_1fr]`,tabIndex:-1,children:[(0,$.jsxs)(`div`,{className:`relative z-10 h-toolbar-pane min-w-0 shrink-0 border-b border-token-border`,children:[(0,$.jsx)(`input`,{\"data-browser-sidebar-address-input\":`true`})]}),(0,$.jsx)(`div`,{className:`relative flex min-h-0 min-w-0 flex-1 flex-col`})]})",
+  "}",
+].join("");
+
+const sourceWithBrowserChromeChunk = `${sourceChunk}${browserChromeChunk}`;
+
 test("patchTerminalSidePanelSource replaces the openSessionSandboxSidePanel stub", () => {
   const patched = patchTerminalSidePanelSource(sourceChunk, {
     functionName: "rm",
@@ -50,11 +66,32 @@ test("patchTerminalSidePanelSource replaces the openSessionSandboxSidePanel stub
     patched,
     /initialUrl:`\$\{globalThis\.location\.origin\}\/__terminal\?cwd=\$\{encodeURIComponent/,
   );
+  assert.match(patched, /browserTabId:re\(crypto\.randomUUID\(\)\)/);
   assert.match(patched, /initiator:`side_panel_terminal`/);
   assert.match(patched, /cwd:r\?\?void 0/);
   assert.doesNotMatch(
     patched,
     /function rm\(e,t,n=!0\)\{return t==null\|\|e\.value\.routeKind,!1\}/,
+  );
+});
+
+test("patchTerminalSidePanelSource upgrades an older terminal patch even when the chunk has other browser tab ids", () => {
+  const previouslyPatchedSource = [
+    "function zu(){let x=l(Or),h=l(kr),f={cwd:x,hostConfig:h};return f}",
+    "function Rp(e,t){return t}",
+    "function Hp(e,t,n){return n??re(crypto.randomUUID())}",
+    "function other(){return {browserTabId:re(crypto.randomUUID())}}",
+    "function rm(e,t,n=!0){let r=e.get(Or);return Rp(e,{browserConversationId:t??void 0,initialUrl:`${globalThis.location.origin}/__terminal?cwd=${encodeURIComponent(r??``)}`,initiator:`side_panel_terminal`,source:`manual`,target:`right`,cwd:r??void 0})!=null}",
+  ].join("");
+
+  const patched = patchTerminalSidePanelSource(previouslyPatchedSource, {
+    functionName: "rm",
+    openBrowserPanelFunctionName: "Rp",
+  });
+
+  assert.match(
+    patched,
+    /function rm\(e,t,n=!0\)\{let r=e\.get\(Or\);return Rp\(e,\{browserConversationId:t\?\?void 0,browserTabId:re\(crypto\.randomUUID\(\)\)/,
   );
 });
 
@@ -90,13 +127,14 @@ test("patchTerminalSidePanelAsset patches the discovered source chunk", () => {
     reexportChunk,
   );
   const sourcePath = path.join(assetsDir, "thread-side-panel-tabs-source.js");
-  fs.writeFileSync(sourcePath, sourceChunk);
+  fs.writeFileSync(sourcePath, sourceWithBrowserChromeChunk);
 
   const patchedPath = patchTerminalSidePanelAsset(assetsDir);
   const patched = fs.readFileSync(sourcePath, "utf8");
 
   assert.equal(patchedPath, sourcePath);
   assert.match(patched, /\$\{globalThis\.location\.origin\}\/__terminal\?cwd=/);
+  assert.match(patched, /S\.isTerminal\?/);
 });
 
 test("patchTerminalActionSource points Terminal at the side panel opener", () => {
@@ -139,7 +177,7 @@ test("patchTerminalSidePanelSupport patches the source and Terminal action", () 
     reexportChunk,
   );
   const sourcePath = path.join(assetsDir, "thread-side-panel-tabs-source.js");
-  fs.writeFileSync(sourcePath, sourceChunk);
+  fs.writeFileSync(sourcePath, sourceWithBrowserChromeChunk);
   const actionPath = path.join(assetsDir, "thread-app-shell-chrome.js");
   fs.writeFileSync(actionPath, sidePanelActionChunk);
 
@@ -150,5 +188,45 @@ test("patchTerminalSidePanelSupport patches the source and Terminal action", () 
     fs.readFileSync(sourcePath, "utf8"),
     /\$\{globalThis\.location\.origin\}\/__terminal\?cwd=/,
   );
+  assert.match(fs.readFileSync(sourcePath, "utf8"), /S\.isTerminal\?/);
   assert.match(fs.readFileSync(actionPath, "utf8"), /onSelect:Pe,title:/);
+});
+
+test("patchTerminalBrowserChromeSource hides browser toolbar for terminal URLs", () => {
+  const patched = patchTerminalBrowserChromeSource(browserChromeChunk);
+
+  assert.match(patched, /function codexWebTerminalTabIcon/);
+  assert.match(patched, /isTerminal:/);
+  assert.match(patched, /S\.isTerminal\?/);
+  assert.match(patched, /codexWebTerminalTabIcon/);
+  assert.match(
+    patched,
+    /codexWebIsTerminalTab=X\.url\?\.includes\(`\/__terminal`\)===!0/,
+  );
+  assert.match(
+    patched,
+    /"data-codex-web-terminal-tab":codexWebIsTerminalTab\?`true`:void 0/,
+  );
+  assert.match(
+    patched,
+    /className:J\(`relative grid h-full min-h-0 w-full min-w-0`,codexWebIsTerminalTab\?`grid-rows-\[1fr\]`:`grid-rows-\[auto_1fr\]`\)/,
+  );
+  assert.match(
+    patched,
+    /children:\[codexWebIsTerminalTab\?null:\(0,\$\.jsxs\)\(`div`,\{className:`relative z-10 h-toolbar-pane/,
+  );
+  assert.equal(patchTerminalBrowserChromeSource(patched), patched);
+});
+
+test("patchTerminalBrowserChromeSource fails when terminal tab metadata cannot be patched", () => {
+  assert.throws(
+    () =>
+      patchTerminalBrowserChromeSource(
+        browserChromeChunk.replace(
+          "icon:(0,$.jsx)(Dt,{alt:``,className:`size-full rounded-2xs`,logoUrl:S.faviconUrl,fallback:(0,$.jsx)(bi,{className:`size-full`})})",
+          "icon:(0,$.jsx)(UnknownIcon,{})",
+        ),
+      ),
+    /Terminal browser tab icon target not found/,
+  );
 });
