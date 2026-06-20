@@ -62,5 +62,14 @@ the renderer. this part is the most sloppy part of the codebase as i left codex
 to figure it out unattended. the parts around `__codexElectronIpcBridge` are the
 important bits related to wiring up the ipc bridge.
 
+browser panel support reuses the upstream renderer's browser sidebar and tab
+management code. since a normal browser cannot host Electron's native
+`<webview>` element, [`patch_browser_panel_iframe.mjs](./scripts/patch_browser_panel_iframe.mjs)
+rewrites the bundled browser sidebar manager during `prepare_asar` so browser
+panel hosts are iframes with a small Electron-webview compatibility surface.
+this supports opening and keeping browser panel pages visible in codex-web,
+while native Electron-only actions such as screenshots, find-in-page, devtools
+and cross-origin annotation capture remain best-effort or unavailable.
+
 [preload script]: https://www.electronjs.org/docs/latest/tutorial/tutorial-preload
 [`ipcRenderer`]: https://www.electronjs.org/docs/latest/api/ipc-renderer

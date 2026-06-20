@@ -11,6 +11,8 @@ import {
   openSelectWorkspaceRootDialog,
   type WorkspaceDirectoryEntries,
 } from "./workspace-root-dialog";
+import { handleSyncIpc } from "./sync-ipc.mts";
+import { getPathForFile } from "./web-utils.mts";
 
 type IpcListener = (event: unknown, ...args: unknown[]) => void;
 
@@ -143,11 +145,6 @@ const pendingDirectoryEntries = new Map<
 >();
 const rendererListeners = new Map<string, Set<IpcListener>>();
 const virtualPorts = new Map<string, MessagePort>();
-
-function unimplemented(method: string): never {
-  debugger;
-  throw new Error(`[electron-stub] ${method} is not implemented`);
-}
 
 export function emitRendererEvent(
   channel: string,
@@ -550,64 +547,12 @@ export const ipcRenderer = {
     });
   },
   sendSync(channel: string, ..._args: unknown[]): unknown {
-    if (channel === "codex_desktop:get-sentry-init-options") {
-      return {
-        codexAppSessionId: "42626fde-7064-471f-b44d-b1a7ad849c7f",
-        buildFlavor,
-        buildNumber: null,
-        appVersion: __CODEX_APP_VERSION__,
-        enabled: false,
-      };
-    }
-
-    if (channel === "codex_desktop:get-build-flavor") {
-      return buildFlavor;
-    }
-
-    if (channel === "codex_desktop:get-uses-owl-app-shell") {
-      return false;
-    }
-
-    if (channel === "codex_desktop:get-shared-object-snapshot") {
-      return {
-        host_config: {
-          id: "local",
-          display_name: "Local",
-          kind: "local",
-        },
-        remote_connections: [],
-        remote_control_connections: [],
-        remote_control_connections_state: {
-          available: false,
-          authRequired: false,
-        },
-        pending_worktrees: [],
-        statsig_default_enable_features: {
-          enable_request_compression: true,
-          collaboration_modes: true,
-          personality: true,
-          request_rule: true,
-          fast_mode: true,
-          image_generation: true,
-          image_detail_original: true,
-          workspace_dependencies: true,
-          guardian_approval: true,
-          apps: true,
-          plugins: true,
-          tool_search: true,
-          tool_suggest: false,
-          tool_call_mcp_elicitation: true,
-          memories: false,
-          realtime_conversation: false,
-        },
-      };
-    }
-
-    if (channel === "codex_desktop:get-system-theme-variant") {
-      return themeMediaQuery.matches ? "dark" : "light";
-    }
-
-    return unimplemented("ipcRenderer.sendSync");
+    return handleSyncIpc(channel, {
+      appVersion: __CODEX_APP_VERSION__,
+      buildFlavor,
+      getSystemThemeVariant: () =>
+        themeMediaQuery.matches ? "dark" : "light",
+    });
   },
 };
 
@@ -620,7 +565,7 @@ export const contextBridge = {
 };
 
 export const webUtils = {
-  getPathForFile(_file: File): string | null {
-    return unimplemented("webUtils.getPathForFile");
+  getPathForFile(file: File): string | null {
+    return getPathForFile(file);
   },
 };

@@ -101,17 +101,19 @@ someone with access to the web ui may be able to:
 - working today:
   - subagents
   - inline images
+  - browser panel, backed by an iframe fallback in browsers
   - editor sidepanel
+  - terminal support
   - transcription
 
 ## roadmap
 
-some parts of the desktop experience are not wired up yet:
+some parts of the desktop experience are not fully wired up yet:
 
-- browser panel support, likely rebuilt around iframes
 - computer use on linux, which could become a very powerful feature
-- terminal support
 - git worker integration
+- browser panel features that require Electron's native `<webview>` runtime,
+  such as page screenshots, in-page find and cross-origin annotation capture
 - whatever else people find and file issues for
 
 ## issues welcome
