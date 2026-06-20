@@ -3,3 +3,4 @@ scratch*/
 sentry
 .cache/
 .playwright-cli/
+.worktrees/
