@@ -29,11 +29,60 @@ export function findTerminalSidePanelAsset(assetsDir) {
   };
 }
 
+export function findTerminalActionAsset(assetsDir, terminalPatchTarget) {
+  const terminalAssetName = path.basename(terminalPatchTarget.assetPath);
+  const terminalSource = fs.readFileSync(terminalPatchTarget.assetPath, "utf8");
+  const terminalExportName = findExportedName(
+    terminalSource,
+    terminalPatchTarget.functionName,
+  );
+  const candidates = fs
+    .readdirSync(assetsDir)
+    .filter((name) => name.endsWith(".js"))
+    .map((name) => path.join(assetsDir, name));
+
+  for (const assetPath of candidates) {
+    const source = fs.readFileSync(assetPath, "utf8");
+    if (!source.includes("thread.sidePanel.newTab.terminal.title")) {
+      continue;
+    }
+
+    const terminalImport = parseImportClauses(source).find(
+      (importClause) => importClause.source === terminalAssetName,
+    );
+    if (!terminalImport) {
+      continue;
+    }
+
+    const importedSpecifier = terminalImport.specifiers.find(
+      (specifier) => specifier.imported === terminalExportName,
+    );
+    if (!importedSpecifier) {
+      continue;
+    }
+
+    return {
+      assetPath,
+      terminalActionFunctionName: findTerminalActionFunctionName(
+        source,
+        importedSpecifier.local,
+      ),
+    };
+  }
+
+  throw new Error(
+    `Unable to find terminal side panel action asset in ${assetsDir}`,
+  );
+}
+
 export function patchTerminalSidePanelSource(
   source,
   { functionName, openBrowserPanelFunctionName },
 ) {
-  if (source.includes(PATCH_MARKER)) {
+  if (
+    source.includes(PATCH_MARKER) &&
+    source.includes("globalThis.location.origin")
+  ) {
     return source;
   }
 
@@ -45,12 +94,38 @@ export function patchTerminalSidePanelSource(
   const conversationIdParam = paramName(params[1]);
   const cwdSymbol = findCurrentCwdSymbol(source);
 
-  const replacement = `function ${functionName}(${functionRange.params}){let r=${appScopeParam}.get(${cwdSymbol});return ${openBrowserPanelFunctionName}(${appScopeParam},{browserConversationId:${conversationIdParam}??void 0,initialUrl:\`/__terminal?cwd=\${encodeURIComponent(r??\`\`)}\`,initiator:\`side_panel_terminal\`,source:\`manual\`,target:\`right\`,cwd:r??void 0})!=null}`;
+  const replacement = `function ${functionName}(${functionRange.params}){let r=${appScopeParam}.get(${cwdSymbol});return ${openBrowserPanelFunctionName}(${appScopeParam},{browserConversationId:${conversationIdParam}??void 0,initialUrl:\`\${globalThis.location.origin}/__terminal?cwd=\${encodeURIComponent(r??\`\`)}\`,initiator:\`side_panel_terminal\`,source:\`manual\`,target:\`right\`,cwd:r??void 0})!=null}`;
 
   return (
     source.slice(0, functionRange.start) +
     replacement +
     source.slice(functionRange.end)
+  );
+}
+
+export function patchTerminalActionSource(
+  source,
+  { terminalActionFunctionName },
+) {
+  const actionPattern =
+    /(id:`terminal`[\s\S]{0,160}?onSelect\s*:\s*)[$A-Za-z_][\w$]*(\s*,\s*title\s*:\s*\(0,[\s\S]{0,180}?thread\.sidePanel\.newTab\.terminal\.title)/;
+  const match = actionPattern.exec(source);
+  if (!match) {
+    throw new Error("Terminal side panel action handler not found");
+  }
+
+  const currentHandler = source.slice(
+    match.index + match[1].length,
+    match.index + match[0].length - match[2].length,
+  );
+  if (currentHandler === terminalActionFunctionName) {
+    return source;
+  }
+
+  return (
+    source.slice(0, match.index) +
+    `${match[1]}${terminalActionFunctionName}${match[2]}` +
+    source.slice(match.index + match[0].length)
   );
 }
 
@@ -62,6 +137,30 @@ export function patchTerminalSidePanelAsset(assetsDir) {
     fs.writeFileSync(patchTarget.assetPath, patched);
   }
   return patchTarget.assetPath;
+}
+
+export function patchTerminalActionAsset(assetsDir, terminalPatchTarget) {
+  const patchTarget = findTerminalActionAsset(assetsDir, terminalPatchTarget);
+  const source = fs.readFileSync(patchTarget.assetPath, "utf8");
+  const patched = patchTerminalActionSource(source, patchTarget);
+  if (patched !== source) {
+    fs.writeFileSync(patchTarget.assetPath, patched);
+  }
+  return patchTarget.assetPath;
+}
+
+export function patchTerminalSidePanelSupport(assetsDir) {
+  const terminalPatchTarget = findTerminalSidePanelAsset(assetsDir);
+  const source = fs.readFileSync(terminalPatchTarget.assetPath, "utf8");
+  const patched = patchTerminalSidePanelSource(source, terminalPatchTarget);
+  if (patched !== source) {
+    fs.writeFileSync(terminalPatchTarget.assetPath, patched);
+  }
+
+  return [
+    terminalPatchTarget.assetPath,
+    patchTerminalActionAsset(assetsDir, terminalPatchTarget),
+  ];
 }
 
 function resolvePublicExport(assetsDir, publicName) {
@@ -85,6 +184,29 @@ function resolvePublicExport(assetsDir, publicName) {
   }
 
   throw new Error(`Unable to find ${publicName} export in ${assetsDir}`);
+}
+
+function findExportedName(source, localName) {
+  const specifier = parseExportSpecifiers(source).find(
+    (specifier) => specifier.local === localName,
+  );
+  if (specifier) {
+    return specifier.exported;
+  }
+  throw new Error(`Unable to find export for local symbol ${localName}`);
+}
+
+function findTerminalActionFunctionName(source, terminalOpenerName) {
+  const pattern = new RegExp(
+    `\\b([$A-Za-z_][\\w$]*)\\s*=\\s*\\(\\)\\s*=>\\s*\\{\\s*${escapeRegex(terminalOpenerName)}\\s*\\(`,
+  );
+  const match = pattern.exec(source);
+  if (!match) {
+    throw new Error(
+      `Unable to find terminal action wrapper for ${terminalOpenerName}`,
+    );
+  }
+  return match[1];
 }
 
 function resolveLocalBinding(assetsDir, assetPath, source, localName) {
@@ -268,6 +390,8 @@ if (invokedPath === import.meta.url) {
   const workspaceRoot = path.resolve(scriptDir, "..");
   const assetsDir =
     process.argv[2] ?? path.join(workspaceRoot, "scratch/asar/webview/assets");
-  const assetPath = patchTerminalSidePanelAsset(assetsDir);
-  console.log(`Patched terminal side panel support in ${assetPath}`);
+  const assetPaths = patchTerminalSidePanelSupport(assetsDir);
+  console.log(
+    `Patched terminal side panel support in ${assetPaths.join(", ")}`,
+  );
 }

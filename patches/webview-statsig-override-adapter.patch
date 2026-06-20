@@ -8,6 +8,14 @@
      s = (0, $.useMemo)(() => fP(t), [t]),
      c = (0, $.useRef)(o),
      l = (0, $.useRef)(null),
+@@ -25373,6 +25373,7 @@
+   };
+ }
+ async function hP(e) {
++  return;
+   try {
+     switch (e.eventKind) {
+       case `turn_rating`:
 @@ -25920,10 +25920,13 @@
    XP = 500,
    ZP = `1569253508`,
@@ -22,3 +30,21 @@
        networkOverrideFunc: UP,
      },
    };
+@@ -26004,6 +26007,7 @@
+   );
+ }
+ function eF(e) {
++  return e.children;
+   let t = (0, Q.c)(27),
+     {
+       auth: n,
+--- a/webview/assets/composer-DdM3sB3u.js
++++ b/webview/assets/composer-DdM3sB3u.js
+@@ -3127,6 +3127,7 @@
+   isReferralCta: r,
+   referralCtaText: i,
+ }) {
++  return false;
+   let a = { ...t },
+     o = {
+       eventType: e,
