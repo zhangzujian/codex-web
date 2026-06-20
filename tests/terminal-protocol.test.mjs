@@ -16,12 +16,14 @@ test("parseTerminalClientMessage accepts create, input, resize, and close messag
       cwd: "/tmp",
       cols: 80,
       rows: 24,
+      terminalType: "linux",
     }),
     {
       type: "create",
       cwd: "/tmp",
       cols: 80,
       rows: 24,
+      terminalType: "linux",
     },
   );
   assert.deepEqual(
@@ -47,6 +49,11 @@ test("parseTerminalClientMessage accepts create, input, resize, and close messag
 test("parseTerminalClientMessage rejects malformed messages", () => {
   assert.throws(
     () => parseTerminalClientMessage({ type: "create", cwd: 123 }),
+    /Invalid terminal create message/,
+  );
+  assert.throws(
+    () =>
+      parseTerminalClientMessage({ type: "create", terminalType: "bad term" }),
     /Invalid terminal create message/,
   );
   assert.throws(
@@ -116,13 +123,19 @@ test("terminal socket handler creates a session and forwards input, resize, and 
 
   handler(socket);
 
-  socket.emitMessage({ type: "create", cwd: "/tmp", cols: 80, rows: 24 });
+  socket.emitMessage({
+    type: "create",
+    cwd: "/tmp",
+    cols: 80,
+    rows: 24,
+    terminalType: "linux",
+  });
   socket.emitMessage({ type: "input", data: "pwd\r" });
   socket.emitMessage({ type: "resize", cols: 100, rows: 30 });
   socket.emitMessage({ type: "close" });
 
   assert.deepEqual(calls, [
-    ["create", { cwd: "/tmp", cols: 80, rows: 24 }],
+    ["create", { cwd: "/tmp", cols: 80, rows: 24, terminalType: "linux" }],
     ["onData"],
     ["onExit"],
     ["write", "pwd\r"],

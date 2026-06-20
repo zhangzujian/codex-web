@@ -11,6 +11,7 @@ export type TerminalClientMessage =
       cwd?: string;
       cols?: number;
       rows?: number;
+      terminalType?: string;
     }
   | {
       type: "input";
@@ -62,6 +63,7 @@ export type TerminalSessionOptions = {
   cols: number;
   cwd: string;
   rows: number;
+  terminalType: string;
 };
 
 export type TerminalSessionFactory = {
@@ -70,6 +72,8 @@ export type TerminalSessionFactory = {
 
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
+const DEFAULT_TERMINAL_TYPE = "xterm-256color";
+const TERMINAL_TYPE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 export function parseTerminalClientMessage(
   value: unknown,
@@ -100,11 +104,21 @@ export function parseTerminalClientMessage(
     ) {
       throw new Error("Invalid terminal create message");
     }
+    if (
+      "terminalType" in value &&
+      value.terminalType !== undefined &&
+      !isTerminalType(value.terminalType)
+    ) {
+      throw new Error("Invalid terminal create message");
+    }
     return {
       type: "create",
       ...(typeof value.cwd === "string" ? { cwd: value.cwd } : {}),
       ...(isPositiveInteger(value.cols) ? { cols: value.cols } : {}),
       ...(isPositiveInteger(value.rows) ? { rows: value.rows } : {}),
+      ...(isTerminalType(value.terminalType)
+        ? { terminalType: value.terminalType.trim() }
+        : {}),
     };
   }
 
@@ -195,6 +209,7 @@ export function createTerminalSocketHandler(
             cwd: resolveTerminalCwd(message.cwd),
             cols: message.cols ?? DEFAULT_COLS,
             rows: message.rows ?? DEFAULT_ROWS,
+            terminalType: message.terminalType ?? DEFAULT_TERMINAL_TYPE,
           });
           session = createdSession;
           send({ type: "created", sessionId: session.id });
@@ -247,10 +262,10 @@ export function createNodePtyTerminalSessionFactory(): TerminalSessionFactory {
         cwd: options.cwd,
         env: {
           ...process.env,
-          TERM: "xterm-256color",
+          TERM: options.terminalType,
           COLORTERM: "truecolor",
         },
-        name: "xterm-256color",
+        name: options.terminalType,
       });
 
       return {
@@ -327,6 +342,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isPositiveInteger(value: unknown): value is number {
   return Number.isInteger(value) && Number(value) > 0;
+}
+
+function isTerminalType(value: unknown): value is string {
+  return typeof value === "string" && TERMINAL_TYPE_PATTERN.test(value.trim());
 }
 
 function errorMessage(error: unknown): string {

@@ -4,6 +4,7 @@ export type TerminalClientMessage = {
     cwd?: string;
     cols?: number;
     rows?: number;
+    terminalType?: string;
 } | {
     type: "input";
     data: string;
@@ -43,6 +44,7 @@ export type TerminalSessionOptions = {
     cols: number;
     cwd: string;
     rows: number;
+    terminalType: string;
 };
 export type TerminalSessionFactory = {
     createSession: (options: TerminalSessionOptions) => TerminalSession;
