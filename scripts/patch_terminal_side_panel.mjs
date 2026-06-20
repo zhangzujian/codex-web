@@ -179,6 +179,23 @@ export function patchTerminalActionSource(
   );
 }
 
+export function patchThreadOpenInPrimaryIconSource(source) {
+  if (source.includes("src:g.resolvedIcon??g.icon")) {
+    return source;
+  }
+
+  if (!source.includes("localConversationPage.openPrimaryTarget")) {
+    return source;
+  }
+
+  return replaceOnce(
+    source,
+    "src:g.icon,className:`icon-sm`",
+    "src:g.resolvedIcon??g.icon,className:`icon-sm`",
+    "Top Open in primary icon target not found",
+  );
+}
+
 export function patchTerminalBrowserPanelOpenSource(
   source,
   { openBrowserPanelFunctionName },
@@ -564,8 +581,10 @@ export function patchTerminalSidePanelAsset(assetsDir) {
 export function patchTerminalActionAsset(assetsDir, terminalPatchTarget) {
   const patchTarget = findTerminalActionAsset(assetsDir, terminalPatchTarget);
   const source = fs.readFileSync(patchTarget.assetPath, "utf8");
-  const patched = patchTerminalNewTabMenuSource(
-    patchTerminalActionSource(source, patchTarget),
+  const patched = patchThreadOpenInPrimaryIconSource(
+    patchTerminalNewTabMenuSource(
+      patchTerminalActionSource(source, patchTarget),
+    ),
   );
   if (patched !== source) {
     fs.writeFileSync(patchTarget.assetPath, patched);

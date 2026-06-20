@@ -16,6 +16,7 @@ import {
   patchTerminalSidePanelAsset,
   patchTerminalSidePanelSource,
   patchTerminalSidePanelSupport,
+  patchThreadOpenInPrimaryIconSource,
 } from "../scripts/patch_terminal_side_panel.mjs";
 
 const sourceChunk = [
@@ -83,6 +84,14 @@ const newTabMenuChunk = [
 ].join("");
 
 const sidePanelActionWithNewTabMenuChunk = `${sidePanelActionChunk}${newTabMenuChunk}`;
+
+const openInPrimaryIconChunk = [
+  "function ft(){",
+  "let g={icon:`apps/vscode.png`,resolvedIcon:`data:image/png;base64,abc`,label:`VS Code`},_=!0;",
+  "let R=(0,Q.jsx)(`span`,{className:`icon-sm inline-flex shrink-0 items-center justify-center`,children:g==null?(0,Q.jsx)(`span`,{className:`size-4 rounded bg-token-bg-tertiary`}):(0,Q.jsx)(`img`,{alt:_?g.label:``,onError:_t,src:g.icon,className:`icon-sm`})});",
+  "}",
+  "var vt=S({openPrimaryTarget:{id:`localConversationPage.openPrimaryTarget`,defaultMessage:`Open in`,description:`Primary open button label`}});",
+].join("");
 
 const sourceWithBrowserChromeChunk = `${sourceChunk.replace("function Rp(e,t){return t}", browserPanelOpenChunk)}${browserChromeChunk}${browserTabOpenChunk}`;
 
@@ -225,6 +234,14 @@ test("patchTerminalNewTabMenuSource shows Browser when only terminal browser tab
   assert.match(patched, /browserTabId:crypto\.randomUUID\(\)/);
   assert.match(patched, /initiator:`side_panel_browser`/);
   assert.equal(patchTerminalNewTabMenuSource(patched), patched);
+});
+
+test("patchThreadOpenInPrimaryIconSource uses resolved icons for the top Open in button", () => {
+  const patched = patchThreadOpenInPrimaryIconSource(openInPrimaryIconChunk);
+
+  assert.match(patched, /src:g\.resolvedIcon\?\?g\.icon/);
+  assert.doesNotMatch(patched, /src:g\.icon/);
+  assert.equal(patchThreadOpenInPrimaryIconSource(patched), patched);
 });
 
 test("findTerminalSidePanelAsset follows the public re-export to the source chunk", () => {
