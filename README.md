@@ -103,6 +103,7 @@ someone with access to the web ui may be able to:
   - inline images
   - browser panel, backed by an iframe fallback in browsers
   - editor sidepanel
+  - git worker integration
   - terminal support
   - transcription
 
@@ -111,7 +112,6 @@ someone with access to the web ui may be able to:
 some parts of the desktop experience are not fully wired up yet:
 
 - computer use on linux, which could become a very powerful feature
-- git worker integration
 - browser panel features that require Electron's native `<webview>` runtime,
   such as real page screenshots, cross-origin find matching, devtools,
   printing and cross-origin annotation capture. the iframe fallback already
