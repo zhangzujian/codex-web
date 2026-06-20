@@ -9,6 +9,9 @@ const PUBLIC_BROWSER_PANEL_EXPORT =
   "openThreadBrowserSidePanelTabWithPendingState";
 const PATCH_MARKER = "side_panel_terminal";
 const TERMINAL_BROWSER_CHROME_MARKER = "codexWebIsTerminalTab";
+const APPLICATION_MENU_PATCH_MARKER = "codexWebDisableApplicationMenu";
+const APPLICATION_MENU_FEATURE_PATTERN =
+  /function\s+([$A-Za-z_][\w$]*)\(\)\{return yt\(\)&&window\.electronBridge\?\.showApplicationMenu!=null\}/;
 const TERMINAL_TAB_ICON_FUNCTION =
   "function codexWebTerminalTabIcon(e){return Q.createElement(`svg`,{width:20,height:20,viewBox:`0 0 20 20`,fill:`none`,xmlns:`http://www.w3.org/2000/svg`,...e},Q.createElement(`path`,{d:`M13.334 12.2529C13.701 12.2533 13.999 12.5509 13.999 12.918C13.9988 13.2849 13.7008 13.5827 13.334 13.583H6.66699C6.29984 13.583 6.00215 13.2851 6.00195 12.918C6.00195 12.5507 6.29972 12.2529 6.66699 12.2529H13.334Z`,fill:`currentColor`}),Q.createElement(`path`,{fillRule:`evenodd`,clipRule:`evenodd`,d:`M15 3.08594C16.748 3.08594 18.165 4.503 18.165 6.25098V13.751C18.165 15.499 16.748 16.916 15 16.916H5C3.25202 16.916 1.83496 15.499 1.83496 13.751V6.25098C1.83496 4.503 3.25202 3.08594 5 3.08594H15ZM5 4.41602C3.98656 4.41602 3.16504 5.23753 3.16504 6.25098V13.751C3.16504 14.7644 3.98656 15.5859 5 15.5859H15C16.0134 15.5859 16.835 14.7644 16.835 13.751V6.25098C16.835 5.23753 16.0134 4.41602 15 4.41602H5Z`,fill:`currentColor`}))}";
 
@@ -76,6 +79,46 @@ export function findTerminalActionAsset(assetsDir, terminalPatchTarget) {
   throw new Error(
     `Unable to find terminal side panel action asset in ${assetsDir}`,
   );
+}
+
+export function findApplicationMenuAsset(assetsDir) {
+  const candidates = fs
+    .readdirSync(assetsDir)
+    .filter((name) => name.endsWith(".js"))
+    .map((name) => path.join(assetsDir, name));
+
+  for (const assetPath of candidates) {
+    const source = fs.readFileSync(assetPath, "utf8");
+    if (
+      source.includes("windowsMenuBar.file") &&
+      (source.includes("showApplicationMenu") ||
+        source.includes(APPLICATION_MENU_PATCH_MARKER))
+    ) {
+      return assetPath;
+    }
+  }
+
+  throw new Error(`Unable to find application menu asset in ${assetsDir}`);
+}
+
+export function patchApplicationMenuSource(source) {
+  const match = APPLICATION_MENU_FEATURE_PATTERN.exec(source);
+  if (match) {
+    return (
+      source.slice(0, match.index) +
+      `function ${match[1]}(){return!1/*${APPLICATION_MENU_PATCH_MARKER}*/}` +
+      source.slice(match.index + match[0].length)
+    );
+  }
+
+  if (
+    source.includes("windowsMenuBar.file") &&
+    source.includes(APPLICATION_MENU_PATCH_MARKER)
+  ) {
+    return source;
+  }
+
+  throw new Error("Application menu feature gate not found");
 }
 
 export function patchTerminalSidePanelSource(
@@ -276,6 +319,16 @@ export function patchTerminalActionAsset(assetsDir, terminalPatchTarget) {
   return patchTarget.assetPath;
 }
 
+export function patchApplicationMenuAsset(assetsDir) {
+  const assetPath = findApplicationMenuAsset(assetsDir);
+  const source = fs.readFileSync(assetPath, "utf8");
+  const patched = patchApplicationMenuSource(source);
+  if (patched !== source) {
+    fs.writeFileSync(assetPath, patched);
+  }
+  return assetPath;
+}
+
 export function patchTerminalSidePanelSupport(assetsDir) {
   const terminalPatchTarget = findTerminalSidePanelAsset(assetsDir);
   const source = fs.readFileSync(terminalPatchTarget.assetPath, "utf8");
@@ -289,6 +342,7 @@ export function patchTerminalSidePanelSupport(assetsDir) {
   return [
     terminalPatchTarget.assetPath,
     patchTerminalActionAsset(assetsDir, terminalPatchTarget),
+    patchApplicationMenuAsset(assetsDir),
   ];
 }
 

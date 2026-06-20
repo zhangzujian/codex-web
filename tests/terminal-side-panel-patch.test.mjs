@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   findTerminalActionAsset,
   findTerminalSidePanelAsset,
+  patchApplicationMenuSource,
   patchTerminalActionSource,
   patchTerminalBrowserChromeSource,
   patchTerminalSidePanelAsset,
@@ -52,6 +53,14 @@ const browserChromeChunk = [
   "let Ui=!1,Wi=`Show`;",
   "return(0,$.jsxs)(`div`,{ref:L,\"data-browser-sidebar-primary-focus-target\":Kt?`webview`:`address`,className:`relative grid h-full min-h-0 w-full min-w-0 grid-rows-[auto_1fr]`,tabIndex:-1,children:[(0,$.jsxs)(`div`,{className:`relative z-10 h-toolbar-pane min-w-0 shrink-0 border-b border-token-border`,children:[(0,$.jsx)(`input`,{\"data-browser-sidebar-address-input\":`true`})]}),(0,$.jsx)(`div`,{className:`relative flex min-h-0 min-w-0 flex-1 flex-col`})]})",
   "}",
+].join("");
+
+const applicationMenuChunk = [
+  "function $n(){return(0,$.jsx)(`button`,{id:`sidebar-trigger`})}",
+  "function In(){return yt()&&window.electronBridge?.showApplicationMenu!=null}",
+  "var Ln=_({file:{id:`windowsMenuBar.file`,defaultMessage:`File`},edit:{id:`windowsMenuBar.edit`,defaultMessage:`Edit`},view:{id:`windowsMenuBar.view`,defaultMessage:`View`},help:{id:`windowsMenuBar.help`,defaultMessage:`Help`}});",
+  "function zn(){if(!In())return null;return Rn.map(e=>(0,$.jsx)(`button`,{children:e.id}))}",
+  "function ni(){let n=(0,$.jsx)($n,{}),r=null,i=(0,$.jsx)(zn,{});return(0,$.jsxs)(`div`,{children:[n,r,i]})}",
 ].join("");
 
 const sourceWithBrowserChromeChunk = `${sourceChunk}${browserChromeChunk}`;
@@ -180,16 +189,22 @@ test("patchTerminalSidePanelSupport patches the source and Terminal action", () 
   fs.writeFileSync(sourcePath, sourceWithBrowserChromeChunk);
   const actionPath = path.join(assetsDir, "thread-app-shell-chrome.js");
   fs.writeFileSync(actionPath, sidePanelActionChunk);
+  const applicationMenuPath = path.join(assetsDir, "app-shell.js");
+  fs.writeFileSync(applicationMenuPath, applicationMenuChunk);
 
   const patchedPaths = patchTerminalSidePanelSupport(assetsDir);
 
-  assert.deepEqual(patchedPaths, [sourcePath, actionPath]);
+  assert.deepEqual(patchedPaths, [sourcePath, actionPath, applicationMenuPath]);
   assert.match(
     fs.readFileSync(sourcePath, "utf8"),
     /\$\{globalThis\.location\.origin\}\/__terminal\?cwd=/,
   );
   assert.match(fs.readFileSync(sourcePath, "utf8"), /S\.isTerminal\?/);
   assert.match(fs.readFileSync(actionPath, "utf8"), /onSelect:Pe,title:/);
+  assert.match(
+    fs.readFileSync(applicationMenuPath, "utf8"),
+    /function In\(\)\{return!1\/\*codexWebDisableApplicationMenu\*\/\}/,
+  );
 });
 
 test("patchTerminalBrowserChromeSource hides browser toolbar for terminal URLs", () => {
@@ -229,4 +244,20 @@ test("patchTerminalBrowserChromeSource fails when terminal tab metadata cannot b
       ),
     /Terminal browser tab icon target not found/,
   );
+});
+
+test("patchApplicationMenuSource hides the desktop menu bar but keeps the left control", () => {
+  const patched = patchApplicationMenuSource(applicationMenuChunk);
+
+  assert.match(
+    patched,
+    /function In\(\)\{return!1\/\*codexWebDisableApplicationMenu\*\/\}/,
+  );
+  assert.match(patched, /function \$n\(\)/);
+  assert.match(patched, /children:\[n,r,i\]/);
+  assert.doesNotMatch(
+    patched,
+    /window\.electronBridge\?\.showApplicationMenu!=null/,
+  );
+  assert.equal(patchApplicationMenuSource(patched), patched);
 });
