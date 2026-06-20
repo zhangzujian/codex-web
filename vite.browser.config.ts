@@ -23,7 +23,9 @@ export default defineConfig({
   root: webviewRoot,
   define: {
     __CODEX_APP_VERSION__: JSON.stringify(asarPackageJson.version),
+    "process.arch": JSON.stringify(process.arch),
     "process.env.NODE_ENV": JSON.stringify(browserNodeEnv),
+    "process.platform": JSON.stringify(process.platform),
   },
   server: {
     host: "127.0.0.1",

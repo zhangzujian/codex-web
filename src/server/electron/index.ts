@@ -9,6 +9,11 @@ type StubWebContents = {
   off: (event: string, listener: StubListener) => unknown;
   on: (event: string, listener: StubListener) => unknown;
   once: (event: string, listener: StubListener) => unknown;
+  postMessage: (
+    channel: string,
+    message: unknown,
+    transfer?: unknown[],
+  ) => void;
   removeListener: (event: string, listener: StubListener) => unknown;
   send: (channel: string, ...args: unknown[]) => void;
 };
@@ -16,6 +21,7 @@ type IpcMainEvent = {
   returnValue: unknown;
   processId: number;
   frameId: number;
+  ports: unknown[];
   sender: StubWebContents;
   senderFrame: {
     url: string;
@@ -28,6 +34,7 @@ type IpcMainBridgeState = {
     type: "ipc-main-event";
     channel: string;
     args: unknown[];
+    portIds?: string[];
   }) => void;
   handleRendererInvoke?: (
     channel: string,
@@ -38,6 +45,7 @@ type IpcMainBridgeState = {
     channel: string,
     args: unknown[],
     sourceUrl?: string,
+    ports?: unknown[],
   ) => void;
 };
 
@@ -152,6 +160,21 @@ function createMessagePortStub(label: string): {
   };
 }
 
+function extractVirtualPortIds(transfer: unknown[] | undefined): string[] {
+  return (
+    transfer
+      ?.map((port) =>
+        typeof port === "object" &&
+        port !== null &&
+        "__codexVirtualPortId" in port &&
+        typeof port.__codexVirtualPortId === "string"
+          ? port.__codexVirtualPortId
+          : null,
+      )
+      .filter((portId): portId is string => portId !== null) ?? []
+  );
+}
+
 const rendererUrl = "http://localhost:5175/";
 const rendererMainFrame = {
   url: rendererUrl,
@@ -164,6 +187,19 @@ const rendererWebContents: StubWebContents = {
   off: rendererWebContentsEmitter.off,
   on: rendererWebContentsEmitter.on,
   once: rendererWebContentsEmitter.once,
+  postMessage: (
+    channel: string,
+    message: unknown,
+    transfer?: unknown[],
+  ): void => {
+    const portIds = extractVirtualPortIds(transfer);
+    getIpcMainBridgeState().broadcastToRenderer?.({
+      type: "ipc-main-event",
+      channel,
+      args: [message],
+      ...(portIds.length > 0 ? { portIds } : {}),
+    });
+  },
   removeListener: rendererWebContentsEmitter.removeListener,
   send: (channel: string, ...args: unknown[]): void => {
     getIpcMainBridgeState().broadcastToRenderer?.({
@@ -174,11 +210,18 @@ const rendererWebContents: StubWebContents = {
   },
 };
 
-function createIpcMainEvent(): IpcMainEvent {
+function createIpcMainEvent({
+  ports = [],
+  sourceUrl: _sourceUrl,
+}: {
+  ports?: unknown[];
+  sourceUrl?: string;
+} = {}): IpcMainEvent {
   const event: IpcMainEvent = {
     returnValue: undefined,
     processId: 1,
     frameId: 1,
+    ports,
     sender: rendererWebContents,
     senderFrame: rendererMainFrame,
     reply: (channel: string, ...args: unknown[]): void => {
@@ -212,12 +255,13 @@ function createIpcMainStub(): {
   bridgeState.handleRendererInvoke = async (
     channel: string,
     args: unknown[],
+    sourceUrl?: string,
   ): Promise<unknown> => {
     const handler = handlers.get(channel);
     if (!handler) {
       throw new Error(`[electron-main-stub] No ipcMain.handle for ${channel}`);
     }
-    const event = createIpcMainEvent();
+    const event = createIpcMainEvent({ sourceUrl });
     return await Promise.resolve(handler(event, ...args));
   };
 
@@ -225,8 +269,9 @@ function createIpcMainStub(): {
     channel: string,
     args: unknown[],
     sourceUrl?: string,
+    ports?: unknown[],
   ): void => {
-    const event = createIpcMainEvent();
+    const event = createIpcMainEvent({ ports, sourceUrl });
     emitter.emit(channel, event, ...args);
   };
 
@@ -248,6 +293,7 @@ function createIpcMainStub(): {
 }
 
 let appReady = false;
+const commandLineSwitches = new Map<string, string>();
 
 const appBase = {
   ...createEmitterStub("app"),
@@ -302,6 +348,19 @@ const appBase = {
   commandLine: {
     appendSwitch(name: string, value?: string): void {
       log("app.commandLine.appendSwitch", [name, value]);
+      commandLineSwitches.set(name, value ?? "");
+    },
+    getSwitchValue(name: string): string {
+      log("app.commandLine.getSwitchValue", [name]);
+      return commandLineSwitches.get(name) ?? "";
+    },
+    hasSwitch(name: string): boolean {
+      log("app.commandLine.hasSwitch", [name]);
+      return commandLineSwitches.has(name);
+    },
+    removeSwitch(name: string): void {
+      log("app.commandLine.removeSwitch", [name]);
+      commandLineSwitches.delete(name);
     },
   },
   on(event: string, listener: (...args: unknown[]) => void): unknown {
@@ -365,6 +424,24 @@ class BrowserWindow {
             openDevToolsArgs,
           );
         },
+        postMessage: (
+          channel: string,
+          message: unknown,
+          transfer?: unknown[],
+        ): void => {
+          log(`BrowserWindow#${this.id}.webContents.postMessage`, [
+            channel,
+            message,
+            transfer,
+          ]);
+          const portIds = extractVirtualPortIds(transfer);
+          getIpcMainBridgeState().broadcastToRenderer?.({
+            type: "ipc-main-event",
+            channel,
+            args: [message],
+            ...(portIds.length > 0 ? { portIds } : {}),
+          });
+        },
         send: (...sendArgs: unknown[]): void => {
           log(`BrowserWindow#${this.id}.webContents.send`, sendArgs);
           if (sendArgs.length === 0 || typeof sendArgs[0] !== "string") {
@@ -409,13 +486,19 @@ class BrowserWindow {
 
   static getFocusedWindow(): BrowserWindow | null {
     log("BrowserWindow.getFocusedWindow", []);
-    if (
-      BrowserWindow.focusedWindow &&
-      !BrowserWindow.focusedWindow.destroyed
-    ) {
+    if (BrowserWindow.focusedWindow && !BrowserWindow.focusedWindow.destroyed) {
       return BrowserWindow.focusedWindow;
     }
     return BrowserWindow.getAllWindows()[0] ?? null;
+  }
+
+  static fromWebContents(webContents: unknown): BrowserWindow | null {
+    log("BrowserWindow.fromWebContents", [webContents]);
+    return (
+      BrowserWindow.getAllWindows().find(
+        (window) => window.webContents === webContents,
+      ) ?? null
+    );
   }
 
   on(event: string, listener: StubListener): unknown {
@@ -813,14 +896,19 @@ function createSessionStub(label: string): {
     },
   };
 }
-const partitionSessions = new Map<string, ReturnType<typeof createSessionStub>>();
+const partitionSessions = new Map<
+  string,
+  ReturnType<typeof createSessionStub>
+>();
 const session = {
   defaultSession: createSessionStub("session.defaultSession"),
   fromPartition(partition: string): ReturnType<typeof createSessionStub> {
     log("session.fromPartition", [partition]);
     let partitionSession = partitionSessions.get(partition);
     if (!partitionSession) {
-      partitionSession = createSessionStub(`session.fromPartition(${partition})`);
+      partitionSession = createSessionStub(
+        `session.fromPartition(${partition})`,
+      );
       partitionSessions.set(partition, partitionSession);
     }
     return partitionSession;
@@ -830,9 +918,19 @@ const utilityProcess = {
   fork: undefined,
 };
 const webContents = {
-  fromId(id: number): undefined {
+  fromId(id: number): Record<string, unknown> | undefined {
     log("webContents.fromId", [id]);
-    return undefined;
+    return BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.id === id,
+    )?.webContents;
+  },
+  getAllWebContents(): Array<Record<string, unknown>> {
+    log("webContents.getAllWebContents", []);
+    return BrowserWindow.getAllWindows().map((window) => window.webContents);
+  },
+  getFocusedWebContents(): Record<string, unknown> | null {
+    log("webContents.getFocusedWebContents", []);
+    return BrowserWindow.getFocusedWindow()?.webContents ?? null;
   },
 };
 class MessageChannelMain {

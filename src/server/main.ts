@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { randomUUID } from "node:crypto";
+import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -30,6 +31,16 @@ type RendererToMainMessage =
       channel: string;
       args: unknown[];
       sourceUrl: string;
+      portIds?: string[];
+    }
+  | {
+      type: "virtual-port-message";
+      portId: string;
+      data: unknown;
+    }
+  | {
+      type: "virtual-port-close";
+      portId: string;
     }
   | {
       type: "workspace-directory-entries-request";
@@ -43,6 +54,7 @@ type MainToRendererMessage =
       type: "ipc-main-event";
       channel: string;
       args: unknown[];
+      portIds?: string[];
     }
   | {
       type: "ipc-renderer-invoke-result";
@@ -67,6 +79,15 @@ type MainToRendererMessage =
       requestId: string;
       ok: false;
       errorMessage: string;
+    }
+  | {
+      type: "virtual-port-message";
+      portId: string;
+      data: unknown;
+    }
+  | {
+      type: "virtual-port-close";
+      portId: string;
     };
 
 type WorkspaceDirectoryEntry = {
@@ -108,8 +129,26 @@ function compareWorkspaceDirectoryEntries(
 
 type IpcMainBridgeState = {
   broadcastToRenderer?: (message: MainToRendererMessage) => void;
-  handleRendererInvoke?: (channel: string, args: unknown[]) => Promise<unknown>;
-  handleRendererSend?: (channel: string, args: unknown[]) => void;
+  handleRendererInvoke?: (
+    channel: string,
+    args: unknown[],
+    sourceUrl?: string,
+  ) => Promise<unknown>;
+  handleRendererSend?: (
+    channel: string,
+    args: unknown[],
+    sourceUrl?: string,
+    ports?: unknown[],
+  ) => void;
+};
+
+type VirtualMessagePort = {
+  __codexVirtualPortId: string;
+  close: () => void;
+  emitMessage: (data: unknown) => void;
+  on: (event: "message" | "close", listener: (event?: unknown) => void) => void;
+  postMessage: (data: unknown) => void;
+  start: () => void;
 };
 
 function printUsage(): void {
@@ -184,6 +223,75 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
+function sendSocketMessage(
+  socket: WebSocket,
+  message: MainToRendererMessage,
+): void {
+  if (socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify(message));
+  }
+}
+
+function createVirtualMessagePort({
+  onClose,
+  portId,
+  socket,
+}: {
+  onClose: () => void;
+  portId: string;
+  socket: WebSocket;
+}): VirtualMessagePort {
+  const listeners = {
+    close: new Set<(event?: unknown) => void>(),
+    message: new Set<(event?: unknown) => void>(),
+  };
+  let closed = false;
+
+  const emit = (event: "message" | "close", payload?: unknown): void => {
+    for (const listener of listeners[event]) {
+      listener(payload);
+    }
+  };
+
+  return {
+    __codexVirtualPortId: portId,
+    close(): void {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      onClose();
+      sendSocketMessage(socket, {
+        type: "virtual-port-close",
+        portId,
+      });
+      emit("close");
+    },
+    emitMessage(data: unknown): void {
+      if (closed) {
+        return;
+      }
+      emit("message", { data });
+    },
+    on(event: "message" | "close", listener: (event?: unknown) => void): void {
+      listeners[event].add(listener);
+    },
+    postMessage(data: unknown): void {
+      if (closed) {
+        return;
+      }
+      sendSocketMessage(socket, {
+        type: "virtual-port-message",
+        portId,
+        data,
+      });
+    },
+    start(): void {
+      // Electron MessagePortMain requires start(); this bridge is always live.
+    },
+  };
+}
+
 async function getWorkspaceDirectoryEntries({
   directoryPath,
   directoriesOnly,
@@ -227,6 +335,16 @@ async function getWorkspaceDirectoryEntries({
 }
 
 function ensureElectronLikeProcessContext(): void {
+  if (!process.env.CODEX_CLI_PATH && process.env.CODEX_UNIX_SOCKET) {
+    const remoteProxyPath = path.resolve(
+      __dirname,
+      "../../scripts/codex_remote_proxy",
+    );
+    if (fsSync.existsSync(remoteProxyPath)) {
+      process.env.CODEX_CLI_PATH = remoteProxyPath;
+    }
+  }
+
   const versions = process.versions as NodeJS.ProcessVersions & {
     electron?: string;
   };
@@ -248,6 +366,31 @@ function ensureElectronLikeProcessContext(): void {
     "../../scratch/asar",
   );
   processWithElectronFields.type ??= "browser";
+
+  const processWithLinkedBinding = process as NodeJS.Process & {
+    _codexWebLinkedBindingShimInstalled?: boolean;
+    _linkedBinding?: (name: string) => unknown;
+  };
+  if (!processWithLinkedBinding._codexWebLinkedBindingShimInstalled) {
+    const originalLinkedBinding = processWithLinkedBinding._linkedBinding;
+    processWithLinkedBinding._linkedBinding = function linkedBindingShim(
+      this: NodeJS.Process,
+      name: string,
+    ): unknown {
+      if (name === "electron_common_owl_features") {
+        return {
+          isOwlFeatureEnabled: () => false,
+        };
+      }
+
+      if (typeof originalLinkedBinding !== "function") {
+        throw new Error(`No linked binding available for ${name}`);
+      }
+
+      return originalLinkedBinding.call(this, name);
+    };
+    processWithLinkedBinding._codexWebLinkedBindingShimInstalled = true;
+  }
 }
 
 async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
@@ -343,9 +486,29 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
 
   websocketServer.on("connection", (socket) => {
     sockets.add(socket);
+    const virtualPorts = new Map<string, VirtualMessagePort>();
+
+    const getVirtualPort = (portId: string): VirtualMessagePort => {
+      let port = virtualPorts.get(portId);
+      if (!port) {
+        port = createVirtualMessagePort({
+          portId,
+          socket,
+          onClose: () => {
+            virtualPorts.delete(portId);
+          },
+        });
+        virtualPorts.set(portId, port);
+      }
+      return port;
+    };
 
     socket.on("close", () => {
       sockets.delete(socket);
+      for (const port of virtualPorts.values()) {
+        port.close();
+      }
+      virtualPorts.clear();
     });
 
     socket.on("message", (rawData) => {
@@ -357,8 +520,24 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
         return;
       }
 
+      if (message.type === "virtual-port-message") {
+        getVirtualPort(message.portId).emitMessage(message.data);
+        return;
+      }
+
+      if (message.type === "virtual-port-close") {
+        virtualPorts.get(message.portId)?.close();
+        return;
+      }
+
       if (message.type === "ipc-renderer-send") {
-        bridgeState.handleRendererSend?.(message.channel, message.args);
+        const ports = message.portIds?.map(getVirtualPort) ?? [];
+        bridgeState.handleRendererSend?.(
+          message.channel,
+          message.args,
+          message.sourceUrl,
+          ports,
+        );
         return;
       }
 
@@ -391,9 +570,9 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
       }
 
       if (message.type === "ipc-renderer-invoke") {
-        const { channel, requestId, args } = message;
+        const { channel, requestId, args, sourceUrl } = message;
         Promise.resolve(
-          bridgeState.handleRendererInvoke?.(channel, args) ??
+          bridgeState.handleRendererInvoke?.(channel, args, sourceUrl) ??
             Promise.reject(
               new Error(
                 `[ipc-bridge] no ipcMain.handle for channel ${channel}`,
@@ -407,9 +586,7 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
               ok: true,
               result,
             };
-            if (socket.readyState === WebSocket.OPEN) {
-              socket.send(JSON.stringify(payload));
-            }
+            sendSocketMessage(socket, payload);
           })
           .catch((error) => {
             const payload: MainToRendererMessage = {
@@ -418,9 +595,7 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
               ok: false,
               errorMessage: errorMessage(error),
             };
-            if (socket.readyState === WebSocket.OPEN) {
-              socket.send(JSON.stringify(payload));
-            }
+            sendSocketMessage(socket, payload);
           });
       }
     });

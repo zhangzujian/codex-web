@@ -20,11 +20,19 @@ type RendererToMainMessage =
       requestId: string;
       channel: string;
       args: unknown[];
+      sourceUrl: string;
     }
   | {
       type: "ipc-renderer-send";
       channel: string;
       args: unknown[];
+      sourceUrl: string;
+      portIds?: string[];
+    }
+  | {
+      type: "virtual-port-message";
+      portId: string;
+      data: unknown;
     }
   | {
       type: "workspace-directory-entries-request";
@@ -38,6 +46,7 @@ type MainToRendererMessage =
       type: "ipc-main-event";
       channel: string;
       args: unknown[];
+      portIds?: string[];
     }
   | {
       type: "ipc-renderer-invoke-result";
@@ -62,6 +71,15 @@ type MainToRendererMessage =
       requestId: string;
       ok: false;
       errorMessage: string;
+    }
+  | {
+      type: "virtual-port-message";
+      portId: string;
+      data: unknown;
+    }
+  | {
+      type: "virtual-port-close";
+      portId: string;
     };
 
 const RECONNECT_DELAY_MS = 1_000;
@@ -124,26 +142,52 @@ const pendingDirectoryEntries = new Map<
   }
 >();
 const rendererListeners = new Map<string, Set<IpcListener>>();
+const virtualPorts = new Map<string, MessagePort>();
 
 function unimplemented(method: string): never {
   debugger;
   throw new Error(`[electron-stub] ${method} is not implemented`);
 }
 
-export function emitRendererEvent(channel: string, args: unknown[]): void {
+export function emitRendererEvent(
+  channel: string,
+  args: unknown[],
+  portIds: string[] = [],
+): void {
   const listeners = rendererListeners.get(channel);
   if (!listeners || listeners.size === 0) {
     return;
   }
-  const event = { sender: null };
+  const event = {
+    ports: portIds.flatMap((portId) => {
+      const port = virtualPorts.get(portId);
+      return port ? [port] : [];
+    }),
+    sender: null,
+  };
   for (const listener of listeners) {
     listener(event, ...args);
   }
 }
 
 function handleIncomingMessage(message: MainToRendererMessage): void {
+  if (message.type === "virtual-port-message") {
+    virtualPorts.get(message.portId)?.postMessage(message.data);
+    return;
+  }
+
+  if (message.type === "virtual-port-close") {
+    const port = virtualPorts.get(message.portId);
+    if (!port) {
+      return;
+    }
+    virtualPorts.delete(message.portId);
+    port.close();
+    return;
+  }
+
   if (message.type === "ipc-main-event") {
-    emitRendererEvent(message.channel, message.args);
+    emitRendererEvent(message.channel, message.args, message.portIds);
     return;
   }
 
@@ -239,6 +283,36 @@ function nextRequestId(): string {
   return `ipc_bridge_${requestCounter}`;
 }
 
+function nextVirtualPortId(): string {
+  requestCounter += 1;
+  return `virtual_port_${requestCounter}_${crypto.randomUUID()}`;
+}
+
+function sourceUrl(): string {
+  return window.location.href;
+}
+
+function registerVirtualPort(port: MessagePort): string {
+  const portId = nextVirtualPortId();
+  virtualPorts.set(portId, port);
+  port.addEventListener("message", (event) => {
+    enqueueMessage({
+      type: "virtual-port-message",
+      portId,
+      data: event.data,
+    });
+  });
+  port.addEventListener("messageerror", () => {
+    virtualPorts.delete(portId);
+    enqueueMessage({
+      type: "virtual-port-close",
+      portId,
+    });
+  });
+  port.start();
+  return portId;
+}
+
 function invokeMain(channel: string, args: unknown[]): Promise<unknown> {
   const requestId = nextRequestId();
   return new Promise((resolve, reject) => {
@@ -248,6 +322,7 @@ function invokeMain(channel: string, args: unknown[]): Promise<unknown> {
       requestId,
       channel,
       args,
+      sourceUrl: sourceUrl(),
     });
   });
 }
@@ -315,7 +390,8 @@ const electronShim = (window.__ELECTRON_SHIM__ ??= {});
 
 electronShim.overrideAdapter = {
   getGateOverride(e) {
-    if (e.name === "2929582856") { // codex_app_sunset
+    if (e.name === "2929582856") {
+      // codex_app_sunset
       return {
         ...e,
         value: false,
@@ -365,6 +441,36 @@ electronShim.onMemoryNavigationChanged = (navigation) => {
 };
 
 const buildFlavor: "prod" | "dev" | "agent" | string = "prod";
+
+function randomUuidFallback(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0"));
+  return [
+    hex.slice(0, 4).join(""),
+    hex.slice(4, 6).join(""),
+    hex.slice(6, 8).join(""),
+    hex.slice(8, 10).join(""),
+    hex.slice(10, 16).join(""),
+  ].join("-");
+}
+
+function installCryptoRandomUuidFallback(): void {
+  if (typeof crypto.randomUUID === "function") {
+    return;
+  }
+
+  Object.defineProperty(crypto, "randomUUID", {
+    configurable: true,
+    value: randomUuidFallback,
+  });
+}
+
+installCryptoRandomUuidFallback();
 
 export const ipcRenderer = {
   invoke(channel: string, ...args: unknown[]): Promise<unknown> {
@@ -420,6 +526,27 @@ export const ipcRenderer = {
       type: "ipc-renderer-send",
       channel,
       args,
+      sourceUrl: sourceUrl(),
+    });
+  },
+  postMessage(
+    channel: string,
+    message: unknown,
+    transfer?: Transferable[],
+  ): void {
+    const ports =
+      transfer?.filter(
+        (value): value is MessagePort =>
+          typeof MessagePort !== "undefined" && value instanceof MessagePort,
+      ) ?? [];
+    const portIds = ports.map(registerVirtualPort);
+
+    enqueueMessage({
+      type: "ipc-renderer-send",
+      channel,
+      args: [message],
+      sourceUrl: sourceUrl(),
+      ...(portIds.length > 0 ? { portIds } : {}),
     });
   },
   sendSync(channel: string, ..._args: unknown[]): unknown {
@@ -435,6 +562,10 @@ export const ipcRenderer = {
 
     if (channel === "codex_desktop:get-build-flavor") {
       return buildFlavor;
+    }
+
+    if (channel === "codex_desktop:get-uses-owl-app-shell") {
+      return false;
     }
 
     if (channel === "codex_desktop:get-shared-object-snapshot") {

@@ -1,10 +1,10 @@
---- a/webview/assets/apps-Au-fp4y1.js
-+++ b/webview/assets/apps-Au-fp4y1.js
-@@ -30402,6 +30402,7 @@
-     n = ne(e.appVersion),
+--- a/webview/assets/error-boundary-B0U_9Djt.js
++++ b/webview/assets/error-boundary-B0U_9Djt.js
+@@ -7593,6 +7593,7 @@
+     n = f(e.appVersion),
      r = e.buildFlavor !== `prod`;
-   (Yw({
+   (Df({
 +    enabled: !1,
-     dsn: re,
-     environment: Qw,
-     release: w(n.version),
+     beforeSend: ne,
+     dsn: l,
+     environment: kf,

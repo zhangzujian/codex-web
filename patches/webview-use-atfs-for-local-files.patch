@@ -1,11 +1,9 @@
---- a/webview/assets/filesystem-media-src-BngrzgPI.js
-+++ b/webview/assets/filesystem-media-src-BngrzgPI.js
-@@ -2,7 +2,7 @@
- var n = `app://fs`,
+--- a/webview/assets/filesystem-media-src-C3dDcsrU.js
++++ b/webview/assets/filesystem-media-src-C3dDcsrU.js
+@@ -1,5 +1,5 @@
+ import { Fr as e, Ir as t } from "./src-DE8g9pdX.js";
+-var n = `app://fs`,
++var n = `http://localhost:8214/@fs`,
    r = `/@fs`;
  function i(e) {
--  return `${n}${o(e)}`;
-+  return o(e);
- }
- function a(e) {
-   return o(e);
+   return `${n}${o(e)}`;

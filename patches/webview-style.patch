@@ -1,14 +1,8 @@
 --- a/webview/index.html
 +++ b/webview/index.html
-@@ -117,6 +117,11 @@
-         }
-       }
-     </style>
-+    <style>
-+      .main-surface {
+@@ -13,4 +13,5 @@
+         --startup-logo-shimmer-soft: rgb(255 255 255 / 0.02);
+         --startup-logo-shimmer-peak: rgb(255 255 255 / 0.46);
+         --startup-logo-shimmer-tail: rgb(255 255 255 / 0.06);
 +        --spacing-token-safe-header-left: 0px;
-+      }
-+    </style>
-     <script type="module" crossorigin src="./assets/index-DxnGmFpS.js"></script>
-     <link
-       rel="modulepreload"
+       }
