@@ -25,7 +25,7 @@ const sourceChunk = [
   "function zu(){let x=l(Or),h=l(kr),f={cwd:x,hostConfig:h};return f}",
   "function Rp(e,t){return t}",
   "function Hp(e,t,n){return n??re(crypto.randomUUID())}",
-  "function Eu(){let X={url:`http://localhost/__terminal?cwd=/tmp`,isLoading:!1},Kt=!0;let Ui=!1,Wi=`Show`;return(0,$.jsxs)(`div`,{ref:L,\"data-browser-sidebar-primary-focus-target\":Kt?`webview`:`address`,className:`relative grid h-full min-h-0 w-full min-w-0 grid-rows-[auto_1fr]`,tabIndex:-1,children:[(0,$.jsxs)(`div`,{className:`relative z-10 h-toolbar-pane min-w-0 shrink-0 border-b border-token-border`,children:[(0,$.jsx)(`input`,{\"data-browser-sidebar-address-input\":`true`})]}),(0,$.jsx)(`div`,{className:`relative flex min-h-0 min-w-0 flex-1 flex-col`})]})}",
+  'function Eu(){let X={url:`http://localhost/__terminal?cwd=/tmp`,isLoading:!1},Kt=!0;let Ui=!1,Wi=`Show`;return(0,$.jsxs)(`div`,{ref:L,"data-browser-sidebar-primary-focus-target":Kt?`webview`:`address`,className:`relative grid h-full min-h-0 w-full min-w-0 grid-rows-[auto_1fr]`,tabIndex:-1,children:[(0,$.jsxs)(`div`,{className:`relative z-10 h-toolbar-pane min-w-0 shrink-0 border-b border-token-border`,children:[(0,$.jsx)(`input`,{"data-browser-sidebar-address-input":`true`})]}),(0,$.jsx)(`div`,{className:`relative flex min-h-0 min-w-0 flex-1 flex-col`})]})}',
   "function nm(e,t,n=!0,r=`right`){return t==null||e.value.routeKind,!1}",
   "function rm(e,t,n=!0){return t==null||e.value.routeKind,!1}",
   "export {",
@@ -55,7 +55,7 @@ const browserChromeChunk = [
   "function Eu(){",
   "let X={url:`http://localhost/__terminal?cwd=/tmp`,isLoading:!1},Kt=!0;",
   "let Ui=!1,Wi=`Show`;",
-  "return(0,$.jsxs)(`div`,{ref:L,\"data-browser-sidebar-primary-focus-target\":Kt?`webview`:`address`,className:`relative grid h-full min-h-0 w-full min-w-0 grid-rows-[auto_1fr]`,tabIndex:-1,children:[(0,$.jsxs)(`div`,{className:`relative z-10 h-toolbar-pane min-w-0 shrink-0 border-b border-token-border`,children:[(0,$.jsx)(`input`,{\"data-browser-sidebar-address-input\":`true`})]}),(0,$.jsx)(`div`,{className:`relative flex min-h-0 min-w-0 flex-1 flex-col`})]})",
+  'return(0,$.jsxs)(`div`,{ref:L,"data-browser-sidebar-primary-focus-target":Kt?`webview`:`address`,className:`relative grid h-full min-h-0 w-full min-w-0 grid-rows-[auto_1fr]`,tabIndex:-1,children:[(0,$.jsxs)(`div`,{className:`relative z-10 h-toolbar-pane min-w-0 shrink-0 border-b border-token-border`,children:[(0,$.jsx)(`input`,{"data-browser-sidebar-address-input":`true`})]}),(0,$.jsx)(`div`,{className:`relative flex min-h-0 min-w-0 flex-1 flex-col`})]})',
   "}",
 ].join("");
 
@@ -93,6 +93,16 @@ const openInPrimaryIconChunk = [
   "var vt=S({openPrimaryTarget:{id:`localConversationPage.openPrimaryTarget`,defaultMessage:`Open in`,description:`Primary open button label`}});",
 ].join("");
 
+const openInPrimaryIconChunkWithOtherResolvedIcon = [
+  "function other(){return (0,Q.jsx)(`img`,{src:g.resolvedIcon??g.icon,className:`icon-sm`})}",
+  openInPrimaryIconChunk,
+].join("");
+
+const openInPrimaryIconChunkWithOtherUnpatchedIcon = [
+  "function other(){return (0,Q.jsx)(`img`,{src:g.icon,className:`icon-sm`})}",
+  openInPrimaryIconChunk,
+].join("");
+
 const sourceWithBrowserChromeChunk = `${sourceChunk.replace("function Rp(e,t){return t}", browserPanelOpenChunk)}${browserChromeChunk}${browserTabOpenChunk}`;
 
 test("patchTerminalSidePanelSource replaces the openSessionSandboxSidePanel stub", () => {
@@ -107,8 +117,11 @@ test("patchTerminalSidePanelSource replaces the openSessionSandboxSidePanel stub
   );
   assert.match(
     patched,
-    /browserConversationId:re\(crypto\.randomUUID\(\)\)/,
+    /\$\{i\?`&locale=\$\{encodeURIComponent\(i\)\}`:``\}/,
   );
+  assert.match(patched, /function codexWebTerminalLocale\(\)/);
+  assert.doesNotMatch(patched, /navigator\.language/);
+  assert.match(patched, /browserConversationId:re\(crypto\.randomUUID\(\)\)/);
   assert.match(patched, /browserTabId:re\(crypto\.randomUUID\(\)\)/);
   assert.match(patched, /initiator:`side_panel_terminal`/);
   assert.match(patched, /cwd:r\?\?void 0/);
@@ -134,7 +147,7 @@ test("patchTerminalSidePanelSource upgrades an older terminal patch even when th
 
   assert.match(
     patched,
-    /function rm\(e,t,n=!0\)\{let r=e\.get\(Or\);return Rp\(e,\{browserConversationId:re\(crypto\.randomUUID\(\)\),browserTabId:re\(crypto\.randomUUID\(\)\)/,
+    /function rm\(e,t,n=!0\)\{let r=e\.get\(Or\),i=codexWebTerminalLocale\(\);return Rp\(e,\{browserConversationId:re\(crypto\.randomUUID\(\)\),browserTabId:re\(crypto\.randomUUID\(\)\)/,
   );
 });
 
@@ -185,14 +198,10 @@ test("patchTerminalBrowserTabMarkerSource marks terminal browser tabs", () => {
     `${browserChromeChunk}${browserTabOpenChunk}`,
   );
 
-  assert.match(
-    patched,
-    /y=n\.codexWebIsTerminal===!0\|\|u\.isTerminal===!0/,
-  );
-  assert.match(
-    patched,
-    /p=y\?\(n\.cwd\?\.split\(\//,
-  );
+  assert.match(patched, /y=n\.codexWebIsTerminal===!0\|\|u\.isTerminal===!0/);
+  assert.match(patched, /p=y\?\(n\.cwd\?\.split\(\//);
+  assert.match(patched, /id:`codexWeb\.terminal\.title`/);
+  assert.match(patched, /defaultMessage:`Terminal`/);
   assert.match(patched, /codexWebIsTerminal:y/);
   assert.match(
     patched,
@@ -205,6 +214,21 @@ test("patchTerminalBrowserTabMarkerSource marks terminal browser tabs", () => {
     /w\.updateTab\(d,l,\{codexWebIsTerminal:S\.isTerminal===!0,/,
   );
   assert.equal(patchTerminalBrowserTabMarkerSource(patched), patched);
+});
+
+test("patchTerminalBrowserTabMarkerSource upgrades the old hardcoded terminal title fallback", () => {
+  const freshPatch = patchTerminalBrowserTabMarkerSource(
+    `${browserChromeChunk}${browserTabOpenChunk}`,
+  );
+  const previouslyPatched = freshPatch.replace(
+    "??e.get(Rr).formatMessage({id:`codexWeb.terminal.title`,defaultMessage:`Terminal`}))",
+    "??`Terminal`)",
+  );
+
+  const patched = patchTerminalBrowserTabMarkerSource(previouslyPatched);
+
+  assert.doesNotMatch(patched, /\?\?`Terminal`/);
+  assert.match(patched, /id:`codexWeb\.terminal\.title`/);
 });
 
 test("patchTerminalBrowserTabMarkerSource leaves unrelated browser tab kinds unchanged", () => {
@@ -241,6 +265,38 @@ test("patchThreadOpenInPrimaryIconSource uses resolved icons for the top Open in
 
   assert.match(patched, /src:g\.resolvedIcon\?\?g\.icon/);
   assert.doesNotMatch(patched, /src:g\.icon/);
+  assert.equal(patchThreadOpenInPrimaryIconSource(patched), patched);
+});
+
+test("patchThreadOpenInPrimaryIconSource does not skip the top Open in button when another icon is already patched", () => {
+  const patched = patchThreadOpenInPrimaryIconSource(
+    openInPrimaryIconChunkWithOtherResolvedIcon,
+  );
+
+  assert.equal(
+    (patched.match(/src:g\.resolvedIcon\?\?g\.icon,className:`icon-sm`/g) ?? [])
+      .length,
+    2,
+  );
+  assert.doesNotMatch(
+    patched,
+    /openPrimaryTarget[\s\S]*src:g\.icon,className:`icon-sm`/,
+  );
+});
+
+test("patchThreadOpenInPrimaryIconSource does not patch an unrelated earlier icon", () => {
+  const patched = patchThreadOpenInPrimaryIconSource(
+    openInPrimaryIconChunkWithOtherUnpatchedIcon,
+  );
+
+  assert.match(
+    patched,
+    /function other\(\)\{return \(0,Q\.jsx\)\(`img`,\{src:g\.icon,className:`icon-sm`\}\)\}/,
+  );
+  assert.match(
+    patched,
+    /function ft\(\)[\s\S]*src:g\.resolvedIcon\?\?g\.icon,className:`icon-sm`[\s\S]*openPrimaryTarget/,
+  );
   assert.equal(patchThreadOpenInPrimaryIconSource(patched), patched);
 });
 
@@ -355,6 +411,22 @@ test("patchTerminalBrowserChromeSource hides browser toolbar for terminal URLs",
   const patched = patchTerminalBrowserChromeSource(browserChromeChunk);
 
   assert.match(patched, /function codexWebTerminalTabIcon/);
+  assert.match(
+    patched,
+    /function codexWebCloseTerminalSettingsOnOutsidePointer/,
+  );
+  assert.match(
+    patched,
+    /document\.addEventListener\(`pointerdown`,codexWebCloseTerminalSettingsOnOutsidePointer,!0\)/,
+  );
+  assert.match(
+    patched,
+    /querySelectorAll\(`iframe\[data-codex-web-browser-panel-frame\]\[src\*="\/__terminal"\]`\)/,
+  );
+  assert.match(
+    patched,
+    /postMessage\(\{type:`codex-web-terminal-close-settings`\},globalThis\.location\.origin\)/,
+  );
   assert.match(patched, /isTerminal:/);
   assert.match(patched, /S\.isTerminal\?/);
   assert.match(patched, /codexWebTerminalTabIcon/);

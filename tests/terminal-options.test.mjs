@@ -11,6 +11,7 @@ import {
   DEFAULT_TERMINAL_SMOOTH_SCROLL_DURATION,
   DEFAULT_TERMINAL_THEME,
   DEFAULT_TERMINAL_TYPE,
+  SUPPORTED_TERMINAL_TYPES,
   completeTerminalSettings,
   resetTerminalFontSettings,
   resetTerminalSettings,
@@ -159,6 +160,28 @@ test("resolveTerminalType rejects unsafe terminal names", () => {
     }),
     DEFAULT_TERMINAL_TYPE,
   );
+});
+
+test("resolveTerminalType falls back for unsupported terminal names", () => {
+  assert.equal(
+    resolveTerminalType({
+      search: "?terminalType=vt100",
+      storage: storage({
+        [TERMINAL_TYPE_STORAGE_KEY]: "screen",
+      }),
+    }),
+    DEFAULT_TERMINAL_TYPE,
+  );
+});
+
+test("supported terminal types match the terminal settings dropdown", () => {
+  assert.deepEqual(SUPPORTED_TERMINAL_TYPES, [
+    "xterm-256color",
+    "xterm",
+    "linux",
+    "screen-256color",
+    "tmux-256color",
+  ]);
 });
 
 test("resolveTerminalSettings reads theme and behavior options", () => {
@@ -368,6 +391,16 @@ test("saveTerminalFontSettings rejects blank family and invalid size", () => {
         fontFamily: "monospace",
         fontSize: "14",
         terminalType: "bad value",
+        storage: storage({}),
+      }),
+    /terminal type/i,
+  );
+  assert.throws(
+    () =>
+      saveTerminalFontSettings({
+        fontFamily: "monospace",
+        fontSize: "14",
+        terminalType: "vt100",
         storage: storage({}),
       }),
     /terminal type/i,

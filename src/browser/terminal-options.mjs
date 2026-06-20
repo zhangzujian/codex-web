@@ -1,3 +1,5 @@
+import { TerminalMessageError } from "./terminal-i18n.mjs";
+
 export const DEFAULT_TERMINAL_FONT_FAMILY =
   'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
 export const DEFAULT_TERMINAL_FONT_SIZE = 13;
@@ -10,6 +12,13 @@ export const DEFAULT_TERMINAL_SCROLLBACK = 10_000;
 export const DEFAULT_TERMINAL_SCROLL_SENSITIVITY = 1;
 export const DEFAULT_TERMINAL_SMOOTH_SCROLL_DURATION = 0;
 export const DEFAULT_TERMINAL_TYPE = "xterm-256color";
+export const SUPPORTED_TERMINAL_TYPES = Object.freeze([
+  "xterm-256color",
+  "xterm",
+  "linux",
+  "screen-256color",
+  "tmux-256color",
+]);
 export const DEFAULT_TERMINAL_SETTINGS = Object.freeze({
   fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
   fontSize: DEFAULT_TERMINAL_FONT_SIZE,
@@ -52,9 +61,9 @@ const MIN_TERMINAL_SCROLL_SENSITIVITY = 0.1;
 const MAX_TERMINAL_SCROLL_SENSITIVITY = 10;
 const MIN_TERMINAL_SMOOTH_SCROLL_DURATION = 0;
 const MAX_TERMINAL_SMOOTH_SCROLL_DURATION = 500;
-const TERMINAL_TYPE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const TERMINAL_THEMES = new Set(["system", "dark", "light"]);
 const TERMINAL_CURSOR_STYLES = new Set(["block", "underline", "bar"]);
+const TERMINAL_TYPES = new Set(SUPPORTED_TERMINAL_TYPES);
 
 export function resolveTerminalFontFamily({
   search = globalThis.location?.search ?? "",
@@ -305,7 +314,7 @@ function booleanValue(value) {
 
 function normalizedTerminalType(value) {
   const trimmed = nonEmptyString(value);
-  return trimmed && TERMINAL_TYPE_PATTERN.test(trimmed) ? trimmed : null;
+  return trimmed && TERMINAL_TYPES.has(trimmed) ? trimmed : null;
 }
 
 export function saveTerminalSettings({
@@ -324,68 +333,67 @@ export function saveTerminalSettings({
 } = {}) {
   const normalizedFamily = nonEmptyString(fontFamily);
   if (!normalizedFamily) {
-    throw new Error("Terminal font family is required");
+    throw new TerminalMessageError("validation.fontFamilyRequired");
   }
 
   const normalizedSize = boundedFontSize(String(fontSize ?? ""));
   if (normalizedSize == null) {
-    throw new Error(
-      `Terminal font size must be between ${MIN_TERMINAL_FONT_SIZE} and ${MAX_TERMINAL_FONT_SIZE}`,
-    );
+    throw new TerminalMessageError("validation.fontSizeRange", {
+      max: MAX_TERMINAL_FONT_SIZE,
+      min: MIN_TERMINAL_FONT_SIZE,
+    });
   }
   const normalizedType =
     terminalType === undefined
       ? null
       : normalizedTerminalType(String(terminalType));
   if (terminalType !== undefined && normalizedType == null) {
-    throw new Error(
-      "Terminal type must use letters, numbers, dots, dashes, or underscores",
-    );
+    throw new TerminalMessageError("validation.terminalTypeInvalid");
   }
   const normalizedTheme = normalizeOptionalChoice(
     theme,
     TERMINAL_THEMES,
-    "Terminal theme",
+    "validation.themeInvalid",
   );
   const normalizedLineHeight = normalizeOptionalNumber(
     lineHeight,
     MIN_TERMINAL_LINE_HEIGHT,
     MAX_TERMINAL_LINE_HEIGHT,
-    "Terminal line height",
+    "validation.lineHeightRange",
   );
   const normalizedLetterSpacing = normalizeOptionalNumber(
     letterSpacing,
     MIN_TERMINAL_LETTER_SPACING,
     MAX_TERMINAL_LETTER_SPACING,
-    "Terminal letter spacing",
+    "validation.letterSpacingRange",
   );
   const normalizedCursorStyle = normalizeOptionalChoice(
     cursorStyle,
     TERMINAL_CURSOR_STYLES,
-    "Terminal cursor style",
+    "validation.cursorStyleInvalid",
   );
   const normalizedCursorBlink =
     cursorBlink === undefined ? null : booleanValue(cursorBlink);
   if (cursorBlink !== undefined && normalizedCursorBlink == null) {
-    throw new Error("Terminal cursor blink must be true or false");
+    throw new TerminalMessageError("validation.cursorBlinkInvalid");
   }
   const normalizedScrollback = normalizeOptionalInteger(
     scrollback,
     MIN_TERMINAL_SCROLLBACK,
     MAX_TERMINAL_SCROLLBACK,
-    "Terminal scrollback",
+    "validation.scrollbackIntegerRange",
   );
   const normalizedScrollSensitivity = normalizeOptionalNumber(
     scrollSensitivity,
     MIN_TERMINAL_SCROLL_SENSITIVITY,
     MAX_TERMINAL_SCROLL_SENSITIVITY,
-    "Terminal scroll sensitivity",
+    "validation.scrollSensitivityRange",
   );
   const normalizedSmoothScrollDuration = normalizeOptionalInteger(
     smoothScrollDuration,
     MIN_TERMINAL_SMOOTH_SCROLL_DURATION,
     MAX_TERMINAL_SMOOTH_SCROLL_DURATION,
-    "Terminal smooth scroll duration",
+    "validation.smoothScrollDurationIntegerRange",
   );
 
   storage?.setItem(TERMINAL_FONT_FAMILY_STORAGE_KEY, normalizedFamily);
@@ -463,35 +471,35 @@ export function saveTerminalFontSettings(options = {}) {
   return saveTerminalSettings(options);
 }
 
-function normalizeOptionalChoice(value, choices, label) {
+function normalizeOptionalChoice(value, choices, messageKey) {
   if (value === undefined) {
     return null;
   }
   const normalized = normalizedChoice(String(value), choices);
   if (normalized == null) {
-    throw new Error(`${label} is invalid`);
+    throw new TerminalMessageError(messageKey);
   }
   return normalized;
 }
 
-function normalizeOptionalNumber(value, min, max, label) {
+function normalizeOptionalNumber(value, min, max, messageKey) {
   if (value === undefined) {
     return null;
   }
   const normalized = boundedNumber(String(value), min, max);
   if (normalized == null) {
-    throw new Error(`${label} must be between ${min} and ${max}`);
+    throw new TerminalMessageError(messageKey, { max, min });
   }
   return normalized;
 }
 
-function normalizeOptionalInteger(value, min, max, label) {
+function normalizeOptionalInteger(value, min, max, messageKey) {
   if (value === undefined) {
     return null;
   }
   const normalized = boundedInteger(String(value), min, max);
   if (normalized == null) {
-    throw new Error(`${label} must be an integer between ${min} and ${max}`);
+    throw new TerminalMessageError(messageKey, { max, min });
   }
   return normalized;
 }

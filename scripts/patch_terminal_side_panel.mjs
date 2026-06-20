@@ -9,11 +9,17 @@ const PUBLIC_BROWSER_PANEL_EXPORT =
   "openThreadBrowserSidePanelTabWithPendingState";
 const PATCH_MARKER = "side_panel_terminal";
 const TERMINAL_BROWSER_CHROME_MARKER = "codexWebIsTerminalTab";
+const TERMINAL_SETTINGS_PARENT_CLOSE_MARKER =
+  "codexWebCloseTerminalSettingsOnOutsidePointer";
 const APPLICATION_MENU_PATCH_MARKER = "codexWebDisableApplicationMenu";
 const APPLICATION_MENU_FEATURE_PATTERN =
   /function\s+([$A-Za-z_][\w$]*)\(\)\{return yt\(\)&&window\.electronBridge\?\.showApplicationMenu!=null\}/;
 const TERMINAL_TAB_ICON_FUNCTION =
   "function codexWebTerminalTabIcon(e){return Q.createElement(`svg`,{width:20,height:20,viewBox:`0 0 20 20`,fill:`none`,xmlns:`http://www.w3.org/2000/svg`,...e},Q.createElement(`path`,{d:`M13.334 12.2529C13.701 12.2533 13.999 12.5509 13.999 12.918C13.9988 13.2849 13.7008 13.5827 13.334 13.583H6.66699C6.29984 13.583 6.00215 13.2851 6.00195 12.918C6.00195 12.5507 6.29972 12.2529 6.66699 12.2529H13.334Z`,fill:`currentColor`}),Q.createElement(`path`,{fillRule:`evenodd`,clipRule:`evenodd`,d:`M15 3.08594C16.748 3.08594 18.165 4.503 18.165 6.25098V13.751C18.165 15.499 16.748 16.916 15 16.916H5C3.25202 16.916 1.83496 15.499 1.83496 13.751V6.25098C1.83496 4.503 3.25202 3.08594 5 3.08594H15ZM5 4.41602C3.98656 4.41602 3.16504 5.23753 3.16504 6.25098V13.751C3.16504 14.7644 3.98656 15.5859 5 15.5859H15C16.0134 15.5859 16.835 14.7644 16.835 13.751V6.25098C16.835 5.23753 16.0134 4.41602 15 4.41602H5Z`,fill:`currentColor`}))}";
+const TERMINAL_LOCALE_HELPER_FUNCTION =
+  "function codexWebTerminalLocale(){let e=[`codex-web.locale`,`codex-web.app.locale`,`codex-web.appLanguage`,`codex.locale`,`app.locale`,`locale`,`language`],t=[];for(let n of e)try{let e=localStorage.getItem(n);if(e){t.push(e);try{let n=JSON.parse(e);typeof n==`string`?t.push(n):n&&typeof n==`object`&&t.push(n.locale,n.language,n.appLocale,n.appLanguage)}catch{}}}catch{}t.push(document.documentElement.lang);for(let e of t){if(typeof e!=`string`)continue;let t=e.trim();if(t)return t}return``}";
+const TERMINAL_SETTINGS_PARENT_CLOSE_SCRIPT =
+  'function codexWebCloseTerminalSettingsOnOutsidePointer(e){let t=e.target,n=t instanceof Element?t:t instanceof Node?t.parentElement:null;if(n?.closest(`[data-codex-web-terminal-tab="true"]`)!=null)return;document.querySelectorAll(`iframe[data-codex-web-browser-panel-frame][src*="/__terminal"]`).forEach(e=>e.contentWindow?.postMessage({type:`codex-web-terminal-close-settings`},globalThis.location.origin))}document.addEventListener(`pointerdown`,codexWebCloseTerminalSettingsOnOutsidePointer,!0);';
 
 export function findTerminalSidePanelAsset(assetsDir) {
   const terminal = resolvePublicExport(assetsDir, PUBLIC_TERMINAL_EXPORT);
@@ -138,16 +144,23 @@ export function patchTerminalSidePanelSource(
   if (
     functionSource.includes(PATCH_MARKER) &&
     functionSource.includes("globalThis.location.origin") &&
-    functionSource.includes(`browserConversationId:${randomUuidSymbol}(crypto.randomUUID())`) &&
-    functionSource.includes(`browserTabId:${randomUuidSymbol}(crypto.randomUUID())`)
+    functionSource.includes("codexWebTerminalLocale") &&
+    functionSource.includes(
+      `browserConversationId:${randomUuidSymbol}(crypto.randomUUID())`,
+    ) &&
+    functionSource.includes(
+      `browserTabId:${randomUuidSymbol}(crypto.randomUUID())`,
+    )
   ) {
     return source;
   }
 
-  const replacement = `function ${functionName}(${functionRange.params}){let r=${appScopeParam}.get(${cwdSymbol});return ${openBrowserPanelFunctionName}(${appScopeParam},{browserConversationId:${randomUuidSymbol}(crypto.randomUUID()),browserTabId:${randomUuidSymbol}(crypto.randomUUID()),initialUrl:\`\${globalThis.location.origin}/__terminal?cwd=\${encodeURIComponent(r??\`\`)}\`,initiator:\`side_panel_terminal\`,source:\`manual\`,target:\`right\`,cwd:r??void 0})!=null}`;
+  const replacement = `function ${functionName}(${functionRange.params}){let r=${appScopeParam}.get(${cwdSymbol}),i=codexWebTerminalLocale();return ${openBrowserPanelFunctionName}(${appScopeParam},{browserConversationId:${randomUuidSymbol}(crypto.randomUUID()),browserTabId:${randomUuidSymbol}(crypto.randomUUID()),initialUrl:\`\${globalThis.location.origin}/__terminal?cwd=\${encodeURIComponent(r??\`\`)}\${i?\`&locale=\${encodeURIComponent(i)}\`:\`\`}\`,initiator:\`side_panel_terminal\`,source:\`manual\`,target:\`right\`,cwd:r??void 0})!=null}`;
 
   return (
-    source.slice(0, functionRange.start) +
+    (source.includes("function codexWebTerminalLocale")
+      ? source.slice(0, functionRange.start)
+      : TERMINAL_LOCALE_HELPER_FUNCTION + source.slice(0, functionRange.start)) +
     replacement +
     source.slice(functionRange.end)
   );
@@ -180,20 +193,56 @@ export function patchTerminalActionSource(
 }
 
 export function patchThreadOpenInPrimaryIconSource(source) {
-  if (source.includes("src:g.resolvedIcon??g.icon")) {
+  const primaryMessageId = "localConversationPage.openPrimaryTarget";
+  const primaryIconSource = "src:g.icon,className:`icon-sm`";
+  const primaryResolvedIconSource =
+    "src:g.resolvedIcon??g.icon,className:`icon-sm`";
+  const primaryMessageIndex = source.indexOf(primaryMessageId);
+
+  if (primaryMessageIndex === -1) {
     return source;
   }
 
-  if (!source.includes("localConversationPage.openPrimaryTarget")) {
-    return source;
-  }
-
-  return replaceOnce(
-    source,
-    "src:g.icon,className:`icon-sm`",
-    "src:g.resolvedIcon??g.icon,className:`icon-sm`",
-    "Top Open in primary icon target not found",
+  const primaryIconIndexBefore = source.lastIndexOf(
+    primaryIconSource,
+    primaryMessageIndex,
   );
+  const primaryIconIndexAfter = source.indexOf(
+    primaryIconSource,
+    primaryMessageIndex,
+  );
+  const primaryResolvedIconIndexBefore = source.lastIndexOf(
+    primaryResolvedIconSource,
+    primaryMessageIndex,
+  );
+  const primaryResolvedIconIndexAfter = source.indexOf(
+    primaryResolvedIconSource,
+    primaryMessageIndex,
+  );
+  const primaryIconIndex =
+    primaryIconIndexBefore === -1 ? primaryIconIndexAfter : primaryIconIndexBefore;
+  const primaryResolvedIconIndex =
+    primaryResolvedIconIndexBefore === -1
+      ? primaryResolvedIconIndexAfter
+      : primaryResolvedIconIndexBefore;
+
+  if (
+    primaryIconIndex !== -1 &&
+    (primaryResolvedIconIndex === -1 ||
+      primaryIconIndex > primaryResolvedIconIndex)
+  ) {
+    return (
+      source.slice(0, primaryIconIndex) +
+      primaryResolvedIconSource +
+      source.slice(primaryIconIndex + primaryIconSource.length)
+    );
+  }
+
+  if (primaryResolvedIconIndex !== -1) {
+    return source;
+  }
+
+  throw new Error("Top Open in primary icon target not found");
 }
 
 export function patchTerminalBrowserPanelOpenSource(
@@ -210,7 +259,10 @@ export function patchTerminalBrowserPanelOpenSource(
     functionRange.params,
     "browserTabId",
   );
-  const targetSymbol = findDestructuredParamSymbol(functionRange.params, "target");
+  const targetSymbol = findDestructuredParamSymbol(
+    functionRange.params,
+    "target",
+  );
   const terminalInitiatorCondition = `${initiatorSymbol}===\`side_panel_terminal\`||${initiatorSymbol}===\`side_panel_browser\``;
 
   if (
@@ -237,9 +289,8 @@ export function patchTerminalBrowserPanelOpenSource(
   const match = tabSelectionPattern.exec(functionSource);
   if (match) {
     const rightPanelExpression = match[2];
-    const requestedTabIdSymbol = rightPanelExpression.match(
-      /:([$A-Za-z_][\w$]*)$/,
-    )?.[1];
+    const requestedTabIdSymbol =
+      rightPanelExpression.match(/:([$A-Za-z_][\w$]*)$/)?.[1];
     if (!requestedTabIdSymbol) {
       throw new Error("Unable to infer requested browser tab id symbol");
     }
@@ -249,7 +300,9 @@ export function patchTerminalBrowserPanelOpenSource(
       `let ${match[1]}=${terminalInitiatorCondition}?${requestedTabIdSymbol}:${targetSymbol}===\`right\`?${rightPanelExpression};return` +
       functionSource.slice(match.index + match[0].length);
   } else if (
-    !functionSource.includes(`${terminalInitiatorCondition}?${browserTabIdSymbol}`)
+    !functionSource.includes(
+      `${terminalInitiatorCondition}?${browserTabIdSymbol}`,
+    )
   ) {
     throw new Error("Browser panel tab selection not found");
   }
@@ -312,10 +365,15 @@ export function patchTerminalBrowserTabMarkerSource(source) {
     patched = replaceOnce(
       patched,
       "),d=Mr(c),f=s?.tab??e.get(d.tabById$,o),p=u.preserveExistingTitle&&f?.title!=null?f.title:u.title,m=n.browserHostDisplayName??e.get(kr).display_name,g=n.cwd??e.get(Or);return",
-      "),y=n.codexWebIsTerminal===!0||u.isTerminal===!0,d=Mr(c),f=s?.tab??e.get(d.tabById$,o),p=y?(n.cwd?.split(/[\\\\/]/).filter(Boolean).at(-1)??`Terminal`):u.preserveExistingTitle&&f?.title!=null?f.title:u.title,m=n.browserHostDisplayName??e.get(kr).display_name,g=n.cwd??e.get(Or);return",
+      "),y=n.codexWebIsTerminal===!0||u.isTerminal===!0,d=Mr(c),f=s?.tab??e.get(d.tabById$,o),p=y?(n.cwd?.split(/[\\\\/]/).filter(Boolean).at(-1)??e.get(Rr).formatMessage({id:`codexWeb.terminal.title`,defaultMessage:`Terminal`})):u.preserveExistingTitle&&f?.title!=null?f.title:u.title,m=n.browserHostDisplayName??e.get(kr).display_name,g=n.cwd??e.get(Or);return",
       "Browser tab terminal initial metadata target not found",
     );
   }
+  patched = replaceIfPresent(
+    patched,
+    "??`Terminal`):u.preserveExistingTitle",
+    "??e.get(Rr).formatMessage({id:`codexWeb.terminal.title`,defaultMessage:`Terminal`})):u.preserveExistingTitle",
+  );
 
   patched = patched.replaceAll("icon:u.isTerminal?", "icon:y?");
   patched = patched.replaceAll(
@@ -451,6 +509,7 @@ export function patchTerminalBrowserChromeSource(source) {
   }
 
   let patched = source;
+  patched = patchTerminalSettingsParentCloseSource(patched);
   patched = patchTerminalTabIconFunction(patched);
   patched = patchTerminalBrowserTabSnapshotSource(patched);
   if (!patched.includes(TERMINAL_BROWSER_CHROME_MARKER)) {
@@ -493,12 +552,22 @@ export function patchTerminalBrowserChromeSource(source) {
   return patched;
 }
 
+function patchTerminalSettingsParentCloseSource(source) {
+  if (source.includes(TERMINAL_SETTINGS_PARENT_CLOSE_MARKER)) {
+    return source;
+  }
+
+  return `${TERMINAL_SETTINGS_PARENT_CLOSE_SCRIPT}${source}`;
+}
+
 function patchTerminalTabIconFunction(source) {
   if (source.includes("function codexWebTerminalTabIcon")) {
     return source;
   }
 
-  if (source.includes("var fs=`about:blank#codex-browser-sidebar-attach-token=`")) {
+  if (
+    source.includes("var fs=`about:blank#codex-browser-sidebar-attach-token=`")
+  ) {
     return source.replace(
       "var fs=`about:blank#codex-browser-sidebar-attach-token=`",
       `${TERMINAL_TAB_ICON_FUNCTION}var fs=\`about:blank#codex-browser-sidebar-attach-token=\``,
@@ -548,6 +617,7 @@ function isTerminalBrowserChromePatched(source) {
     source.includes(
       `"data-browser-sidebar-primary-focus-target":codexWebIsTerminalTab?`,
     ) &&
+    source.includes(TERMINAL_SETTINGS_PARENT_CLOSE_MARKER) &&
     source.includes("codexWebIsTerminalTab?`grid-rows-[1fr]`") &&
     source.includes("children:[codexWebIsTerminalTab?null:") &&
     source.includes("codexWebTerminalTabIcon")

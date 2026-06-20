@@ -1,10 +1,16 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import {
+  isTerminalMessageError,
+  resolveTerminalLocale,
+  terminalMessage,
+  terminalSelectLabel,
+} from "./terminal-i18n.mjs";
+import {
   completeTerminalSettings,
-  resetTerminalSettings,
   resolveTerminalSettings,
   saveTerminalSettings,
+  SUPPORTED_TERMINAL_TYPES,
 } from "./terminal-options.mjs";
 import "./terminal-page.css";
 
@@ -25,7 +31,17 @@ type TerminalServerMessage =
   | {
       type: "error";
       message: string;
+      messageKey?: string;
+      messageValues?: Record<string, unknown>;
     };
+
+const parentCloseSettingsMessageType = "codex-web-terminal-close-settings";
+const locale = resolveTerminalLocale();
+const t = (key: string, values?: Record<string, unknown>) =>
+  terminalMessage(locale, key, values);
+
+document.documentElement.lang = locale;
+document.title = t("title");
 
 const root = document.getElementById("terminal-root");
 
@@ -42,38 +58,58 @@ surface.dataset.codexTerminal = "true";
 
 const status = document.createElement("div");
 status.className = "terminal-page__status";
-status.textContent = "Connecting...";
+status.textContent = t("status.connecting");
 
 const settings = document.createElement("div");
 settings.className = "terminal-page__settings";
 
-const settingsButton = document.createElement("button");
-settingsButton.type = "button";
-settingsButton.className = "terminal-page__settings-button";
-settingsButton.title = "Terminal settings";
-settingsButton.setAttribute("aria-label", "Terminal settings");
-settingsButton.setAttribute("aria-expanded", "false");
-settingsButton.dataset.terminalSettingsButton = "true";
+type SettingsButtonIconName = "font" | "settings" | "theme";
 
-const settingsButtonIcon = document.createElementNS(
-  "http://www.w3.org/2000/svg",
-  "svg",
+const settingsButtonIconPaths: Record<SettingsButtonIconName, string> = {
+  font: '<path d="M5 4h14v4h-2V6h-4v12h2v2H9v-2h2V6H7v2H5V4Z"/>',
+  settings:
+    '<path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z"/><path fill-rule="evenodd" d="M10.3 2h3.4l.6 2.3c.5.2 1 .4 1.4.7l2.1-1.2 2.4 2.4L19 8.3c.3.5.5.9.7 1.4l2.3.6v3.4l-2.3.6c-.2.5-.4 1-.7 1.4l1.2 2.1-2.4 2.4-2.1-1.2c-.5.3-.9.5-1.4.7l-.6 2.3h-3.4l-.6-2.3c-.5-.2-1-.4-1.4-.7l-2.1 1.2-2.4-2.4L5 15.7c-.3-.5-.5-.9-.7-1.4L2 13.7v-3.4l2.3-.6c.2-.5.4-1 .7-1.4L3.8 6.2l2.4-2.4L8.3 5c.5-.3.9-.5 1.4-.7L10.3 2Zm1.1 1.5-.5 2-.4.1c-.7.2-1.4.5-2 1l-.3.2-1.8-1-1 1 1 1.8-.2.3c-.4.6-.8 1.3-1 2l-.1.4-2 .5v1.4l2 .5.1.4c.2.7.5 1.4 1 2l.2.3-1 1.8 1 1 1.8-1 .3.2c.6.4 1.3.8 2 1l.4.1.5 2h1.4l.5-2 .4-.1c.7-.2 1.4-.5 2-1l.3-.2 1.8 1 1-1-1-1.8.2-.3c.4-.6.8-1.3 1-2l.1-.4 2-.5v-1.4l-2-.5-.1-.4c-.2-.7-.5-1.4-1-2l-.2-.3 1-1.8-1-1-1.8 1-.3-.2c-.6-.4-1.3-.8-2-1l-.4-.1-.5-2h-1.4Z" clip-rule="evenodd"/>',
+  theme: '<path d="M20 14.3A8 8 0 0 1 9.7 4 8 8 0 1 0 20 14.3Z"/>',
+};
+
+function createSettingsButton(
+  labelText: string,
+  iconName: SettingsButtonIconName,
+  dataAttribute: string,
+): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "terminal-page__settings-button";
+  button.title = labelText;
+  button.setAttribute("aria-label", labelText);
+  button.setAttribute("aria-expanded", "false");
+  button.dataset[dataAttribute] = "true";
+
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("viewBox", "0 0 24 24");
+  icon.setAttribute("aria-hidden", "true");
+  icon.setAttribute("focusable", "false");
+  icon.innerHTML = settingsButtonIconPaths[iconName];
+  button.append(icon);
+
+  return button;
+}
+
+const fontSettingsButton = createSettingsButton(
+  t("settings.font"),
+  "font",
+  "terminalFontSettingsButton",
 );
-settingsButtonIcon.setAttribute("viewBox", "0 0 24 24");
-settingsButtonIcon.setAttribute("aria-hidden", "true");
-settingsButtonIcon.setAttribute("focusable", "false");
-settingsButtonIcon.innerHTML =
-  '<path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z"/><path fill-rule="evenodd" d="M10.3 2h3.4l.6 2.3c.5.2 1 .4 1.4.7l2.1-1.2 2.4 2.4L19 8.3c.3.5.5.9.7 1.4l2.3.6v3.4l-2.3.6c-.2.5-.4 1-.7 1.4l1.2 2.1-2.4 2.4-2.1-1.2c-.5.3-.9.5-1.4.7l-.6 2.3h-3.4l-.6-2.3c-.5-.2-1-.4-1.4-.7l-2.1 1.2-2.4-2.4L5 15.7c-.3-.5-.5-.9-.7-1.4L2 13.7v-3.4l2.3-.6c.2-.5.4-1 .7-1.4L3.8 6.2l2.4-2.4L8.3 5c.5-.3.9-.5 1.4-.7L10.3 2Zm1.1 1.5-.5 2-.4.1c-.7.2-1.4.5-2 1l-.3.2-1.8-1-1 1 1 1.8-.2.3c-.4.6-.8 1.3-1 2l-.1.4-2 .5v1.4l2 .5.1.4c.2.7.5 1.4 1 2l.2.3-1 1.8 1 1 1.8-1 .3.2c.6.4 1.3.8 2 1l.4.1.5 2h1.4l.5-2 .4-.1c.7-.2 1.4-.5 2-1l.3-.2 1.8 1 1-1-1-1.8.2-.3c.4-.6.8-1.3 1-2l.1-.4 2-.5v-1.4l-2-.5-.1-.4c-.2-.7-.5-1.4-1-2l-.2-.3 1-1.8-1-1-1.8 1-.3-.2c-.6-.4-1.3-.8-2-1l-.4-.1-.5-2h-1.4Z" clip-rule="evenodd"/>';
-settingsButton.append(settingsButtonIcon);
-
-const settingsPanel = document.createElement("form");
-settingsPanel.className = "terminal-page__settings-panel";
-settingsPanel.hidden = true;
-settingsPanel.dataset.terminalSettingsPanel = "true";
-
-const settingsTitle = document.createElement("div");
-settingsTitle.className = "terminal-page__settings-title";
-settingsTitle.textContent = "Terminal";
+const themeSettingsButton = createSettingsButton(
+  t("settings.theme"),
+  "theme",
+  "terminalThemeSettingsButton",
+);
+const settingsButton = createSettingsButton(
+  t("settings.terminal"),
+  "settings",
+  "terminalSettingsButton",
+);
 
 function createField(
   labelText: string,
@@ -84,6 +120,15 @@ function createField(
   label.textContent = labelText;
   label.append(control);
   return label;
+}
+
+function createSettingsPanel(): HTMLFormElement {
+  const panel = document.createElement("form");
+  panel.className = "terminal-page__settings-panel";
+  panel.hidden = true;
+  panel.dataset.terminalSettingsPanel = "true";
+
+  return panel;
 }
 
 function createNumberInput({
@@ -106,25 +151,46 @@ function createNumberInput({
   return input;
 }
 
-function createSelect(name: string, values: string[]): HTMLSelectElement {
+function createSelect(
+  name: string,
+  values: readonly string[],
+): HTMLSelectElement {
   const select = document.createElement("select");
   select.name = name;
   for (const value of values) {
     const option = document.createElement("option");
     option.value = value;
-    option.textContent = value;
+    option.textContent = terminalSelectLabel(locale, name, value);
     select.append(option);
   }
   return select;
 }
 
+function setSwitchChecked(input: HTMLInputElement, checked: boolean): void {
+  input.checked = checked;
+  input.setAttribute("aria-checked", String(checked));
+}
+
+function createSwitchInput(name: string): HTMLInputElement {
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.name = name;
+  input.className = "terminal-page__settings-switch";
+  input.setAttribute("role", "switch");
+  setSwitchChecked(input, false);
+  input.addEventListener("change", () => {
+    input.setAttribute("aria-checked", String(input.checked));
+  });
+  return input;
+}
+
 const themeSelect = createSelect("terminalTheme", ["system", "dark", "light"]);
 themeSelect.dataset.terminalThemeSelect = "true";
-const themeLabel = createField("Theme", themeSelect);
+const themeLabel = createField(t("field.theme"), themeSelect);
 
 const fontFamilyLabel = document.createElement("label");
 fontFamilyLabel.className = "terminal-page__settings-field";
-fontFamilyLabel.textContent = "Font family";
+fontFamilyLabel.textContent = t("field.fontFamily");
 
 const fontFamilyInput = document.createElement("input");
 fontFamilyInput.type = "text";
@@ -136,7 +202,7 @@ fontFamilyLabel.append(fontFamilyInput);
 
 const fontSizeLabel = document.createElement("label");
 fontSizeLabel.className = "terminal-page__settings-field";
-fontSizeLabel.textContent = "Font size";
+fontSizeLabel.textContent = t("field.fontSize");
 
 const fontSizeInput = createNumberInput({
   name: "fontSize",
@@ -154,7 +220,7 @@ const lineHeightInput = createNumberInput({
   step: "0.05",
 });
 lineHeightInput.dataset.terminalLineHeightInput = "true";
-const lineHeightLabel = createField("Line height", lineHeightInput);
+const lineHeightLabel = createField(t("field.lineHeight"), lineHeightInput);
 
 const letterSpacingInput = createNumberInput({
   name: "letterSpacing",
@@ -163,7 +229,10 @@ const letterSpacingInput = createNumberInput({
   step: "0.5",
 });
 letterSpacingInput.dataset.terminalLetterSpacingInput = "true";
-const letterSpacingLabel = createField("Letter spacing", letterSpacingInput);
+const letterSpacingLabel = createField(
+  t("field.letterSpacing"),
+  letterSpacingInput,
+);
 
 const cursorStyleSelect = createSelect("cursorStyle", [
   "block",
@@ -171,14 +240,15 @@ const cursorStyleSelect = createSelect("cursorStyle", [
   "bar",
 ]);
 cursorStyleSelect.dataset.terminalCursorStyleSelect = "true";
-const cursorStyleLabel = createField("Cursor style", cursorStyleSelect);
+const cursorStyleLabel = createField(t("field.cursorStyle"), cursorStyleSelect);
 
-const cursorBlinkInput = document.createElement("input");
-cursorBlinkInput.type = "checkbox";
-cursorBlinkInput.name = "cursorBlink";
-cursorBlinkInput.className = "terminal-page__settings-checkbox";
-cursorBlinkInput.dataset.terminalCursorBlinkInput = "true";
-const cursorBlinkLabel = createField("Cursor blink", cursorBlinkInput);
+const cursorBlinkLabel = document.createElement("label");
+cursorBlinkLabel.className = "terminal-page__settings-field";
+cursorBlinkLabel.textContent = t("field.cursorBlink");
+
+const cursorBlinkSwitchInput = createSwitchInput("cursorBlink");
+cursorBlinkSwitchInput.dataset.terminalCursorBlinkSwitchInput = "true";
+cursorBlinkLabel.append(cursorBlinkSwitchInput);
 
 const scrollbackInput = createNumberInput({
   name: "scrollback",
@@ -187,7 +257,7 @@ const scrollbackInput = createNumberInput({
   step: "100",
 });
 scrollbackInput.dataset.terminalScrollbackInput = "true";
-const scrollbackLabel = createField("Scrollback", scrollbackInput);
+const scrollbackLabel = createField(t("field.scrollback"), scrollbackInput);
 
 const scrollSensitivityInput = createNumberInput({
   name: "scrollSensitivity",
@@ -197,7 +267,7 @@ const scrollSensitivityInput = createNumberInput({
 });
 scrollSensitivityInput.dataset.terminalScrollSensitivityInput = "true";
 const scrollSensitivityLabel = createField(
-  "Scroll sensitivity",
+  t("field.scrollSensitivity"),
   scrollSensitivityInput,
 );
 
@@ -209,113 +279,53 @@ const smoothScrollDurationInput = createNumberInput({
 });
 smoothScrollDurationInput.dataset.terminalSmoothScrollDurationInput = "true";
 const smoothScrollDurationLabel = createField(
-  "Smooth scroll duration",
+  t("field.smoothScrollDuration"),
   smoothScrollDurationInput,
 );
 
 const terminalTypeLabel = document.createElement("label");
 terminalTypeLabel.className = "terminal-page__settings-field";
-terminalTypeLabel.textContent = "Terminal type";
+terminalTypeLabel.textContent = t("field.terminalType");
 
-const terminalTypeInput = document.createElement("input");
-terminalTypeInput.type = "text";
-terminalTypeInput.name = "terminalType";
-terminalTypeInput.autocomplete = "off";
-terminalTypeInput.spellcheck = false;
-terminalTypeInput.setAttribute("list", "terminal-type-options");
+const terminalTypeInput = createSelect(
+  "terminalType",
+  SUPPORTED_TERMINAL_TYPES,
+);
 terminalTypeInput.dataset.terminalTypeInput = "true";
+terminalTypeLabel.append(terminalTypeInput);
 
-const terminalTypeOptions = document.createElement("datalist");
-terminalTypeOptions.id = "terminal-type-options";
-for (const value of [
-  "xterm-256color",
-  "xterm",
-  "linux",
-  "screen-256color",
-  "tmux-256color",
-]) {
-  const option = document.createElement("option");
-  option.value = value;
-  terminalTypeOptions.append(option);
-}
-terminalTypeLabel.append(terminalTypeInput, terminalTypeOptions);
-
-const settingsActions = document.createElement("div");
-settingsActions.className = "terminal-page__settings-actions";
-
-const applySettingsButton = document.createElement("button");
-applySettingsButton.type = "submit";
-applySettingsButton.textContent = "Apply";
-applySettingsButton.dataset.terminalSettingsApply = "true";
-
-const resetSettingsButton = document.createElement("button");
-resetSettingsButton.type = "button";
-resetSettingsButton.textContent = "Reset";
-resetSettingsButton.dataset.terminalSettingsReset = "true";
-
-settingsActions.append(resetSettingsButton, applySettingsButton);
-settingsPanel.append(
-  settingsTitle,
-  themeLabel,
+const fontSettingsPanel = createSettingsPanel();
+fontSettingsPanel.append(
   fontFamilyLabel,
   fontSizeLabel,
   lineHeightLabel,
   letterSpacingLabel,
+);
+
+const themeSettingsPanel = createSettingsPanel();
+themeSettingsPanel.append(themeLabel);
+
+const otherSettingsPanel = createSettingsPanel();
+otherSettingsPanel.append(
   cursorStyleLabel,
   cursorBlinkLabel,
   scrollbackLabel,
   scrollSensitivityLabel,
   smoothScrollDurationLabel,
   terminalTypeLabel,
-  settingsActions,
 );
-settings.append(settingsButton, settingsPanel);
+
+settings.append(
+  fontSettingsButton,
+  themeSettingsButton,
+  settingsButton,
+  fontSettingsPanel,
+  themeSettingsPanel,
+  otherSettingsPanel,
+);
 
 page.append(surface, settings, status);
 root.append(page);
-
-const computedStyle = getComputedStyle(document.documentElement);
-
-function cssColor(name: string, fallback: string): string {
-  return computedStyle.getPropertyValue(name).trim() || fallback;
-}
-
-function systemTerminalTheme() {
-  return {
-    background: cssColor(
-      "--vscode-terminal-background",
-      cssColor("--color-token-editor-background", "#0c0d0e"),
-    ),
-    foreground: cssColor(
-      "--vscode-terminal-foreground",
-      cssColor("--color-token-editor-foreground", "#f3f4f6"),
-    ),
-    cursor: cssColor(
-      "--vscode-terminal-cursor-foreground",
-      cssColor("--color-token-editor-foreground", "#f3f4f6"),
-    ),
-    selectionBackground: cssColor(
-      "--vscode-terminal-selectionBackground",
-      cssColor("--color-token-editor-selection-background", "#3b82f680"),
-    ),
-    black: cssColor("--vscode-terminal-ansiBlack", "#0c0d0e"),
-    blue: cssColor("--vscode-terminal-ansiBlue", "#339cff"),
-    brightBlack: cssColor("--vscode-terminal-ansiBrightBlack", "#6b7280"),
-    brightBlue: cssColor("--vscode-terminal-ansiBrightBlue", "#60a5fa"),
-    brightCyan: cssColor("--vscode-terminal-ansiBrightCyan", "#67e8f9"),
-    brightGreen: cssColor("--vscode-terminal-ansiBrightGreen", "#34d399"),
-    brightMagenta: cssColor("--vscode-terminal-ansiBrightMagenta", "#c084fc"),
-    brightRed: cssColor("--vscode-terminal-ansiBrightRed", "#f87171"),
-    brightWhite: cssColor("--vscode-terminal-ansiBrightWhite", "#f9fafb"),
-    brightYellow: cssColor("--vscode-terminal-ansiBrightYellow", "#facc15"),
-    cyan: cssColor("--vscode-terminal-ansiCyan", "#22d3ee"),
-    green: cssColor("--vscode-terminal-ansiGreen", "#22c55e"),
-    magenta: cssColor("--vscode-terminal-ansiMagenta", "#a855f7"),
-    red: cssColor("--vscode-terminal-ansiRed", "#ef4444"),
-    white: cssColor("--vscode-terminal-ansiWhite", "#d1d5db"),
-    yellow: cssColor("--vscode-terminal-ansiYellow", "#eab308"),
-  };
-}
 
 const darkTerminalTheme = {
   background: "#0c0d0e",
@@ -363,14 +373,22 @@ const lightTerminalTheme = {
   yellow: "#a16207",
 };
 
+const systemThemeMediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+
 function terminalTheme(themeName: string) {
-  if (themeName === "dark") {
+  const effectiveThemeName =
+    themeName === "system"
+      ? systemThemeMediaQuery.matches
+        ? "dark"
+        : "light"
+      : themeName;
+  if (effectiveThemeName === "dark") {
     return darkTerminalTheme;
   }
-  if (themeName === "light") {
+  if (effectiveThemeName === "light") {
     return lightTerminalTheme;
   }
-  return systemTerminalTheme();
+  return lightTerminalTheme;
 }
 
 function applySurfaceTheme(themeName: string): void {
@@ -387,7 +405,7 @@ fontSizeInput.value = String(initialSettings.fontSize);
 lineHeightInput.value = String(initialSettings.lineHeight);
 letterSpacingInput.value = String(initialSettings.letterSpacing);
 cursorStyleSelect.value = initialSettings.cursorStyle;
-cursorBlinkInput.checked = initialSettings.cursorBlink;
+setSwitchChecked(cursorBlinkSwitchInput, initialSettings.cursorBlink);
 scrollbackInput.value = String(initialSettings.scrollback);
 scrollSensitivityInput.value = String(initialSettings.scrollSensitivity);
 smoothScrollDurationInput.value = String(initialSettings.smoothScrollDuration);
@@ -427,14 +445,58 @@ function setStatus(message: string): void {
   status.textContent = message;
 }
 
-function setSettingsPanelOpen(open: boolean): void {
-  settingsPanel.hidden = !open;
-  settingsButton.setAttribute("aria-expanded", String(open));
-  if (open) {
-    fontFamilyInput.focus();
-    fontFamilyInput.select();
-  } else {
+const settingsPanels = [
+  fontSettingsPanel,
+  themeSettingsPanel,
+  otherSettingsPanel,
+];
+const settingsButtons = [
+  fontSettingsButton,
+  themeSettingsButton,
+  settingsButton,
+];
+
+function closeSettingsPanels({
+  restoreTerminalFocus = true,
+}: { restoreTerminalFocus?: boolean } = {}): void {
+  for (const panel of settingsPanels) {
+    panel.hidden = true;
+  }
+  for (const button of settingsButtons) {
+    button.setAttribute("aria-expanded", "false");
+  }
+  if (restoreTerminalFocus) {
     terminal.focus();
+  }
+}
+
+function openSettingsPanel(
+  panel: HTMLFormElement,
+  button: HTMLButtonElement,
+  focusTarget: HTMLElement,
+): void {
+  for (const nextPanel of settingsPanels) {
+    nextPanel.hidden = nextPanel !== panel;
+  }
+  for (const nextButton of settingsButtons) {
+    nextButton.setAttribute("aria-expanded", String(nextButton === button));
+  }
+  focusTarget.focus();
+  if (focusTarget instanceof HTMLInputElement) {
+    focusTarget.select();
+  }
+}
+
+function toggleSettingsPanel(
+  panel: HTMLFormElement,
+  button: HTMLButtonElement,
+  focusTarget: HTMLElement,
+): void {
+  const open = panel.hidden;
+  if (open) {
+    openSettingsPanel(panel, button, focusTarget);
+  } else {
+    closeSettingsPanels();
   }
 }
 
@@ -457,6 +519,12 @@ function applyTerminalOptions(
   requestAnimationFrame(fitAndResize);
 }
 
+systemThemeMediaQuery.addEventListener("change", () => {
+  if (themeSelect.value === "system") {
+    applyTerminalOptions(resolveTerminalSettings());
+  }
+});
+
 function setSettingsFormValues(
   settings: ReturnType<typeof resolveTerminalSettings>,
 ): void {
@@ -466,7 +534,7 @@ function setSettingsFormValues(
   lineHeightInput.value = String(settings.lineHeight);
   letterSpacingInput.value = String(settings.letterSpacing);
   cursorStyleSelect.value = settings.cursorStyle;
-  cursorBlinkInput.checked = settings.cursorBlink;
+  setSwitchChecked(cursorBlinkSwitchInput, settings.cursorBlink);
   scrollbackInput.value = String(settings.scrollback);
   scrollSensitivityInput.value = String(settings.scrollSensitivity);
   smoothScrollDurationInput.value = String(settings.smoothScrollDuration);
@@ -477,16 +545,37 @@ function savedSettingsStatus(
   settings: ReturnType<typeof resolveTerminalSettings>,
 ) {
   return settings.terminalType === activeTerminalType
-    ? "Terminal settings saved"
-    : "Terminal settings saved. Terminal type applies to new terminals.";
+    ? t("status.settingsSaved")
+    : t("status.settingsSavedNewTerminals");
 }
 
-settingsButton.addEventListener("click", () => {
-  setSettingsPanelOpen(settingsPanel.hidden);
+fontSettingsButton.addEventListener("click", () => {
+  toggleSettingsPanel(fontSettingsPanel, fontSettingsButton, fontFamilyInput);
 });
 
-settingsPanel.addEventListener("submit", (event) => {
-  event.preventDefault();
+themeSettingsButton.addEventListener("click", () => {
+  toggleSettingsPanel(themeSettingsPanel, themeSettingsButton, themeSelect);
+});
+
+settingsButton.addEventListener("click", () => {
+  toggleSettingsPanel(otherSettingsPanel, settingsButton, cursorStyleSelect);
+});
+
+const settingsControls = [
+  fontFamilyInput,
+  fontSizeInput,
+  lineHeightInput,
+  letterSpacingInput,
+  themeSelect,
+  cursorStyleSelect,
+  cursorBlinkSwitchInput,
+  scrollbackInput,
+  scrollSensitivityInput,
+  smoothScrollDurationInput,
+  terminalTypeInput,
+];
+
+function saveCurrentSettings(): void {
   try {
     const saved = saveTerminalSettings({
       fontFamily: fontFamilyInput.value,
@@ -495,7 +584,7 @@ settingsPanel.addEventListener("submit", (event) => {
       lineHeight: lineHeightInput.value,
       letterSpacing: letterSpacingInput.value,
       cursorStyle: cursorStyleSelect.value,
-      cursorBlink: cursorBlinkInput.checked,
+      cursorBlink: cursorBlinkSwitchInput.checked,
       scrollback: scrollbackInput.value,
       scrollSensitivity: scrollSensitivityInput.value,
       smoothScrollDuration: smoothScrollDurationInput.value,
@@ -507,27 +596,48 @@ settingsPanel.addEventListener("submit", (event) => {
     applyTerminalOptions(nextSettings);
     setStatus(savedSettingsStatus(nextSettings));
   } catch (error) {
-    setStatus(error instanceof Error ? error.message : "Invalid font settings");
+    setStatus(
+      isTerminalMessageError(error)
+        ? t(error.terminalMessageKey, error.terminalMessageValues)
+        : t("status.invalidSettings"),
+    );
+  }
+}
+
+function handleSettingsSubmit(event: SubmitEvent): void {
+  event.preventDefault();
+  saveCurrentSettings();
+}
+
+for (const control of settingsControls) {
+  control.addEventListener("change", saveCurrentSettings);
+}
+
+for (const panel of settingsPanels) {
+  panel.addEventListener("submit", handleSettingsSubmit);
+}
+
+document.addEventListener("pointerdown", (event) => {
+  if (event.target instanceof Node && !settings.contains(event.target)) {
+    closeSettingsPanels();
   }
 });
 
-resetSettingsButton.addEventListener("click", () => {
-  resetTerminalSettings();
-  const defaultSettings = completeTerminalSettings();
-  pendingTerminalType = defaultSettings.terminalType;
-  setSettingsFormValues(defaultSettings);
-  applyTerminalOptions(defaultSettings);
-  setStatus(
-    defaultSettings.terminalType === activeTerminalType
-      ? "Terminal settings reset"
-      : "Terminal settings reset. Terminal type applies to new terminals.",
-  );
+window.addEventListener("message", (event) => {
+  if (
+    event.data != null &&
+    typeof event.data === "object" &&
+    "type" in event.data &&
+    event.data.type === parentCloseSettingsMessageType
+  ) {
+    closeSettingsPanels({ restoreTerminalFocus: false });
+  }
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !settingsPanel.hidden) {
+  if (event.key === "Escape" && settingsPanels.some((panel) => !panel.hidden)) {
     event.preventDefault();
-    setSettingsPanelOpen(false);
+    closeSettingsPanels();
   }
 });
 
@@ -586,7 +696,7 @@ function connect(): void {
 
     if (message.type === "created") {
       created = true;
-      setStatus("Connected");
+      setStatus(t("status.connected"));
       terminal.focus();
       return;
     }
@@ -598,21 +708,28 @@ function connect(): void {
 
     if (message.type === "exit") {
       created = false;
-      setStatus(`Exited (${message.exitCode ?? message.signal ?? "unknown"})`);
+      setStatus(
+        t("status.exited", {
+          reason: message.exitCode ?? message.signal ?? t("status.unknown"),
+        }),
+      );
       return;
     }
 
-    setStatus(message.message);
-    terminal.writeln(`\r\n${message.message}`);
+    const errorText = message.messageKey
+      ? t(message.messageKey, message.messageValues)
+      : message.message;
+    setStatus(errorText);
+    terminal.writeln(`\r\n${errorText}`);
   });
 
   socket.addEventListener("close", () => {
     created = false;
-    setStatus("Disconnected");
+    setStatus(t("status.disconnected"));
   });
 
   socket.addEventListener("error", () => {
-    setStatus("Connection error");
+    setStatus(t("status.connectionError"));
   });
 }
 
