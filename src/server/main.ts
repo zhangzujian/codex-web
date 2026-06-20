@@ -12,6 +12,12 @@ import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import { installModuleAliasHook } from "./module";
 import { glob } from "glob";
+import {
+  createNodePtyTerminalSessionFactory,
+  createTerminalSocketHandler,
+  defaultTerminalCwd,
+  terminalStylesheetHrefs,
+} from "./terminal";
 
 type ServerOptions = {
   host: string;
@@ -397,7 +403,12 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
   const bridgeState = getIpcMainBridgeState();
   const app = Fastify({ logger: false });
   const websocketServer = new WebSocketServer({ noServer: true });
+  const terminalWebsocketServer = new WebSocketServer({ noServer: true });
   const sockets = new Set<WebSocket>();
+  const terminalSessionFactory = createNodePtyTerminalSessionFactory();
+  const handleTerminalSocket = createTerminalSocketHandler(
+    terminalSessionFactory,
+  );
 
   await app.register(fastifyMultipart, {
     limits: {
@@ -441,13 +452,24 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
     decorateReply: false,
   });
 
+  const webviewRoot = path.resolve(__dirname, "../../scratch/asar/webview");
+
   await app.register(fastifyStatic, {
-    root: path.resolve(__dirname, "../../scratch/asar/webview"),
+    root: webviewRoot,
     prefix: "/",
   });
 
   app.get("/", async (_request, reply) => {
     return reply.sendFile("index.html");
+  });
+
+  app.get("/__terminal", async (request, reply) => {
+    return reply.type("text/html").send(
+      createTerminalHtml({
+        cwd: getTerminalCwdFromQuery(request.query),
+        stylesheetHrefs: getTerminalStylesheetHrefs(webviewRoot),
+      }),
+    );
   });
 
   app.setNotFoundHandler((request, reply) => {
@@ -465,6 +487,18 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
     const requestUrl = request.url ?? "/";
     const host = request.headers.host ?? "localhost";
     const url = new URL(requestUrl, `http://${host}`);
+    if (url.pathname === "/__backend/terminal") {
+      terminalWebsocketServer.handleUpgrade(
+        request,
+        socket,
+        head,
+        (upgradedSocket) => {
+          terminalWebsocketServer.emit("connection", upgradedSocket, request);
+        },
+      );
+      return;
+    }
+
     if (url.pathname !== "/__backend/ipc") {
       socket.destroy();
       return;
@@ -601,6 +635,10 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
     });
   });
 
+  terminalWebsocketServer.on("connection", (socket) => {
+    handleTerminalSocket(socket);
+  });
+
   await app.listen({ host: options.host, port: options.port });
   console.log(`IPC bridge listening at ws://${options.host}:${options.port}`);
 
@@ -631,3 +669,59 @@ async function main(args: string[]) {
 }
 
 main(process.argv.slice(2));
+
+function createTerminalHtml({
+  cwd: requestedCwd,
+  stylesheetHrefs,
+}: {
+  cwd: string | undefined;
+  stylesheetHrefs: string[];
+}): string {
+  const cwd = escapeHtml(requestedCwd ?? defaultTerminalCwd());
+  const stylesheetLinks = stylesheetHrefs
+    .map((href) => `    <link rel="stylesheet" href="${escapeHtml(href)}" />`)
+    .join("\n");
+  return `<!doctype html>
+<html lang="en" data-codex-window-type="browser">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Terminal</title>
+${stylesheetLinks}
+    <script type="module" src="/assets/terminal-page.js"></script>
+  </head>
+  <body data-terminal-cwd="${cwd}">
+    <div id="terminal-root"></div>
+  </body>
+</html>`;
+}
+
+function getTerminalStylesheetHrefs(webviewRoot: string): string[] {
+  const assetsRoot = path.join(webviewRoot, "assets");
+  try {
+    return terminalStylesheetHrefs(fsSync.readdirSync(assetsRoot));
+  } catch {
+    return terminalStylesheetHrefs([]);
+  }
+}
+
+function getTerminalCwdFromQuery(query: unknown): string | undefined {
+  if (
+    typeof query === "object" &&
+    query !== null &&
+    "cwd" in query &&
+    typeof query.cwd === "string" &&
+    query.cwd.trim()
+  ) {
+    return query.cwd;
+  }
+  return undefined;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}

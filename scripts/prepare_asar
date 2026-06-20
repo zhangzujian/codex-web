@@ -22,6 +22,7 @@ else
   done < <(
     awk '/^\+\+\+ b\//{sub(/^\+\+\+ b\//, "scratch/asar/"); print}' patches/*.patch | sort -u
   )
+  patched_files+=("scratch/asar/webview/assets/thread-side-panel-tabs-DS_ZejVN.js")
   prettier --ignore-path /dev/null --ignore-unknown --write "${patched_files[@]}"
 fi
 patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-remove-csp.patch
@@ -35,6 +36,17 @@ patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-ele
 patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-use-atfs-for-local-files.patch
 patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-prompt-search-param.patch
 patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-statsig-override-adapter.patch
+node <<'NODE'
+const fs = require("node:fs");
+const file = "scratch/asar/webview/assets/thread-side-panel-tabs-DS_ZejVN.js";
+const before = "function rm(e,t,n=!0){return t==null||e.value.routeKind,!1}";
+const after = "function rm(e,t,n=!0){let r=e.get(Or);return Rp(e,{browserConversationId:t??void 0,initialUrl:`/__terminal?cwd=${encodeURIComponent(r??``)}`,initiator:`side_panel_terminal`,source:`manual`,target:`right`,cwd:r??void 0})!=null}";
+const source = fs.readFileSync(file, "utf8");
+if (!source.includes(before)) {
+  throw new Error(`Terminal side panel stub not found in ${file}`);
+}
+fs.writeFileSync(file, source.replace(before, after));
+NODE
 patch --batch --forward --strip 1 --directory scratch/asar < patches/sentry-disable-shell.patch
 patch --batch --forward --strip 1 --directory scratch/asar < patches/sentry-disable-webview.patch
 rm -rf scratch/asar/node_modules/better-sqlite3

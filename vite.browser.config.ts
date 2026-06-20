@@ -10,6 +10,10 @@ const preloadEntryPath = path.resolve(
   configDir,
   "scratch/asar/.vite/build/preload.js",
 );
+const terminalEntryPath = path.resolve(
+  configDir,
+  "src/browser/terminal-page.ts",
+);
 const browserNodeEnv = process.env.NODE_ENV ?? "production";
 const asarPackageJson = JSON.parse(readFileSync(asarPackagePath, "utf8")) as {
   version?: unknown;
@@ -58,13 +62,19 @@ export default defineConfig({
     outDir: path.resolve(webviewRoot, "assets"),
     sourcemap: true,
     lib: {
-      entry: preloadEntryPath,
-      fileName: () => "preload.js",
+      entry: {
+        preload: preloadEntryPath,
+        "terminal-page": terminalEntryPath,
+      },
       formats: ["es"],
     },
     rollupOptions: {
       output: {
-        entryFileNames: "preload.js",
+        assetFileNames: (assetInfo) =>
+          assetInfo.names?.some((name) => name.endsWith(".css"))
+            ? "terminal-page.css"
+            : "[name]-[hash][extname]",
+        entryFileNames: "[name].js",
       },
     },
   },

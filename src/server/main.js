@@ -16,6 +16,7 @@ const multipart_1 = __importDefault(require("@fastify/multipart"));
 const static_1 = __importDefault(require("@fastify/static"));
 const module_1 = require("./module");
 const glob_1 = require("glob");
+const terminal_1 = require("./terminal");
 function workspaceDirectoryEntryTypeRank(entry) {
     return entry.type === "directory" ? 0 : 1;
 }
@@ -214,7 +215,10 @@ async function startIpcBridgeServer(options) {
     const bridgeState = getIpcMainBridgeState();
     const app = (0, fastify_1.default)({ logger: false });
     const websocketServer = new ws_1.WebSocketServer({ noServer: true });
+    const terminalWebsocketServer = new ws_1.WebSocketServer({ noServer: true });
     const sockets = new Set();
+    const terminalSessionFactory = (0, terminal_1.createNodePtyTerminalSessionFactory)();
+    const handleTerminalSocket = (0, terminal_1.createTerminalSocketHandler)(terminalSessionFactory);
     await app.register(multipart_1.default, {
         limits: {
             fileSize: Infinity,
@@ -244,12 +248,19 @@ async function startIpcBridgeServer(options) {
         prefix: "/@fs/",
         decorateReply: false,
     });
+    const webviewRoot = node_path_1.default.resolve(__dirname, "../../scratch/asar/webview");
     await app.register(static_1.default, {
-        root: node_path_1.default.resolve(__dirname, "../../scratch/asar/webview"),
+        root: webviewRoot,
         prefix: "/",
     });
     app.get("/", async (_request, reply) => {
         return reply.sendFile("index.html");
+    });
+    app.get("/__terminal", async (request, reply) => {
+        return reply.type("text/html").send(createTerminalHtml({
+            cwd: getTerminalCwdFromQuery(request.query),
+            stylesheetHrefs: getTerminalStylesheetHrefs(webviewRoot),
+        }));
     });
     app.setNotFoundHandler((request, reply) => {
         if (request.url.startsWith("/@fs/")) {
@@ -264,6 +275,12 @@ async function startIpcBridgeServer(options) {
         const requestUrl = request.url ?? "/";
         const host = request.headers.host ?? "localhost";
         const url = new URL(requestUrl, `http://${host}`);
+        if (url.pathname === "/__backend/terminal") {
+            terminalWebsocketServer.handleUpgrade(request, socket, head, (upgradedSocket) => {
+                terminalWebsocketServer.emit("connection", upgradedSocket, request);
+            });
+            return;
+        }
         if (url.pathname !== "/__backend/ipc") {
             socket.destroy();
             return;
@@ -378,6 +395,9 @@ async function startIpcBridgeServer(options) {
             }
         });
     });
+    terminalWebsocketServer.on("connection", (socket) => {
+        handleTerminalSocket(socket);
+    });
     await app.listen({ host: options.host, port: options.port });
     console.log(`IPC bridge listening at ws://${options.host}:${options.port}`);
     ensureElectronLikeProcessContext();
@@ -400,4 +420,49 @@ async function main(args) {
     await startIpcBridgeServer(options);
 }
 main(process.argv.slice(2));
+function createTerminalHtml({ cwd: requestedCwd, stylesheetHrefs, }) {
+    const cwd = escapeHtml(requestedCwd ?? (0, terminal_1.defaultTerminalCwd)());
+    const stylesheetLinks = stylesheetHrefs
+        .map((href) => `    <link rel="stylesheet" href="${escapeHtml(href)}" />`)
+        .join("\n");
+    return `<!doctype html>
+<html lang="en" data-codex-window-type="browser">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Terminal</title>
+${stylesheetLinks}
+    <script type="module" src="/assets/terminal-page.js"></script>
+  </head>
+  <body data-terminal-cwd="${cwd}">
+    <div id="terminal-root"></div>
+  </body>
+</html>`;
+}
+function getTerminalStylesheetHrefs(webviewRoot) {
+    const assetsRoot = node_path_1.default.join(webviewRoot, "assets");
+    try {
+        return (0, terminal_1.terminalStylesheetHrefs)(node_fs_1.default.readdirSync(assetsRoot));
+    }
+    catch {
+        return (0, terminal_1.terminalStylesheetHrefs)([]);
+    }
+}
+function getTerminalCwdFromQuery(query) {
+    if (typeof query === "object" &&
+        query !== null &&
+        "cwd" in query &&
+        typeof query.cwd === "string" &&
+        query.cwd.trim()) {
+        return query.cwd;
+    }
+    return undefined;
+}
+function escapeHtml(value) {
+    return value
+        .replaceAll("&", "&amp;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;");
+}
 //# sourceMappingURL=main.js.map
