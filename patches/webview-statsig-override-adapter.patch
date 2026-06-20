@@ -1,10 +1,24 @@
 --- a/webview/assets/app-main-Cykt_nvm.js
 +++ b/webview/assets/app-main-Cykt_nvm.js
-@@ -25920,6 +25920,7 @@
+@@ -25234,6 +25234,6 @@
+ function dP({ appVersion: e, client: t, deviceId: n, enabled: r }) {
+   let { data: i, status: a } = Oc(),
+-    o = r && a === `success` && i === !0,
++    o = false,
+     s = (0, $.useMemo)(() => fP(t), [t]),
+     c = (0, $.useRef)(o),
+     l = (0, $.useRef)(null),
+@@ -25920,10 +25920,13 @@
    XP = 500,
    ZP = `1569253508`,
    QP = {
 +    overrideAdapter: window.__ELECTRON_SHIM__.overrideAdapter,
++    disableLogging: true,
      networkConfig: {
        api: KP,
        logEventUrl: tP,
+       sdkExceptionUrl: qP,
++      preventAllNetworkTraffic: true,
+       networkOverrideFunc: UP,
+     },
+   };
