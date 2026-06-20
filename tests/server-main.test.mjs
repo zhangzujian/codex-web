@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
 
 import {
   createTerminalHtml,
@@ -120,7 +121,6 @@ test("webview shell installs Statsig overrides before module scripts run", () =>
 
   const injected = serverMain.injectWebviewRuntimeScripts(html, "secret");
   const overrideIndex = injected.indexOf("window.__ELECTRON_SHIM__");
-  const automationsGateIndex = injected.indexOf("3075919032");
   const layerOverrideIndex = injected.indexOf("getLayerOverride");
   const localeSourceIndex = injected.indexOf("locale_source");
   const tokenIndex = injected.indexOf("__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__");
@@ -128,12 +128,25 @@ test("webview shell installs Statsig overrides before module scripts run", () =>
   const appIndex = injected.indexOf("./assets/index.js");
 
   assert.notEqual(overrideIndex, -1);
-  assert.notEqual(automationsGateIndex, -1);
   assert.notEqual(layerOverrideIndex, -1);
   assert.notEqual(localeSourceIndex, -1);
   assert.notEqual(tokenIndex, -1);
   assert.ok(overrideIndex < preloadIndex);
   assert.ok(overrideIndex < appIndex);
+
+  const [bootstrapScript] = [
+    ...injected.matchAll(/<script>([\s\S]*?)<\/script>/g),
+  ].map((match) => match[1]);
+  const context = { window: {} };
+  runInNewContext(bootstrapScript, context);
+
+  const adapter = context.window.__ELECTRON_SHIM__.overrideAdapter;
+  const automationsGateOverride = adapter.getGateOverride({
+    name: "3075919032",
+    value: false,
+  });
+  assert.equal(automationsGateOverride.name, "3075919032");
+  assert.equal(automationsGateOverride.value, true);
 });
 
 test("terminal html carries the requested locale for terminal i18n", () => {
