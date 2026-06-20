@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
+HOSTED_CODEX_APP_ZIP="${HOSTED_CODEX_APP_ZIP:-"$("$BASH" ./scripts/resolve_codex_app_zip)"}"
+
 unzip -o "$HOSTED_CODEX_APP_ZIP" -d scratch/
 asar extract "scratch/Codex.app/Contents/Resources/app.asar" "scratch/asar"
 cp assets/* scratch/asar/webview/
