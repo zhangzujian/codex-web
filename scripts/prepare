@@ -1,11 +1,29 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
-TEMP_DIR="$(mktemp -d)"
-
 APP_VERSION="26.616.32156"
-curl -o "$TEMP_DIR/file.zip" "https://persistent.oaistatic.com/codex-app-prod/Codex-darwin-arm64-$APP_VERSION.zip"
+APP_ZIP_NAME="Codex-darwin-arm64-$APP_VERSION.zip"
+APP_ZIP_URL="https://persistent.oaistatic.com/codex-app-prod/$APP_ZIP_NAME"
+CODEX_APP_CACHE_DIR="${CODEX_APP_CACHE_DIR:-"$PWD/.cache/codex-app"}"
+HOSTED_CODEX_APP_ZIP="$CODEX_APP_CACHE_DIR/$APP_ZIP_NAME"
+TEMP_ZIP=""
 
-HOSTED_CODEX_APP_ZIP="$TEMP_DIR/file.zip" bash ./scripts/prepare_asar
+cleanup_temp_zip() {
+  if [[ -n "$TEMP_ZIP" ]]; then
+    rm -f "$TEMP_ZIP"
+  fi
+}
 
-rm -rf "$TEMP_DIR"
+trap cleanup_temp_zip EXIT
+
+mkdir -p "$CODEX_APP_CACHE_DIR"
+
+if [[ ! -f "$HOSTED_CODEX_APP_ZIP" ]] || ! unzip -tq "$HOSTED_CODEX_APP_ZIP" >/dev/null; then
+  TEMP_ZIP="$(mktemp "$HOSTED_CODEX_APP_ZIP.download.XXXXXX")"
+  curl -fL -o "$TEMP_ZIP" "$APP_ZIP_URL"
+  unzip -tq "$TEMP_ZIP" >/dev/null
+  mv "$TEMP_ZIP" "$HOSTED_CODEX_APP_ZIP"
+  TEMP_ZIP=""
+fi
+
+HOSTED_CODEX_APP_ZIP="$HOSTED_CODEX_APP_ZIP" bash ./scripts/prepare_asar
