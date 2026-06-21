@@ -68,8 +68,7 @@ const browserChromeChunk = [
   "function ps({browserSnapshot:e,browserTabFallbackTitle:t,isBrowserUseActive:n,isBrowserUseTab:r}){let i=e?.tabType===ne.WEB,a=r&&i&&(e.url.length===0||e.url===`about:blank`),o=i&&(e.url.startsWith(fs)||e.title.startsWith(fs)),s=i&&!a&&!o?oi(e.url):``,c=i?e.title.trim():``,l=c.length===0||c===`about:blank`||c===t,u=i&&!a&&!o&&c.length>0;return{faviconUrl:i?e.faviconUrl:null,isAudible:i&&e.isAudible,isCapturingUserMedia:i&&e.isCapturingUserMedia,isHighlighted:n,preserveExistingTitle:o,title:u&&!l?c:s||t}}",
   "function Np(){let S={isTerminal:true,faviconUrl:null};w.updateTab(d,l,{icon:(0,$.jsx)(Dt,{alt:``,className:`size-full rounded-2xs`,logoUrl:S.faviconUrl,fallback:(0,$.jsx)(bi,{className:`size-full`})}),title:e})}",
   "function Eu(){",
-  "let X={url:`http://localhost/__terminal?cwd=/tmp`,isLoading:!1},Kt=!0;",
-  "let Wt=X.tabType===ne.WEB,Kt=Wt&&X.url.trim().length>0,rt={};",
+  "let X={url:`http://localhost/__terminal?cwd=/tmp`,isLoading:!1},Wt=X.tabType===ne.WEB,Kt=Wt&&X.url.trim().length>0,Qt={};",
   "let Ui=!1,Wi=`Show`;",
   'return(0,$.jsxs)(`div`,{ref:L,"data-browser-sidebar-primary-focus-target":Kt?`webview`:`address`,className:`relative grid h-full min-h-0 w-full min-w-0 grid-rows-[auto_1fr]`,tabIndex:-1,children:[(0,$.jsxs)(`div`,{className:`relative z-10 h-toolbar-pane min-w-0 shrink-0 border-b border-token-border`,children:[(0,$.jsx)(`input`,{"data-browser-sidebar-address-input":`true`})]}),(0,$.jsx)(`div`,{className:`relative flex min-h-0 min-w-0 flex-1 flex-col`})]})',
   "}",
@@ -503,8 +502,14 @@ test("patchTerminalBrowserChromeSource hides browser toolbar for terminal URLs",
   );
   assert.match(patched, /isTerminal:/);
   assert.match(patched, /codex-web-terminal-exit/);
-  assert.match(patched, /L\.current\?\.querySelector\(`iframe`\)/);
-  assert.match(patched, /Mr\(y\)\.closeTab\(b,n\)/);
+  assert.match(patched, /function codexWebCloseTerminalTabOnExit/);
+  assert.doesNotMatch(patched, /codexWebTerminalExitTab/);
+  assert.doesNotMatch(patched, /;Qt=/);
+  assert.match(
+    patched,
+    /iframe\[data-codex-web-browser-panel-frame\]\[src\*="\/__terminal"\]/,
+  );
+  assert.match(patched, /button:not\(\[role="tab"\]\)/);
   assert.match(patched, /S\.isTerminal\?/);
   assert.match(patched, /codexWebTerminalTabIcon/);
   assert.match(

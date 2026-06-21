@@ -15,6 +15,13 @@ const TERMINAL_BROWSER_SHORTCUT_FUNCTION =
 const TERMINAL_BROWSER_CHROME_MARKER = "codexWebIsTerminalTab";
 const TERMINAL_SETTINGS_PARENT_CLOSE_MARKER =
   "codexWebCloseTerminalSettingsOnOutsidePointer";
+const TERMINAL_EXIT_PARENT_CLOSE_MARKER = "codexWebCloseTerminalTabOnExit";
+const TERMINAL_EXIT_PARENT_CLOSE_SCRIPT =
+  "function codexWebCloseTerminalTabOnExit(e){if(e.origin!==globalThis.location.origin||e.data?.type!==`codex-web-terminal-exit`)return;let t=[...document.querySelectorAll(`iframe[data-codex-web-browser-panel-frame][src*=\"/__terminal\"]`)].find(t=>t.contentWindow===e.source),n=t?.dataset.browserSidebarBrowserTabId;if(!n)return;document.querySelector(`[data-app-shell-tab-controller][data-tab-id=\"${n}\"] button:not([role=\"tab\"])`)?.click()}window.addEventListener(`message`,codexWebCloseTerminalTabOnExit);";
+const OLD_TERMINAL_EXIT_PARENT_CLOSE_EFFECT =
+  "(0,Q.useEffect)(()=>{if(!codexWebIsTerminalTab)return;let e=e=>{if(e.origin!==globalThis.location.origin||e.data?.type!==`codex-web-terminal-exit`||e.source!==L.current?.querySelector(`iframe`)?.contentWindow)return;Mr(y).closeTab(b,n)};return window.addEventListener(`message`,e),()=>window.removeEventListener(`message`,e)},[codexWebIsTerminalTab,b,n,y]);";
+const OLD_BROKEN_TERMINAL_EXIT_PARENT_CLOSE =
+  ",codexWebTerminalExitTab=X.url?.includes(`/__terminal`)===!0;(0,Q.useEffect)(()=>{if(!codexWebTerminalExitTab)return;let e=e=>{if(e.origin!==globalThis.location.origin||e.data?.type!==`codex-web-terminal-exit`||e.source!==L.current?.querySelector(`iframe`)?.contentWindow)return;Mr(y).closeTab(b,n)};return window.addEventListener(`message`,e),()=>window.removeEventListener(`message`,e)},[codexWebTerminalExitTab,b,n,y]);";
 const APPLICATION_MENU_PATCH_MARKER = "codexWebDisableApplicationMenu";
 const APPLICATION_MENU_FEATURE_PATTERN =
   /function\s+([$A-Za-z_][\w$]*)\(\)\{return yt\(\)&&window\.electronBridge\?\.showApplicationMenu!=null\}/;
@@ -662,7 +669,6 @@ export function patchTerminalBrowserChromeSource(source) {
   patched = patchTerminalSettingsParentCloseSource(patched);
   patched = patchTerminalTabIconFunction(patched);
   patched = patchTerminalBrowserTabSnapshotSource(patched);
-  patched = patchTerminalExitParentCloseSource(patched);
   if (!patched.includes(TERMINAL_BROWSER_CHROME_MARKER)) {
     patched = replaceOnce(
       patched,
@@ -699,20 +705,20 @@ export function patchTerminalBrowserChromeSource(source) {
       "Terminal browser panel toolbar not found",
     );
   }
+  patched = patchTerminalExitParentCloseSource(patched);
 
   return patched;
 }
 
 function patchTerminalExitParentCloseSource(source) {
-  if (source.includes("codex-web-terminal-exit")) {
-    return source;
+  let patched = source
+    .replace(OLD_BROKEN_TERMINAL_EXIT_PARENT_CLOSE, ",")
+    .replace(OLD_TERMINAL_EXIT_PARENT_CLOSE_EFFECT, "");
+  if (patched.includes(TERMINAL_EXIT_PARENT_CLOSE_MARKER)) {
+    return patched;
   }
 
-  return replaceIfPresent(
-    source,
-    "Wt=X.tabType===ne.WEB,Kt=Wt&&X.url.trim().length>0,",
-    "Wt=X.tabType===ne.WEB,Kt=Wt&&X.url.trim().length>0,codexWebTerminalExitTab=X.url?.includes(`/__terminal`)===!0;(0,Q.useEffect)(()=>{if(!codexWebTerminalExitTab)return;let e=e=>{if(e.origin!==globalThis.location.origin||e.data?.type!==`codex-web-terminal-exit`||e.source!==L.current?.querySelector(`iframe`)?.contentWindow)return;Mr(y).closeTab(b,n)};return window.addEventListener(`message`,e),()=>window.removeEventListener(`message`,e)},[codexWebTerminalExitTab,b,n,y]);",
-  );
+  return `${TERMINAL_EXIT_PARENT_CLOSE_SCRIPT}${patched}`;
 }
 
 function patchTerminalSettingsParentCloseSource(source) {
@@ -801,7 +807,8 @@ function isTerminalBrowserChromePatched(source) {
     source.includes("children:[codexWebIsTerminalTab?null:") &&
     source.includes("codexWebSafeFaviconUrl") &&
     source.includes("codexWebTerminalTabIcon") &&
-    source.includes("codex-web-terminal-exit")
+    source.includes(TERMINAL_EXIT_PARENT_CLOSE_MARKER) &&
+    !source.includes("codexWebTerminalExitTab")
   );
 }
 
