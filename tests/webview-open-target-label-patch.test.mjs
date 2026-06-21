@@ -9,14 +9,39 @@ import {
 
 test("context menu patch formats nested message descriptor values", () => {
   const source =
-    "function m(e,t){return e.map(e=>{if(e.type===`separator`)return{...e,nativeLabel:``,submenu:void 0};let n=e.submenu?m(e.submenu,t):void 0,r=e.message?t(e.message,e.messageValues):e.id,i=e.tooltipMessage?t(e.tooltipMessage,e.tooltipMessageValues):void 0;return{...e,nativeLabel:r,nativeTooltip:i,submenu:n}})}";
+    "function m(e,t){return e.map(e=>{if(e.type===`separator`)return{...e,nativeLabel:``,submenu:void 0};let n=e.submenu?m(e.submenu,t):void 0,r=e.message?t(e.message,e.messageValues):e.id,i=e.tooltipMessage?t(e.tooltipMessage,e.tooltipMessageValues):void 0;return{...e,nativeLabel:r,nativeTooltip:i,submenu:n}})}function he(e){return e.message?(0,p.jsx)(a,{...e.message,values:e.messageValues}):e.id}";
 
   const patched = patchContextMenuMessageValueLabelsSource(source);
 
   assert.match(patched, /function codexFormatMessageValues\(/);
+  assert.match(patched, /function codexFormatReactMessageValues\(/);
   assert.match(
     patched,
     /t\(e\.message,codexFormatMessageValues\(e\.messageValues,t\)\)/,
+  );
+  assert.match(
+    patched,
+    /\(0,p\.jsx\)\(a,\{\.\.\.e\.message,values:codexFormatReactMessageValues\(e\.messageValues\)\}\)/,
+  );
+});
+
+test("context menu patch tolerates chunks without the React message renderer", () => {
+  const source =
+    "function codexFormatMessageValues(e,t){if(e==null)return e;let n={};for(let[r,i]of Object.entries(e))n[r]=i&&typeof i==`object`&&typeof i.id==`string`&&typeof i.defaultMessage==`string`?t(i):i;return n}function m(e,t){return e.map(e=>{if(e.type===`separator`)return{...e,nativeLabel:``,submenu:void 0};let n=e.submenu?m(e.submenu,t):void 0,r=e.message?t(e.message,codexFormatMessageValues(e.messageValues,t)):e.id,i=e.tooltipMessage?t(e.tooltipMessage,codexFormatMessageValues(e.tooltipMessageValues,t)):void 0;return{...e,nativeLabel:r,nativeTooltip:i,submenu:n}})}";
+
+  assert.equal(patchContextMenuMessageValueLabelsSource(source), source);
+});
+
+test("context menu patch upgrades native-only patches with React message formatting", () => {
+  const source =
+    "function codexFormatMessageValues(e,t){if(e==null)return e;let n={};for(let[r,i]of Object.entries(e))n[r]=i&&typeof i==`object`&&typeof i.id==`string`&&typeof i.defaultMessage==`string`?t(i):i;return n}function m(e,t){return e.map(e=>{if(e.type===`separator`)return{...e,nativeLabel:``,submenu:void 0};let n=e.submenu?m(e.submenu,t):void 0,r=e.message?t(e.message,codexFormatMessageValues(e.messageValues,t)):e.id,i=e.tooltipMessage?t(e.tooltipMessage,codexFormatMessageValues(e.tooltipMessageValues,t)):void 0;return{...e,nativeLabel:r,nativeTooltip:i,submenu:n}})}function he(e){return e.message?(0,p.jsx)(a,{...e.message,values:e.messageValues}):e.id}";
+
+  const patched = patchContextMenuMessageValueLabelsSource(source);
+
+  assert.match(patched, /function codexFormatReactMessageValues\(/);
+  assert.match(
+    patched,
+    /values:codexFormatReactMessageValues\(e\.messageValues\)/,
   );
 });
 
@@ -32,7 +57,7 @@ test("open target context menu patch uses localized target labels", () => {
 
 test("workspace file context menu patch uses localized submenu labels", () => {
   const source =
-    "import{t as d}from\"./open-target-context-menu-items-ClwD6vw2.js\";var g=o({openWithTarget:{id:`markdown.fileReference.openWithTarget`,defaultMessage:`{target}`}});function x(t){return D.push({id:`workspace-file-open-targets`,message:g.openWith,submenu:E.map(e=>({id:`workspace-file-open-target-${e.id}`,message:g.openWithTarget,messageValues:{target:e.label},icon:e.icon,onSelect:()=>j(e.target,e.appPath)}))})}export{x as n};\n//# sourceMappingURL=workspace-file-context-menu-BD8jqgos.js.map";
+    'import{t as d}from"./open-target-context-menu-items-ClwD6vw2.js";var g=o({openWithTarget:{id:`markdown.fileReference.openWithTarget`,defaultMessage:`{target}`}});function x(t){return D.push({id:`workspace-file-open-targets`,message:g.openWith,submenu:E.map(e=>({id:`workspace-file-open-target-${e.id}`,message:g.openWithTarget,messageValues:{target:e.label},icon:e.icon,onSelect:()=>j(e.target,e.appPath)}))})}export{x as n};\n//# sourceMappingURL=workspace-file-context-menu-BD8jqgos.js.map';
 
   const patched = patchWorkspaceFileContextMenuLabelsSource(source);
 

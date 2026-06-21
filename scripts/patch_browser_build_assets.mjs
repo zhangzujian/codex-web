@@ -9,6 +9,7 @@ const REQUIRED_UPSTREAM_ASSET_PATTERNS = Object.freeze([
   /^app-main-[\w-]+\.js$/,
   /^context-menu-[\w-]+\.js$/,
   /^open-target-context-menu-items-[\w-]+\.js$/,
+  /^user-message-attachments-[\w-]+\.js$/,
   /^workspace-file-context-menu-[\w-]+\.js$/,
   /^zh-CN-[\w-]+\.js$/,
   /statsig.*\.js$/,
