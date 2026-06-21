@@ -9,18 +9,16 @@ const OPEN_TARGET_LABEL_HELPER =
 
 const CONTEXT_MENU_VALUES_HELPER =
   "function codexFormatMessageValues(e,t){if(e==null)return e;let n={};for(let[r,i]of Object.entries(e))n[r]=i&&typeof i==`object`&&typeof i.id==`string`&&typeof i.defaultMessage==`string`?t(i):i;return n}";
-const CONTEXT_MENU_REACT_VALUES_HELPER =
-  "function codexFormatReactMessageValues(e){if(e==null)return e;let t={};for(let[n,r]of Object.entries(e))t[n]=r&&typeof r==`object`&&typeof r.id==`string`&&typeof r.defaultMessage==`string`?(0,p.jsx)(a,{...r}):r;return t}";
+const CONTEXT_MENU_REACT_VALUES_HELPER_NAME =
+  "function codexFormatReactMessageValues";
 const CONTEXT_MENU_PATTERN =
   "function m(e,t){return e.map(e=>{if(e.type===`separator`)return{...e,nativeLabel:``,submenu:void 0};let n=e.submenu?m(e.submenu,t):void 0,r=e.message?t(e.message,e.messageValues):e.id,i=e.tooltipMessage?t(e.tooltipMessage,e.tooltipMessageValues):void 0;return{...e,nativeLabel:r,nativeTooltip:i,submenu:n}})}";
 const PATCHED_CONTEXT_MENU = `${CONTEXT_MENU_VALUES_HELPER}function m(e,t){return e.map(e=>{if(e.type===\`separator\`)return{...e,nativeLabel:\`\`,submenu:void 0};let n=e.submenu?m(e.submenu,t):void 0,r=e.message?t(e.message,codexFormatMessageValues(e.messageValues,t)):e.id,i=e.tooltipMessage?t(e.tooltipMessage,codexFormatMessageValues(e.tooltipMessageValues,t)):void 0;return{...e,nativeLabel:r,nativeTooltip:i,submenu:n}})}`;
-const CONTEXT_MENU_REACT_PATTERN =
-  "function he(e){return e.message?(0,p.jsx)(a,{...e.message,values:e.messageValues}):e.id}";
-const PATCHED_CONTEXT_MENU_REACT = `${CONTEXT_MENU_REACT_VALUES_HELPER}function he(e){return e.message?(0,p.jsx)(a,{...e.message,values:codexFormatReactMessageValues(e.messageValues)}):e.id}`;
+const CONTEXT_MENU_REACT_RENDERER_PATTERN =
+  /function\s+([A-Za-z_$][\w$]*)\(([A-Za-z_$][\w$]*)\)\{return \2\.message\?\(0,([A-Za-z_$][\w$]*)\.jsx\)\(([A-Za-z_$][\w$]*),\{\.\.\.\2\.message,values:\2\.messageValues\}\):\2\.id\}/;
 
-const OPEN_TARGET_CONTEXT_PATTERN =
-  "function e({idPrefix:e,messages:t,onOpenInTarget:n,primaryTarget:r,visibleTargets:i}){return r==null?[]:[{id:`${e}-primary`,message:t.openInTarget,messageValues:{target:r.label},icon:r.icon,onSelect:()=>n(r.target,r.appPath)},{id:`${e}-targets`,message:t.openIn,submenu:i.map(r=>({id:`${e}-target-${r.id}`,message:t.openInTargetSubmenu,messageValues:{target:r.label},icon:r.icon,onSelect:()=>n(r.target,r.appPath)}))}]}";
-const PATCHED_OPEN_TARGET_CONTEXT = `${OPEN_TARGET_LABEL_HELPER}function e({idPrefix:e,messages:t,onOpenInTarget:n,primaryTarget:r,visibleTargets:i}){return r==null?[]:[{id:\`${"${e}"}-primary\`,message:t.openInTarget,messageValues:{target:codexOpenTargetLabel(r)},icon:r.icon,onSelect:()=>n(r.target,r.appPath)},{id:\`${"${e}"}-targets\`,message:t.openIn,submenu:i.map(r=>({id:\`${"${e}"}-target-${"${r.id}"}\`,message:t.openInTargetSubmenu,messageValues:{target:codexOpenTargetLabel(r)},icon:r.icon,onSelect:()=>n(r.target,r.appPath)}))}]}`;
+const OPEN_TARGET_LABEL_VALUE_PATTERN =
+  /messageValues:\{target:([A-Za-z_$][\w$]*)\.label\}/g;
 
 const WORKSPACE_FILE_CONTEXT_PATTERN =
   "submenu:E.map(e=>({id:`workspace-file-open-target-${e.id}`,message:g.openWithTarget,messageValues:{target:e.label},icon:e.icon,onSelect:()=>j(e.target,e.appPath)}))";
@@ -31,22 +29,31 @@ export function patchContextMenuMessageValueLabelsSource(source) {
   let patched = source;
 
   if (!patched.includes(CONTEXT_MENU_VALUES_HELPER)) {
-    if (!patched.includes(CONTEXT_MENU_PATTERN)) {
+    if (patched.includes(CONTEXT_MENU_PATTERN)) {
+      patched = patched.replace(CONTEXT_MENU_PATTERN, PATCHED_CONTEXT_MENU);
+    } else if (patched.includes("nativeLabel")) {
+      const nativePatched = patchNativeContextMenuFormatter(patched);
+      if (nativePatched === patched) {
+        throw new Error("Unable to patch context menu message values");
+      }
+      patched = CONTEXT_MENU_VALUES_HELPER + nativePatched;
+    } else if (!CONTEXT_MENU_REACT_RENDERER_PATTERN.test(patched)) {
       throw new Error("Unable to patch context menu message values");
     }
-
-    patched = patched.replace(CONTEXT_MENU_PATTERN, PATCHED_CONTEXT_MENU);
   }
 
-  if (!patched.includes(CONTEXT_MENU_REACT_VALUES_HELPER)) {
-    if (!patched.includes(CONTEXT_MENU_REACT_PATTERN)) {
-      return patched;
+  if (!patched.includes(CONTEXT_MENU_REACT_VALUES_HELPER_NAME)) {
+    const match = patched.match(CONTEXT_MENU_REACT_RENDERER_PATTERN);
+    if (match == null) {
+      throw new Error("Unable to patch context menu React message values");
     }
 
-    patched = patched.replace(
-      CONTEXT_MENU_REACT_PATTERN,
-      PATCHED_CONTEXT_MENU_REACT,
-    );
+    const [, functionName, itemName, jsxNamespace, messageComponent] = match;
+    const helper = reactMessageValuesHelper(jsxNamespace, messageComponent);
+    const replacement = `function ${functionName}(${itemName}){return ${itemName}.message?(0,${jsxNamespace}.jsx)(${messageComponent},{...${itemName}.message,values:codexFormatReactMessageValues(${itemName}.messageValues)}):${itemName}.id}`;
+    patched =
+      helper +
+      patched.replace(CONTEXT_MENU_REACT_RENDERER_PATTERN, replacement);
   }
 
   return patched;
@@ -57,14 +64,12 @@ export function patchOpenTargetContextMenuLabelsSource(source) {
     return source;
   }
 
-  if (!source.includes(OPEN_TARGET_CONTEXT_PATTERN)) {
+  const patched = patchOpenTargetLabelValues(source);
+  if (patched === source) {
     throw new Error("Unable to patch open target context menu labels");
   }
 
-  return source.replace(
-    OPEN_TARGET_CONTEXT_PATTERN,
-    PATCHED_OPEN_TARGET_CONTEXT,
-  );
+  return OPEN_TARGET_LABEL_HELPER + patched;
 }
 
 export function patchWorkspaceFileContextMenuLabelsSource(source) {
@@ -78,15 +83,51 @@ export function patchWorkspaceFileContextMenuLabelsSource(source) {
   }
 
   if (!source.includes(WORKSPACE_FILE_CONTEXT_PATTERN)) {
-    throw new Error("Unable to patch workspace file context menu labels");
+    const patched = patchOpenTargetLabelValues(source);
+    if (patched === source) {
+      throw new Error("Unable to patch workspace file context menu labels");
+    }
+    return appendOpenTargetLabelHelper(patched);
   }
 
-  return (
+  return appendOpenTargetLabelHelper(
     source.replace(
       WORKSPACE_FILE_CONTEXT_PATTERN,
       PATCHED_WORKSPACE_FILE_CONTEXT,
-    ) + `\n${OPEN_TARGET_LABEL_HELPER}`
+    ),
   );
+}
+
+function patchNativeContextMenuFormatter(source) {
+  return source
+    .replace(
+      /([A-Za-z_$][\w$]*)\(([A-Za-z_$][\w$]*)\.message,\2\.messageValues\)/g,
+      "$1($2.message,codexFormatMessageValues($2.messageValues,$1))",
+    )
+    .replace(
+      /([A-Za-z_$][\w$]*)\(([A-Za-z_$][\w$]*)\.tooltipMessage,\2\.tooltipMessageValues\)/g,
+      "$1($2.tooltipMessage,codexFormatMessageValues($2.tooltipMessageValues,$1))",
+    );
+}
+
+function reactMessageValuesHelper(jsxNamespace, messageComponent) {
+  return `function codexFormatReactMessageValues(e){if(e==null)return e;let t={};for(let[n,r]of Object.entries(e))t[n]=r&&typeof r==\`object\`&&typeof r.id==\`string\`&&typeof r.defaultMessage==\`string\`?(0,${jsxNamespace}.jsx)(${messageComponent},{...r}):r;return t}`;
+}
+
+function patchOpenTargetLabelValues(source) {
+  return source.replace(
+    OPEN_TARGET_LABEL_VALUE_PATTERN,
+    "messageValues:{target:codexOpenTargetLabel($1)}",
+  );
+}
+
+function appendOpenTargetLabelHelper(source) {
+  const sourceMapIndex = source.indexOf("\n//# sourceMappingURL=");
+  if (sourceMapIndex === -1) {
+    return `${source}\n${OPEN_TARGET_LABEL_HELPER}`;
+  }
+
+  return `${source.slice(0, sourceMapIndex)}\n${OPEN_TARGET_LABEL_HELPER}${source.slice(sourceMapIndex)}`;
 }
 
 function isInsideLineComment(source, offset) {

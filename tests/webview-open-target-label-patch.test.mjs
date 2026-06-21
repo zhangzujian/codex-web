@@ -25,11 +25,14 @@ test("context menu patch formats nested message descriptor values", () => {
   );
 });
 
-test("context menu patch tolerates chunks without the React message renderer", () => {
+test("context menu patch fails when the React message renderer is absent", () => {
   const source =
     "function codexFormatMessageValues(e,t){if(e==null)return e;let n={};for(let[r,i]of Object.entries(e))n[r]=i&&typeof i==`object`&&typeof i.id==`string`&&typeof i.defaultMessage==`string`?t(i):i;return n}function m(e,t){return e.map(e=>{if(e.type===`separator`)return{...e,nativeLabel:``,submenu:void 0};let n=e.submenu?m(e.submenu,t):void 0,r=e.message?t(e.message,codexFormatMessageValues(e.messageValues,t)):e.id,i=e.tooltipMessage?t(e.tooltipMessage,codexFormatMessageValues(e.tooltipMessageValues,t)):void 0;return{...e,nativeLabel:r,nativeTooltip:i,submenu:n}})}";
 
-  assert.equal(patchContextMenuMessageValueLabelsSource(source), source);
+  assert.throws(
+    () => patchContextMenuMessageValueLabelsSource(source),
+    /Unable to patch context menu React message values/,
+  );
 });
 
 test("context menu patch upgrades native-only patches with React message formatting", () => {
@@ -45,6 +48,22 @@ test("context menu patch upgrades native-only patches with React message formatt
   );
 });
 
+test("context menu patch handles renamed React renderer aliases", () => {
+  const source =
+    "function q(t){return t.message?(0,x.jsx)(Fmt,{...t.message,values:t.messageValues}):t.id}";
+
+  const patched = patchContextMenuMessageValueLabelsSource(source);
+
+  assert.match(
+    patched,
+    /function codexFormatReactMessageValues\(e\)\{if\(e==null\)return e;let t=\{\};for\(let\[n,r\]of Object\.entries\(e\)\)t\[n\]=r&&typeof r==`object`&&typeof r\.id==`string`&&typeof r\.defaultMessage==`string`\?\(0,x\.jsx\)\(Fmt,\{\.\.\.r\}\):r;return t\}/,
+  );
+  assert.match(
+    patched,
+    /function q\(t\)\{return t\.message\?\(0,x\.jsx\)\(Fmt,\{\.\.\.t\.message,values:codexFormatReactMessageValues\(t\.messageValues\)\}\):t\.id\}/,
+  );
+});
+
 test("open target context menu patch uses localized target labels", () => {
   const source =
     "function e({idPrefix:e,messages:t,onOpenInTarget:n,primaryTarget:r,visibleTargets:i}){return r==null?[]:[{id:`${e}-primary`,message:t.openInTarget,messageValues:{target:r.label},icon:r.icon,onSelect:()=>n(r.target,r.appPath)},{id:`${e}-targets`,message:t.openIn,submenu:i.map(r=>({id:`${e}-target-${r.id}`,message:t.openInTargetSubmenu,messageValues:{target:r.label},icon:r.icon,onSelect:()=>n(r.target,r.appPath)}))}]}export{e as t};";
@@ -53,6 +72,17 @@ test("open target context menu patch uses localized target labels", () => {
 
   assert.match(patched, /function codexOpenTargetLabel\(/);
   assert.match(patched, /target:codexOpenTargetLabel\(r\)/);
+});
+
+test("open target context menu patch handles renamed minified variables", () => {
+  const source =
+    "function build({idPrefix:a,messages:b,onOpenInTarget:c,primaryTarget:d,visibleTargets:f}){return d==null?[]:[{id:`${a}-primary`,message:b.openInTarget,messageValues:{target:d.label},icon:d.icon,onSelect:()=>c(d.target,d.appPath)},{id:`${a}-targets`,message:b.openIn,submenu:f.map(item=>({id:`${a}-target-${item.id}`,message:b.openInTargetSubmenu,messageValues:{target:item.label},icon:item.icon,onSelect:()=>c(item.target,item.appPath)}))}]}";
+
+  const patched = patchOpenTargetContextMenuLabelsSource(source);
+
+  assert.match(patched, /function codexOpenTargetLabel\(/);
+  assert.match(patched, /target:codexOpenTargetLabel\(d\)/);
+  assert.match(patched, /target:codexOpenTargetLabel\(item\)/);
 });
 
 test("workspace file context menu patch uses localized submenu labels", () => {
@@ -65,7 +95,7 @@ test("workspace file context menu patch uses localized submenu labels", () => {
   assert.match(patched, /target:codexOpenTargetLabel\(e\)/);
   assert.match(
     patched,
-    /sourceMappingURL=workspace-file-context-menu-BD8jqgos\.js\.map\nfunction codexOpenTargetLabel/,
+    /function codexOpenTargetLabel[\s\S]*\n\/\/# sourceMappingURL=workspace-file-context-menu-BD8jqgos\.js\.map$/,
   );
 });
 
