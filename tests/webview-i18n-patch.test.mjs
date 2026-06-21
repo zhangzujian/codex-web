@@ -9,6 +9,7 @@ import {
   collectWebviewDefaultMessages,
   patchWebviewI18nAssets,
   patchWebviewI18nSource,
+  patchZhCnLocaleSource,
 } from "../scripts/patch_webview_i18n.mjs";
 
 const dynamicConfigFactorySource =
@@ -113,6 +114,94 @@ test("i18n asset patch fills missing zh-CN messages discovered in webview chunks
     fs.rmSync(assetsDir, { force: true, recursive: true });
   }
 });
+
+test("i18n patch translates composer add menu labels as complete Chinese phrases", () => {
+  const defaultMessages = new Map([
+    ["composer.contextAction.filesAndFolders", "Files and folders"],
+    ["composer.atMentionList.filesAndChats", "Files and chats"],
+    [
+      "composer.atMentionList.filesAndChats.emptyQuery",
+      "Type to search files or chats",
+    ],
+  ]);
+  const localeSource =
+    "var e=`备用`,t={};export{t as default,e as greeting};";
+
+  const patchedLocale = patchZhCnLocaleSource(localeSource, defaultMessages);
+
+  assert.match(
+    patchedLocale,
+    /"composer\.contextAction\.filesAndFolders":`文件和文件夹`/,
+  );
+  assert.match(
+    patchedLocale,
+    /"composer\.atMentionList\.filesAndChats":`文件和聊天`/,
+  );
+  assert.match(
+    patchedLocale,
+    /"composer\.atMentionList\.filesAndChats\.emptyQuery":`输入文字以搜索文件或聊天`/,
+  );
+  assert.doesNotMatch(patchedLocale, /文件 and 文件夹s/);
+});
+
+test("i18n default-message collection does not skip non-locale chunks with locale-like names", () => {
+  const assetsDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-web-i18n-"));
+
+  try {
+    fs.writeFileSync(
+      path.join(assetsDir, "at-mention-list-BdVTjYbK.js"),
+      "O({id:`composer.atMentionList.contextActions`,defaultMessage:`Add`,description:`Section heading`})",
+    );
+    fs.writeFileSync(
+      path.join(assetsDir, "zh-CN-test.js"),
+      "var e=`备用`,t={\"locale.only\":`本地化`};export{t as default,e as greeting};",
+    );
+
+    const defaultMessages = collectWebviewDefaultMessages(assetsDir);
+
+    assert.equal(
+      defaultMessages.get("composer.atMentionList.contextActions"),
+      "Add",
+    );
+    assert.equal(defaultMessages.has("locale.only"), false);
+  } finally {
+    fs.rmSync(assetsDir, { force: true, recursive: true });
+  }
+});
+
+test("i18n patch refreshes stale generated zh-CN patch blocks", () => {
+  const defaultMessages = new Map([
+    ["composer.contextAction.filesAndFolders", "Files and folders"],
+  ]);
+  const staleLocaleSource =
+    "var e=`备用`,t={\"existing.key\":`已有`,,,,/*codex-web-zh-cn-missing-start*/\"composer.contextAction.filesAndFolders\":`文件 and 文件夹s`/*codex-web-zh-cn-missing-end*/};export{t as default,e as greeting};";
+
+  const patchedLocale = patchZhCnLocaleSource(
+    staleLocaleSource,
+    defaultMessages,
+  );
+
+  assert.match(
+    patchedLocale,
+    /"composer\.contextAction\.filesAndFolders":`文件和文件夹`/,
+  );
+  assert.doesNotMatch(patchedLocale, /文件 and 文件夹s/);
+  assert.doesNotMatch(patchedLocale, /,,/);
+  assert.equal(
+    patchedLocale.match(/codex-web-zh-cn-missing-start/g)?.length,
+    1,
+  );
+  assert.doesNotThrow(() => compileLocaleSource(patchedLocale));
+});
+
+function compileLocaleSource(source) {
+  return new Function(
+    source.replace(
+      /;export\{t as default,e as greeting\};?\s*$/,
+      ";return {default:t,greeting:e};",
+    ),
+  );
+}
 
 test("i18n missing-key sentinel fails when upstream provides any tracked zh-CN key", () => {
   const partiallyFixedUpstreamLocale =

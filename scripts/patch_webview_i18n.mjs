@@ -17,12 +17,12 @@ const LOCALE_EXPORT_PATTERN = /,t=\{([\s\S]*)\};export\{t as default/;
 const ZH_CN_LOCALE_PATTERN = /^zh-CN-[\w-]+\.js$/;
 const ZH_CN_PATCH_START = "/*codex-web-zh-cn-missing-start*/";
 const ZH_CN_PATCH_END = "/*codex-web-zh-cn-missing-end*/";
-const EXPECTED_ZH_CN_MISSING_ID_COUNT = 945;
+const EXPECTED_ZH_CN_MISSING_ID_COUNT = 1031;
 const EXPECTED_ZH_CN_MISSING_IDS_SHA256 =
-  "199f2f2834c78f7487d97d278391e715ec1b273a047e02e710ec1208649ca165";
-const EXPECTED_ZH_CN_MISSING_WITH_BROWSER_ID_COUNT = 946;
+  "a26df3d20876385967b5005ed5876f3cfd5de04b244efc621f70593778e18088";
+const EXPECTED_ZH_CN_MISSING_WITH_BROWSER_ID_COUNT = 1032;
 const EXPECTED_ZH_CN_MISSING_WITH_BROWSER_IDS_SHA256 =
-  "a89bdba5ea640e500052964e9e1d03e7fa2988327f61e1d705b925e2e847915f";
+  "b3d9ae02c54d226986a77b85a96abb95d4b14cab94a4b7b12a2ba09f20f4b5a3";
 const BROWSER_BUILD_ZH_CN_MISSING_IDS = Object.freeze([
   "codexWeb.terminal.title",
 ]);
@@ -107,6 +107,7 @@ const EXACT_ZH_CN_TRANSLATIONS = new Map(
     "Failed:": "失败：",
     Files: "文件",
     "Files and chats": "文件和聊天",
+    "Files and folders": "文件和文件夹",
     "File manager": "文件管理器",
     Finance: "金融",
     Grid: "网格",
@@ -173,6 +174,7 @@ const EXACT_ZH_CN_TRANSLATIONS = new Map(
     "Something else": "其他",
     "Try again": "重试",
     Type: "类型",
+    "Type to search files or chats": "输入文字以搜索文件或聊天",
     Unarchive: "取消归档",
     Updated: "已更新",
     View: "视图",
@@ -287,11 +289,15 @@ export function collectWebviewDefaultMessages(assetsDir) {
   const messages = new Map();
 
   for (const assetName of fs.readdirSync(assetsDir)) {
-    if (!assetName.endsWith(".js") || isLocaleAssetName(assetName)) {
+    if (!assetName.endsWith(".js")) {
       continue;
     }
 
     const source = fs.readFileSync(path.join(assetsDir, assetName), "utf8");
+    if (LOCALE_EXPORT_PATTERN.test(source)) {
+      continue;
+    }
+
     for (const match of source.matchAll(
       /id\s*:\s*`([^`]+)`\s*,\s*defaultMessage\s*:\s*`([^`]+)`/g,
     )) {
@@ -308,7 +314,8 @@ export function collectWebviewDefaultMessages(assetsDir) {
 }
 
 export function patchZhCnLocaleSource(source, defaultMessages) {
-  const localeMatch = LOCALE_EXPORT_PATTERN.exec(source);
+  const sourceWithoutPatchBlocks = removeZhCnPatchBlocks(source);
+  const localeMatch = LOCALE_EXPORT_PATTERN.exec(sourceWithoutPatchBlocks);
   if (!localeMatch) {
     throw new Error("Unable to locate zh-CN locale message export");
   }
@@ -333,14 +340,19 @@ export function patchZhCnLocaleSource(source, defaultMessages) {
   }
 
   if (additions.length === 0) {
-    return source;
+    return sourceWithoutPatchBlocks;
   }
 
   const insertion = localeMatch[1].trim().length === 0 ? "" : ",";
   return (
-    source.slice(0, localeMatch.index + localeMatch[0].indexOf("};export")) +
+    sourceWithoutPatchBlocks.slice(
+      0,
+      localeMatch.index + localeMatch[0].indexOf("};export"),
+    ) +
     `${insertion}${ZH_CN_PATCH_START}${additions.join(",")}${ZH_CN_PATCH_END}` +
-    source.slice(localeMatch.index + localeMatch[0].indexOf("};export"))
+    sourceWithoutPatchBlocks.slice(
+      localeMatch.index + localeMatch[0].indexOf("};export"),
+    )
   );
 }
 
@@ -439,10 +451,6 @@ function zhCnMissingIdsSignature(ids) {
   };
 }
 
-function isLocaleAssetName(assetName) {
-  return /^[a-z]{2,3}(?:-[A-Z]{2})?-[\w-]+\.js$/.test(assetName);
-}
-
 function collectExistingLocaleKeys(source) {
   const localeMatch = LOCALE_EXPORT_PATTERN.exec(source);
   if (!localeMatch) {
@@ -457,7 +465,7 @@ function collectExistingLocaleKeys(source) {
 function removeZhCnPatchBlocks(source) {
   return source.replace(
     new RegExp(
-      `${escapeRegExp(ZH_CN_PATCH_START)}[\\s\\S]*?${escapeRegExp(
+      `,*${escapeRegExp(ZH_CN_PATCH_START)}[\\s\\S]*?${escapeRegExp(
         ZH_CN_PATCH_END,
       )}`,
       "g",
