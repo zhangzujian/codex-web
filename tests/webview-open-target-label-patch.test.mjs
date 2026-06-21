@@ -185,18 +185,11 @@ test("workspace file context menu patch requests locale and localizes selected t
 
   const patched = patchWorkspaceFileContextMenuLabelsSource(source);
 
+  assert.doesNotMatch(patched, /codexReadSignal|codexAppIntlSignal/);
+  assert.doesNotMatch(patched, /function codexWorkspaceOpenTargetLocale\(/);
   assert.match(
     patched,
-    /import\{s as codexReadSignal\}from"\.\/app-scope-CWE-zIhQ\.js";import\{t as codexAppIntlSignal\}from"\.\/app-intl-signal-Bd_tJ6VJ\.js";/,
-  );
-  assert.match(patched, /function codexWorkspaceOpenTargetLocale\(/);
-  assert.match(
-    patched,
-    /codexSetWebOpenTargetLocale\(codexReadSignal\(codexAppIntlSignal\)\?\.locale\)/,
-  );
-  assert.match(
-    patched,
-    /let codexLocale=codexWorkspaceOpenTargetLocale\(\);return\{gcTime:i\.INFINITE,queryKey:r\(`open-in-targets`,\{cwd:e,hostId:t,path:n,locale:codexLocale\}\),queryFn:\(\)=>a\(`open-in-targets`,\{params:\{cwd:e,hostId:t,path:n,locale:codexLocale\}\}\),staleTime:i\.ONE_MINUTE\}/,
+    /let codexLocale=codexWebOpenTargetLocale\(\);return\{gcTime:i\.INFINITE,queryKey:r\(`open-in-targets`,\{cwd:e,hostId:t,path:n,locale:codexLocale\}\),queryFn:\(\)=>a\(`open-in-targets`,\{params:\{cwd:e,hostId:t,path:n,locale:codexLocale\}\}\),staleTime:i\.ONE_MINUTE\}/,
   );
   assert.match(
     patched,
@@ -217,6 +210,17 @@ test("workspace file context menu patch repairs helpers appended inside sourcema
     patched,
     /sourceMappingURL=workspace-file-context-menu-BD8jqgos\.js\.map\nfunction codexOpenTargetLabel/,
   );
+});
+
+test("workspace file context menu patch removes hook-based locale helper", () => {
+  const source =
+    "function _({cwd:e,hostId:t,path:n}){let codexLocale=codexWorkspaceOpenTargetLocale();return{gcTime:i.INFINITE,queryKey:r(`open-in-targets`,{cwd:e,hostId:t,path:n,locale:codexLocale}),queryFn:()=>a(`open-in-targets`,{params:{cwd:e,hostId:t,path:n,locale:codexLocale}}),staleTime:i.ONE_MINUTE}}function v(e){let codexTargets=codexLocalizeOpenTargets(e?.targets??[]);return{primaryTarget:p({preferredTarget:e?.preferredTarget??null,targets:codexTargets,availableTargets:e?.availableTargets??[],mode:e?.mode}),visibleTargets:f({targets:codexTargets,availableTargets:e?.availableTargets??[],includeHiddenTargets:!0,mode:e?.mode})}}function codexWebOpenTargetLocale(){return``}function codexSetWebOpenTargetLocale(e){globalThis.__codexOpenTargetLocale=e}function codexWorkspaceOpenTargetLocale(){codexSetWebOpenTargetLocale(codexReadSignal(codexAppIntlSignal)?.locale);return codexWebOpenTargetLocale()}function codexOpenTargetLabel(e){return e.labelKey===`openTarget.systemDefault`?{id:`codex.openTarget.systemDefault`,defaultMessage:`Default app`,description:`Label for opening a file with the operating system default app`}:e.labelKey===`openTarget.fileManager`?{id:`codex.openTarget.fileManager`,defaultMessage:`File manager`,description:`Label for opening a file with the system file manager`}:e.label}";
+
+  const patched = patchWorkspaceFileContextMenuLabelsSource(source);
+
+  assert.doesNotMatch(patched, /codexReadSignal|codexAppIntlSignal/);
+  assert.doesNotMatch(patched, /codexWorkspaceOpenTargetLocale/);
+  assert.match(patched, /let codexLocale=codexWebOpenTargetLocale\(\)/);
 });
 
 test("thread app shell open dropdown patch localizes header target labels", () => {

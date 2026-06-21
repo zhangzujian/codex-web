@@ -25,8 +25,6 @@ const OPEN_TARGET_LOCALIZE_TARGETS_HELPER =
   "function codexLocalizeOpenTargets(e){return Array.isArray(e)?e.map(e=>{let t=codexWebOpenTargetLocale().trim().replaceAll(`_`,`-`).toLowerCase();if(!(t===`zh`||t.startsWith(`zh-`)))return e;return e.labelKey===`openTarget.systemDefault`?{...e,label:`默认应用`}:e.labelKey===`openTarget.fileManager`?{...e,label:`文件管理器`}:e}):e}";
 const OPEN_TARGET_LOCALIZE_TARGETS_HELPER_NAME =
   "function codexLocalizeOpenTargets";
-const OPEN_TARGET_WORKSPACE_LOCALE_HELPER =
-  "function codexWorkspaceOpenTargetLocale(){codexSetWebOpenTargetLocale(codexReadSignal(codexAppIntlSignal)?.locale);return codexWebOpenTargetLocale()}";
 const OPEN_TARGET_WORKSPACE_LOCALE_HELPER_NAME =
   "function codexWorkspaceOpenTargetLocale";
 
@@ -351,8 +349,8 @@ export function patchWorkspaceFileContextMenuLabelsSource(
 
 function patchWorkspaceFileOpenTargetsSource(
   source,
-  appIntlSignalAssetName,
-  appScopeAssetName,
+  _appIntlSignalAssetName,
+  _appScopeAssetName,
 ) {
   const hasOpenTargetsQuery = source.includes("open-in-targets");
   if (!hasOpenTargetsQuery) {
@@ -361,11 +359,6 @@ function patchWorkspaceFileOpenTargetsSource(
 
   let patched = source;
   let didPatch = false;
-
-  if (!patched.includes("codexAppIntlSignal")) {
-    patched = `import{s as codexReadSignal}from"./${appScopeAssetName}";import{t as codexAppIntlSignal}from"./${appIntlSignalAssetName}";${patched}`;
-    didPatch = true;
-  }
 
   patched = patched.replace(
     WORKSPACE_FILE_OPEN_TARGETS_QUERY_PATTERN,
@@ -380,7 +373,7 @@ function patchWorkspaceFileOpenTargetsSource(
       requestName,
     ) => {
       didPatch = true;
-      return `function ${functionName}({cwd:${cwdName},hostId:${hostIdName},path:${pathName}}){let codexLocale=codexWorkspaceOpenTargetLocale();return{gcTime:${staleTimesName}.INFINITE,queryKey:${queryKeyName}(\`open-in-targets\`,{cwd:${cwdName},hostId:${hostIdName},path:${pathName},locale:codexLocale}),queryFn:()=>${requestName}(\`open-in-targets\`,{params:{cwd:${cwdName},hostId:${hostIdName},path:${pathName},locale:codexLocale}}),staleTime:${staleTimesName}.ONE_MINUTE}}`;
+      return `function ${functionName}({cwd:${cwdName},hostId:${hostIdName},path:${pathName}}){let codexLocale=codexWebOpenTargetLocale();return{gcTime:${staleTimesName}.INFINITE,queryKey:${queryKeyName}(\`open-in-targets\`,{cwd:${cwdName},hostId:${hostIdName},path:${pathName},locale:codexLocale}),queryFn:()=>${requestName}(\`open-in-targets\`,{params:{cwd:${cwdName},hostId:${hostIdName},path:${pathName},locale:codexLocale}}),staleTime:${staleTimesName}.ONE_MINUTE}}`;
     },
   );
 
@@ -398,9 +391,20 @@ function patchWorkspaceFileOpenTargetsSource(
     },
   );
 
+  if (patched.includes(OPEN_TARGET_WORKSPACE_LOCALE_HELPER_NAME)) {
+    patched = patched.replace(
+      /function codexWorkspaceOpenTargetLocale\(\)\{codexSetWebOpenTargetLocale\(codexReadSignal\(codexAppIntlSignal\)\?\.locale\);return codexWebOpenTargetLocale\(\)\}\n?/g,
+      "",
+    );
+  }
+
+  patched = patched
+    .replaceAll("codexWorkspaceOpenTargetLocale()", "codexWebOpenTargetLocale()")
+    .replaceAll(/import\{s as codexReadSignal\}from"\.\/[^"]+";import\{t as codexAppIntlSignal\}from"\.\/[^"]+";/g, "");
+
   if (!didPatch) {
     if (
-      patched.includes("codexWorkspaceOpenTargetLocale()") &&
+      patched.includes("codexWebOpenTargetLocale()") &&
       patched.includes("codexLocalizeOpenTargets(") &&
       patched.includes("locale:codexLocale")
     ) {
@@ -410,20 +414,6 @@ function patchWorkspaceFileOpenTargetsSource(
   }
 
   patched = ensureOpenTargetLocaleHelper(patched);
-
-  if (!patched.includes(OPEN_TARGET_SET_LOCALE_HELPER_NAME)) {
-    patched = appendOpenTargetLabelHelper(
-      patched,
-      OPEN_TARGET_SET_LOCALE_HELPER,
-    );
-  }
-
-  if (!patched.includes(OPEN_TARGET_WORKSPACE_LOCALE_HELPER_NAME)) {
-    patched = appendOpenTargetLabelHelper(
-      patched,
-      OPEN_TARGET_WORKSPACE_LOCALE_HELPER,
-    );
-  }
 
   if (!patched.includes(OPEN_TARGET_LOCALIZE_TARGETS_HELPER_NAME)) {
     patched = appendOpenTargetLabelHelper(
