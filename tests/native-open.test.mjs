@@ -39,6 +39,41 @@ test("createOpenInTargetsPayload exposes host-side file manager and default app 
   );
 });
 
+test("createOpenInTargetsPayload localizes host-side default targets for zh-CN requests", async () => {
+  const payload = await createOpenInTargetsPayload(
+    {
+      commandExists: async (command) => command === "xdg-open",
+      platform: "linux",
+    },
+    {
+      locale: "zh-CN",
+    },
+  );
+
+  assert.deepEqual(
+    payload.targets.map(({ id, label, labelKey, target }) => ({
+      id,
+      label,
+      labelKey,
+      target,
+    })),
+    [
+      {
+        id: "system-default",
+        label: "默认应用",
+        labelKey: "openTarget.systemDefault",
+        target: "systemDefault",
+      },
+      {
+        id: "file-manager",
+        label: "文件管理器",
+        labelKey: "openTarget.fileManager",
+        target: "fileManager",
+      },
+    ],
+  );
+});
+
 test("createOpenInTargetsPayload prefers VS Code when a code command is available", async () => {
   const payload = await createOpenInTargetsPayload({
     commandExists: async (command) => command === "code",

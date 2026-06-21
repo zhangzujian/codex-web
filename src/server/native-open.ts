@@ -41,6 +41,7 @@ type OpenFileRequest = {
   column?: unknown;
   cwd?: unknown;
   line?: unknown;
+  locale?: unknown;
   path?: unknown;
   target?: unknown;
 };
@@ -118,17 +119,18 @@ export async function createOpenInTargetsPayload(
   }
 
   if (systemOpenAvailable) {
+    const labels = localizedNativeOpenLabels(request.locale);
     targets.push(
       {
         id: "system-default",
-        label: "Default app",
+        label: labels.systemDefault,
         labelKey: "openTarget.systemDefault",
         target: "systemDefault",
         kind: "native",
       },
       {
         id: "file-manager",
-        label: "File manager",
+        label: labels.fileManager,
         labelKey: "openTarget.fileManager",
         target: "fileManager",
         kind: "native",
@@ -143,6 +145,27 @@ export async function createOpenInTargetsPayload(
     preferredTarget:
       codeCommand != null ? "workspace" : (availableTargets[0] ?? null),
     targets,
+  };
+}
+
+function localizedNativeOpenLabels(locale: unknown): {
+  fileManager: string;
+  systemDefault: string;
+} {
+  const normalized =
+    typeof locale === "string"
+      ? locale.trim().replaceAll("_", "-").toLowerCase()
+      : "";
+  if (normalized === "zh" || normalized.startsWith("zh-")) {
+    return {
+      fileManager: "文件管理器",
+      systemDefault: "默认应用",
+    };
+  }
+
+  return {
+    fileManager: "File manager",
+    systemDefault: "Default app",
   };
 }
 

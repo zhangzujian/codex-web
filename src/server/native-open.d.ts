@@ -29,6 +29,7 @@ type OpenFileRequest = {
     column?: unknown;
     cwd?: unknown;
     line?: unknown;
+    locale?: unknown;
     path?: unknown;
     target?: unknown;
 };
