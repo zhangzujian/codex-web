@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { patchBrowserPanelIframeAsset } from "./patch_browser_panel_iframe.mjs";
 import { patchTerminalSidePanelSupport } from "./patch_terminal_side_panel.mjs";
+import { patchWebviewAutomationsEmptyStateIconAssets } from "./patch_webview_automations_empty_state_icon.mjs";
 import { patchWebviewAutomationsNavAssets } from "./patch_webview_automations_nav.mjs";
 import { patchUserMessageClipboardAssets } from "./patch_webview_clipboard.mjs";
 import { patchWebviewConsoleNoiseAssets } from "./patch_webview_console_noise.mjs";
@@ -17,6 +18,7 @@ export function patchWebviewAssets(assetsDir) {
     ...patchWebviewConsoleNoiseAssets(assetsDir),
     ...patchTerminalSidePanelSupport(assetsDir),
     ...patchWebviewAutomationsNavAssets(assetsDir),
+    ...patchWebviewAutomationsEmptyStateIconAssets(assetsDir),
     ...patchUserMessageClipboardAssets(assetsDir),
     patchBrowserPanelIframeAsset(assetsDir),
   ];
