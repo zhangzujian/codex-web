@@ -16,6 +16,9 @@ const markdownSource = [
   "function ni(e){return(0,Q.jsx)(br,{onRetry:()=>{e.resetError()}})}",
 ].join("");
 
+const markdownMediaSource =
+  "function pn(e){let R=I?.contentsBase64??null,z=j.safeUrl??ee??(P&&R!=null?Qt({contentsBase64:R,mimeType:I?.mimeType??null,path:C??x}):x),B=r??``;return(0,Q.jsx)(`img`,{src:z,alt:B})}";
+
 test("markdown retry patch stabilizes streaming reset key and auto-retries fallback", () => {
   const patched = patchWebviewMarkdownRetrySource(
     markdownSource,
@@ -39,6 +42,19 @@ test("markdown retry patch is idempotent", () => {
   assert.equal(
     patchWebviewMarkdownRetrySource(patched, "markdown-CMykY9jH.js"),
     patched,
+  );
+});
+
+test("markdown patch drops mixed-content media URLs", () => {
+  const patched = patchWebviewMarkdownRetrySource(
+    markdownMediaSource,
+    "markdown-CMykY9jH.js",
+  );
+
+  assert.match(patched, /function codexWebSafeMarkdownMediaUrl/);
+  assert.match(
+    patched,
+    /z=codexWebSafeMarkdownMediaUrl\(j\.safeUrl\?\?ee\?\?\(P&&R!=null\?Qt/,
   );
 });
 

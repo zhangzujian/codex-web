@@ -16,6 +16,12 @@ const REGULAR_MARKDOWN_FALLBACK_INLINE_RETRY =
   "function ni(e){return(0,Q.jsx)(br,{onRetry:()=>{e.resetError()}})}";
 const REGULAR_MARKDOWN_FALLBACK_STABLE_RETRY =
   "function ni(e){return(0,Q.jsx)(br,{onRetry:e.resetError})}";
+const MARKDOWN_SAFE_MEDIA_URL_FUNCTION =
+  "function codexWebSafeMarkdownMediaUrl(e){if(typeof e!=`string`)return e;try{let t=new URL(e,globalThis.location.href);return globalThis.location.protocol===`https:`&&t.protocol===`http:`?null:e}catch{return e}}";
+const MARKDOWN_MEDIA_URL_SOURCE =
+  "let R=I?.contentsBase64??null,z=j.safeUrl??ee??(P&&R!=null?Qt({contentsBase64:R,mimeType:I?.mimeType??null,path:C??x}):x),B=r??``";
+const MARKDOWN_SAFE_MEDIA_URL_SOURCE =
+  "let R=I?.contentsBase64??null,z=codexWebSafeMarkdownMediaUrl(j.safeUrl??ee??(P&&R!=null?Qt({contentsBase64:R,mimeType:I?.mimeType??null,path:C??x}):x)),B=r??``";
 const MARKDOWN_FALLBACK_START =
   "function br(e){let t=(0,X.c)(4),{onRetry:n}=e,r;";
 const MARKDOWN_FALLBACK_GLOBAL_RETRY_START =
@@ -59,6 +65,18 @@ export function patchWebviewMarkdownRetrySource(source, assetName = "") {
     MARKDOWN_FALLBACK_AUTO_RETRY_START,
     "Markdown fallback auto retry",
   );
+  patched = replaceOnceIfPresent(
+    patched,
+    MARKDOWN_MEDIA_URL_SOURCE,
+    MARKDOWN_SAFE_MEDIA_URL_SOURCE,
+    "Markdown media URL",
+  );
+  if (
+    patched.includes(MARKDOWN_SAFE_MEDIA_URL_SOURCE) &&
+    !patched.includes("function codexWebSafeMarkdownMediaUrl")
+  ) {
+    patched = `${MARKDOWN_SAFE_MEDIA_URL_FUNCTION}${patched}`;
+  }
   return patched;
 }
 
@@ -68,6 +86,7 @@ export function patchWebviewMarkdownRetryAssets(assetsDir) {
   let sawMarkdownRetryCallback = false;
   let sawRegularMarkdownRetryCallback = false;
   let sawStreamingResetKey = false;
+  let sawSafeMediaUrl = false;
 
   for (const assetName of fs.readdirSync(assetsDir)) {
     if (!assetName.endsWith(".js")) {
@@ -83,6 +102,7 @@ export function patchWebviewMarkdownRetryAssets(assetsDir) {
       REGULAR_MARKDOWN_FALLBACK_STABLE_RETRY,
     );
     sawStreamingResetKey ||= patched.includes(STABLE_STREAMING_RESET_KEY);
+    sawSafeMediaUrl ||= patched.includes(MARKDOWN_SAFE_MEDIA_URL_SOURCE);
 
     if (patched !== source) {
       fs.writeFileSync(assetPath, patched);
@@ -101,6 +121,9 @@ export function patchWebviewMarkdownRetryAssets(assetsDir) {
   }
   if (!sawStreamingResetKey) {
     throw new Error("Unable to patch StreamingMarkdown reset key");
+  }
+  if (!sawSafeMediaUrl) {
+    throw new Error("Unable to patch Markdown media URL");
   }
 
   return patchedFiles;
