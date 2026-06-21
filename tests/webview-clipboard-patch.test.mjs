@@ -5,10 +5,13 @@ import path from "node:path";
 import test from "node:test";
 
 import {
+  patchCopyToClipboardAssetSource,
   patchUserMessageClipboardAssetSource,
   patchUserMessageClipboardAssets,
 } from "../scripts/patch_webview_clipboard.mjs";
 
+const copyToClipboardSource =
+  "function e(e,t){let{navigator:n}=t?.target?.ownerDocument?.defaultView??window;return new Promise((t,r)=>{if(!n?.clipboard){r(Error(`Clipboard API unavailable`));return}try{if(typeof e!=`string`&&`write`in n.clipboard&&typeof ClipboardItem<`u`&&`supports`in ClipboardItem){let i=new ClipboardItem(Object.fromEntries(Object.entries(e).map(([e,t])=>[e,typeof t==`string`?new Blob([t],{type:e}):t])));n.clipboard.write([i]).then(()=>t(!0),()=>{r(Error(`Failed to copy to clipboard`))})}else{let i=typeof e==`string`?e:e[`text/plain`]??``;n.clipboard.writeText(i).then(()=>t(!0),()=>{r(Error(`Failed to copy to clipboard`))})}}catch{r(Error(`Failed to copy to clipboard`))}})}export{e as t};";
 const userMessageAttachmentsSource =
   "de=()=>{S!=null&&w!=null&&oe.submitCodexAnalyticsEvent?.({action:`copy`,eventKind:`action`,metadata:{surface:`user_message`},threadId:S,turnId:w}),navigator.clipboard.writeText(p(V)).then(()=>{ae(!0),setTimeout(()=>ae(!1),1500)})}";
 const legacyClipboardHelper =
@@ -33,6 +36,22 @@ test("user message clipboard patch falls back when the Clipboard API rejects", (
   assert.match(
     patched,
     /globalThis\.navigator\.clipboard\.writeText\(e\)\.catch\(\(\)=>codexWebExecCommandCopy\(e\)\)/,
+  );
+});
+
+test("copy-to-clipboard patch falls back to execCommand for code blocks", () => {
+  const patched = patchCopyToClipboardAssetSource(copyToClipboardSource);
+
+  assert.match(patched, /function codexWebExecCommandCopy/);
+  assert.match(patched, /\.execCommand\(`copy`\)/);
+  assert.match(patched, /codexWebCopyPlainText\(/);
+  assert.match(
+    patched,
+    /n\.clipboard\.writeText\(a\)\.then\(\(\)=>t\(!0\),\(\)=>codexWebCopyPlainText\(i,a,t,r\)\)/,
+  );
+  assert.match(
+    patched,
+    /if\(!n\?\.clipboard\)\{codexWebCopyPlainText\(i,e,t,r\);return\}/,
   );
 });
 

@@ -6,9 +6,12 @@ import { patchBrowserPanelIframeAsset } from "./patch_browser_panel_iframe.mjs";
 import { patchTerminalSidePanelSupport } from "./patch_terminal_side_panel.mjs";
 import { patchWebviewAutomationsEmptyStateIconAssets } from "./patch_webview_automations_empty_state_icon.mjs";
 import { patchWebviewAutomationsNavAssets } from "./patch_webview_automations_nav.mjs";
-import { patchUserMessageClipboardAssets } from "./patch_webview_clipboard.mjs";
+import { patchWebviewClipboardAssets } from "./patch_webview_clipboard.mjs";
 import { patchWebviewConsoleNoiseAssets } from "./patch_webview_console_noise.mjs";
 import { patchWebviewI18nAssets } from "./patch_webview_i18n.mjs";
+import { patchWebviewMarkdownRetryAssets } from "./patch_webview_markdown_retry.mjs";
+import { patchWebviewMobileSidebarAssets } from "./patch_webview_mobile_sidebar.mjs";
+import { patchWebviewMobileTabLayoutAssets } from "./patch_webview_mobile_tab_layout.mjs";
 import { patchWebviewOpenTargetLabelsAssets } from "./patch_webview_open_target_labels.mjs";
 
 export function patchWebviewAssets(assetsDir) {
@@ -16,10 +19,13 @@ export function patchWebviewAssets(assetsDir) {
     ...patchWebviewOpenTargetLabelsAssets(assetsDir),
     ...patchWebviewI18nAssets(assetsDir),
     ...patchWebviewConsoleNoiseAssets(assetsDir),
+    ...patchWebviewMarkdownRetryAssets(assetsDir),
     ...patchTerminalSidePanelSupport(assetsDir),
     ...patchWebviewAutomationsNavAssets(assetsDir),
     ...patchWebviewAutomationsEmptyStateIconAssets(assetsDir),
-    ...patchUserMessageClipboardAssets(assetsDir),
+    ...patchWebviewClipboardAssets(assetsDir),
+    ...patchWebviewMobileSidebarAssets(assetsDir),
+    ...patchWebviewMobileTabLayoutAssets(assetsDir),
     patchBrowserPanelIframeAsset(assetsDir),
   ];
 

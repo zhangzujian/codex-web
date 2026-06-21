@@ -392,7 +392,9 @@ function terminalTheme(themeName: string) {
 }
 
 function applySurfaceTheme(themeName: string): void {
-  surface.style.background = terminalTheme(themeName).background ?? "";
+  const background = terminalTheme(themeName).background ?? "";
+  surface.style.background = background;
+  page.style.background = background;
 }
 
 const initialSettings = resolveTerminalSettings();
@@ -439,6 +441,28 @@ function terminalCwd(): string {
 
 function backendWebSocketToken(): string {
   return document.body.dataset.backendWebsocketToken ?? "";
+}
+
+function terminalTabRef(): {
+  browserTabId: string;
+  conversationId: string;
+} | null {
+  const params = new URLSearchParams(window.location.search);
+  const conversationId = params.get("terminalConversationId");
+  const browserTabId = params.get("terminalBrowserTabId");
+  return conversationId && browserTabId
+    ? { browserTabId, conversationId }
+    : null;
+}
+
+function closeTerminalTab(): void {
+  if (!terminalTabRef()) {
+    return;
+  }
+  window.parent.postMessage(
+    { type: "codex-web-terminal-exit" },
+    window.location.origin,
+  );
 }
 
 function setStatus(message: string): void {
@@ -708,6 +732,7 @@ function connect(): void {
 
     if (message.type === "exit") {
       created = false;
+      closeTerminalTab();
       setStatus(
         t("status.exited", {
           reason: message.exitCode ?? message.signal ?? t("status.unknown"),

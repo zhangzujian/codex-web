@@ -69,6 +69,7 @@ const browserChromeChunk = [
   "function Np(){let S={isTerminal:true,faviconUrl:null};w.updateTab(d,l,{icon:(0,$.jsx)(Dt,{alt:``,className:`size-full rounded-2xs`,logoUrl:S.faviconUrl,fallback:(0,$.jsx)(bi,{className:`size-full`})}),title:e})}",
   "function Eu(){",
   "let X={url:`http://localhost/__terminal?cwd=/tmp`,isLoading:!1},Kt=!0;",
+  "let Wt=X.tabType===ne.WEB,Kt=Wt&&X.url.trim().length>0,rt={};",
   "let Ui=!1,Wi=`Show`;",
   'return(0,$.jsxs)(`div`,{ref:L,"data-browser-sidebar-primary-focus-target":Kt?`webview`:`address`,className:`relative grid h-full min-h-0 w-full min-w-0 grid-rows-[auto_1fr]`,tabIndex:-1,children:[(0,$.jsxs)(`div`,{className:`relative z-10 h-toolbar-pane min-w-0 shrink-0 border-b border-token-border`,children:[(0,$.jsx)(`input`,{"data-browser-sidebar-address-input":`true`})]}),(0,$.jsx)(`div`,{className:`relative flex min-h-0 min-w-0 flex-1 flex-col`})]})',
   "}",
@@ -501,6 +502,9 @@ test("patchTerminalBrowserChromeSource hides browser toolbar for terminal URLs",
     /postMessage\(\{type:`codex-web-terminal-close-settings`\},globalThis\.location\.origin\)/,
   );
   assert.match(patched, /isTerminal:/);
+  assert.match(patched, /codex-web-terminal-exit/);
+  assert.match(patched, /L\.current\?\.querySelector\(`iframe`\)/);
+  assert.match(patched, /Mr\(y\)\.closeTab\(b,n\)/);
   assert.match(patched, /S\.isTerminal\?/);
   assert.match(patched, /codexWebTerminalTabIcon/);
   assert.match(
@@ -520,6 +524,13 @@ test("patchTerminalBrowserChromeSource hides browser toolbar for terminal URLs",
     /children:\[codexWebIsTerminalTab\?null:\(0,\$\.jsxs\)\(`div`,\{className:`relative z-10 h-toolbar-pane/,
   );
   assert.equal(patchTerminalBrowserChromeSource(patched), patched);
+});
+
+test("patchTerminalBrowserChromeSource drops mixed-content favicon URLs", () => {
+  const patched = patchTerminalBrowserChromeSource(browserChromeChunk);
+
+  assert.match(patched, /function codexWebSafeFaviconUrl/);
+  assert.match(patched, /faviconUrl:codexWebSafeFaviconUrl\(i\?e\.faviconUrl:null\)/);
 });
 
 test("patchTerminalBrowserChromeSource fails when terminal tab metadata cannot be patched", () => {

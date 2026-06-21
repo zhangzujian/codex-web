@@ -53,6 +53,10 @@ test("patchBrowserPanelIframeSupport replaces Electron webview hosts with iframe
     /data-codex-web-browser-panel-frame/,
     "patched iframe should be discoverable in browser tests",
   );
+  assert.doesNotMatch(
+    patched,
+    /sandbox[^`]*allow-same-origin[^`]*allow-scripts|sandbox[^`]*allow-scripts[^`]*allow-same-origin/,
+  );
   assert.match(
     patched,
     /addEventListener\(`load`,.*did-stop-loading/s,

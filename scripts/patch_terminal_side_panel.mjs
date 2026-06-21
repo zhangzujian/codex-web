@@ -20,6 +20,8 @@ const APPLICATION_MENU_FEATURE_PATTERN =
   /function\s+([$A-Za-z_][\w$]*)\(\)\{return yt\(\)&&window\.electronBridge\?\.showApplicationMenu!=null\}/;
 const TERMINAL_TAB_ICON_FUNCTION =
   "function codexWebTerminalTabIcon(e){return Q.createElement(`svg`,{width:20,height:20,viewBox:`0 0 20 20`,fill:`none`,xmlns:`http://www.w3.org/2000/svg`,...e},Q.createElement(`path`,{d:`M13.334 12.2529C13.701 12.2533 13.999 12.5509 13.999 12.918C13.9988 13.2849 13.7008 13.5827 13.334 13.583H6.66699C6.29984 13.583 6.00215 13.2851 6.00195 12.918C6.00195 12.5507 6.29972 12.2529 6.66699 12.2529H13.334Z`,fill:`currentColor`}),Q.createElement(`path`,{fillRule:`evenodd`,clipRule:`evenodd`,d:`M15 3.08594C16.748 3.08594 18.165 4.503 18.165 6.25098V13.751C18.165 15.499 16.748 16.916 15 16.916H5C3.25202 16.916 1.83496 15.499 1.83496 13.751V6.25098C1.83496 4.503 3.25202 3.08594 5 3.08594H15ZM5 4.41602C3.98656 4.41602 3.16504 5.23753 3.16504 6.25098V13.751C3.16504 14.7644 3.98656 15.5859 5 15.5859H15C16.0134 15.5859 16.835 14.7644 16.835 13.751V6.25098C16.835 5.23753 16.0134 4.41602 15 4.41602H5Z`,fill:`currentColor`}))}";
+const SAFE_FAVICON_FUNCTION =
+  "function codexWebSafeFaviconUrl(e){if(typeof e!=`string`)return null;try{let t=new URL(e,globalThis.location.href);return globalThis.location.protocol===`https:`&&t.protocol===`http:`?null:t.href}catch{return null}}";
 const OLD_TERMINAL_LOCALE_HELPER_FUNCTION =
   "function codexWebTerminalLocale(){let e=[`codex-web.locale`,`codex-web.app.locale`,`codex-web.appLanguage`,`codex.locale`,`app.locale`,`locale`,`language`],t=[];for(let n of e)try{let e=localStorage.getItem(n);if(e){t.push(e);try{let n=JSON.parse(e);typeof n==`string`?t.push(n):n&&typeof n==`object`&&t.push(n.locale,n.language,n.appLocale,n.appLanguage)}catch{}}}catch{}t.push(document.documentElement.lang);for(let e of t){if(typeof e!=`string`)continue;let t=e.trim();if(t)return t}return``}";
 const TERMINAL_LOCALE_HELPER_FUNCTION =
@@ -660,6 +662,7 @@ export function patchTerminalBrowserChromeSource(source) {
   patched = patchTerminalSettingsParentCloseSource(patched);
   patched = patchTerminalTabIconFunction(patched);
   patched = patchTerminalBrowserTabSnapshotSource(patched);
+  patched = patchTerminalExitParentCloseSource(patched);
   if (!patched.includes(TERMINAL_BROWSER_CHROME_MARKER)) {
     patched = replaceOnce(
       patched,
@@ -700,6 +703,18 @@ export function patchTerminalBrowserChromeSource(source) {
   return patched;
 }
 
+function patchTerminalExitParentCloseSource(source) {
+  if (source.includes("codex-web-terminal-exit")) {
+    return source;
+  }
+
+  return replaceIfPresent(
+    source,
+    "Wt=X.tabType===ne.WEB,Kt=Wt&&X.url.trim().length>0,",
+    "Wt=X.tabType===ne.WEB,Kt=Wt&&X.url.trim().length>0,codexWebTerminalExitTab=X.url?.includes(`/__terminal`)===!0;(0,Q.useEffect)(()=>{if(!codexWebTerminalExitTab)return;let e=e=>{if(e.origin!==globalThis.location.origin||e.data?.type!==`codex-web-terminal-exit`||e.source!==L.current?.querySelector(`iframe`)?.contentWindow)return;Mr(y).closeTab(b,n)};return window.addEventListener(`message`,e),()=>window.removeEventListener(`message`,e)},[codexWebTerminalExitTab,b,n,y]);",
+  );
+}
+
 function patchTerminalSettingsParentCloseSource(source) {
   if (source.includes(TERMINAL_SETTINGS_PARENT_CLOSE_MARKER)) {
     return source;
@@ -709,7 +724,15 @@ function patchTerminalSettingsParentCloseSource(source) {
 }
 
 function patchTerminalTabIconFunction(source) {
-  if (source.includes("function codexWebTerminalTabIcon")) {
+  const helpers = [
+    source.includes("function codexWebSafeFaviconUrl")
+      ? ""
+      : SAFE_FAVICON_FUNCTION,
+    source.includes("function codexWebTerminalTabIcon")
+      ? ""
+      : TERMINAL_TAB_ICON_FUNCTION,
+  ].join("");
+  if (!helpers) {
     return source;
   }
 
@@ -718,11 +741,11 @@ function patchTerminalTabIconFunction(source) {
   ) {
     return source.replace(
       "var fs=`about:blank#codex-browser-sidebar-attach-token=`",
-      `${TERMINAL_TAB_ICON_FUNCTION}var fs=\`about:blank#codex-browser-sidebar-attach-token=\``,
+      `${helpers}var fs=\`about:blank#codex-browser-sidebar-attach-token=\``,
     );
   }
 
-  return `${TERMINAL_TAB_ICON_FUNCTION}${source}`;
+  return `${helpers}${source}`;
 }
 
 function patchTerminalBrowserTabSnapshotSource(source) {
@@ -736,6 +759,14 @@ function patchTerminalBrowserTabSnapshotSource(source) {
     patched = patched.replace(
       snapshotPattern,
       "let i=e?.tabType===ne.WEB,a=r&&i&&(e.url.length===0||e.url===`about:blank`),o=i&&(e.url.startsWith(fs)||e.title.startsWith(fs)),s=i&&!a&&!o?oi(e.url):``,c=i?e.title.trim():``,l=c.length===0||c===`about:blank`||c===t,u=i&&!a&&!o&&c.length>0,d=i&&e.url.includes(`/__terminal`);return{faviconUrl:i?e.faviconUrl:null,isTerminal:d,",
+    );
+  }
+  if (!patched.includes("faviconUrl:codexWebSafeFaviconUrl(")) {
+    patched = replaceOnce(
+      patched,
+      "return{faviconUrl:i?e.faviconUrl:null,",
+      "return{faviconUrl:codexWebSafeFaviconUrl(i?e.faviconUrl:null),",
+      "Browser favicon URL target not found",
     );
   }
   if (!patched.includes("isTerminal:")) {
@@ -768,13 +799,16 @@ function isTerminalBrowserChromePatched(source) {
     source.includes(TERMINAL_SETTINGS_PARENT_CLOSE_MARKER) &&
     source.includes("codexWebIsTerminalTab?`grid-rows-[1fr]`") &&
     source.includes("children:[codexWebIsTerminalTab?null:") &&
-    source.includes("codexWebTerminalTabIcon")
+    source.includes("codexWebSafeFaviconUrl") &&
+    source.includes("codexWebTerminalTabIcon") &&
+    source.includes("codex-web-terminal-exit")
   );
 }
 
 function isTerminalBrowserTabSnapshotPatched(source) {
   return (
     source.includes("isTerminal:") &&
+    source.includes("faviconUrl:codexWebSafeFaviconUrl(") &&
     (source.includes("S.isTerminal?") || source.includes("u.isTerminal?"))
   );
 }

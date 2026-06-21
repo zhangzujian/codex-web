@@ -7,9 +7,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const WEBVIEW_CREATE = "document.createElement(`webview`)";
 const IFRAME_FACTORY = "codexWebCreateBrowserPanelFrame()";
 const PATCH_MARKER = "data-codex-web-browser-panel-frame";
+const IFRAME_SANDBOX_SETTER =
+  "e.setAttribute(`sandbox`,`allow-downloads allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-presentation allow-same-origin allow-scripts`),";
 
 const helperSource =
-  "function codexWebCreateBrowserPanelFrame(){let e=document.createElement(`iframe`);return e.setAttribute(`data-codex-web-browser-panel-frame`,`true`),e.setAttribute(`sandbox`,`allow-downloads allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-presentation allow-same-origin allow-scripts`),e.setAttribute(`referrerpolicy`,`no-referrer-when-downgrade`),e.setAttribute(`loading`,`eager`),e.isLoading=()=>!1,e.stop=()=>{},e.reload=()=>{try{e.contentWindow?.location.reload()}catch{codexWebSetBrowserPanelFrameSrc(e,e.getAttribute(`src`)??`about:blank`)}},e.goBack=()=>{try{e.contentWindow?.history.back()}catch{}},e.goForward=()=>{try{e.contentWindow?.history.forward()}catch{}},e.canGoBack=()=>!1,e.canGoForward=()=>!1,e.getURL=()=>e.getAttribute(`src`)??`about:blank`,e.loadURL=t=>(codexWebSetBrowserPanelFrameSrc(e,t),Promise.resolve()),e.destroy=()=>{e.dispatchEvent(new Event(`destroyed`)),e.remove()},e.addEventListener(`load`,()=>{codexWebDispatchBrowserPanelFrameEvent(e,`did-attach`),codexWebDispatchBrowserPanelFrameEvent(e,`did-stop-loading`)}),e.addEventListener(`error`,()=>{codexWebDispatchBrowserPanelFrameEvent(e,`did-fail-load`)}),e}function codexWebDispatchBrowserPanelFrameEvent(e,t){e.dispatchEvent(new Event(t))}function codexWebSetBrowserPanelFrameSrc(e,t){let n=t&&t.length>0?t:`about:blank`;e.setAttribute(`src`,n),queueMicrotask(()=>{codexWebDispatchBrowserPanelFrameEvent(e,`did-attach`),codexWebDispatchBrowserPanelFrameEvent(e,`did-stop-loading`)})}function codexWebSyncBrowserPanelSnapshotUrl(e,t){let n=t?.url&&t.url.length>0?t.url:`about:blank`;t?.tabType===`web`&&e?.webview!=null&&e.webview.getAttribute(`src`)!==n&&codexWebSetBrowserPanelFrameSrc(e.webview,n)}";
+  "function codexWebCreateBrowserPanelFrame(){let e=document.createElement(`iframe`);return e.setAttribute(`data-codex-web-browser-panel-frame`,`true`),e.setAttribute(`referrerpolicy`,`no-referrer-when-downgrade`),e.setAttribute(`loading`,`eager`),e.isLoading=()=>!1,e.stop=()=>{},e.reload=()=>{try{e.contentWindow?.location.reload()}catch{codexWebSetBrowserPanelFrameSrc(e,e.getAttribute(`src`)??`about:blank`)}},e.goBack=()=>{try{e.contentWindow?.history.back()}catch{}},e.goForward=()=>{try{e.contentWindow?.history.forward()}catch{}},e.canGoBack=()=>!1,e.canGoForward=()=>!1,e.getURL=()=>e.getAttribute(`src`)??`about:blank`,e.loadURL=t=>(codexWebSetBrowserPanelFrameSrc(e,t),Promise.resolve()),e.destroy=()=>{e.dispatchEvent(new Event(`destroyed`)),e.remove()},e.addEventListener(`load`,()=>{codexWebDispatchBrowserPanelFrameEvent(e,`did-attach`),codexWebDispatchBrowserPanelFrameEvent(e,`did-stop-loading`)}),e.addEventListener(`error`,()=>{codexWebDispatchBrowserPanelFrameEvent(e,`did-fail-load`)}),e}function codexWebDispatchBrowserPanelFrameEvent(e,t){e.dispatchEvent(new Event(t))}function codexWebSetBrowserPanelFrameSrc(e,t){let n=t&&t.length>0?t:`about:blank`;e.setAttribute(`src`,n),queueMicrotask(()=>{codexWebDispatchBrowserPanelFrameEvent(e,`did-attach`),codexWebDispatchBrowserPanelFrameEvent(e,`did-stop-loading`)})}function codexWebSyncBrowserPanelSnapshotUrl(e,t){let n=t?.url&&t.url.length>0?t.url:`about:blank`;t?.tabType===`web`&&e?.webview!=null&&e.webview.getAttribute(`src`)!==n&&codexWebSetBrowserPanelFrameSrc(e.webview,n)}";
 
 export function findBrowserSidebarManagerAsset(assetsDir) {
   const candidates = fs
@@ -44,7 +46,7 @@ export function findBrowserSidebarManagerAsset(assetsDir) {
 
 export function patchBrowserPanelIframeSupport(source) {
   const alreadyPatched = source.includes(PATCH_MARKER);
-  let patched = source;
+  let patched = source.replaceAll(IFRAME_SANDBOX_SETTER, "");
 
   if (!alreadyPatched) {
     const webviewCreateCount = countOccurrences(source, WEBVIEW_CREATE);

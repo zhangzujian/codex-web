@@ -139,6 +139,13 @@ test("system terminal theme follows the OS color scheme", () => {
   );
 });
 
+test("terminal page padding background follows the active terminal theme", () => {
+  assert.match(
+    source,
+    /function applySurfaceTheme\(themeName: string\): void \{\n\s*const background = terminalTheme\(themeName\)\.background \?\? "";\n\s*surface\.style\.background = background;\n\s*page\.style\.background = background;\n\s*\}/,
+  );
+});
+
 test("terminal settings panels close when clicking outside settings", () => {
   assert.match(
     source,

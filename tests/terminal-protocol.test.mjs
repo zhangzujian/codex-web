@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import test from "node:test";
 
 import {
+  createNodePtyTerminalSessionFactory,
   createTerminalSocketHandler,
   parseTerminalClientMessage,
   resolveTerminalCwd,
@@ -91,6 +92,56 @@ test("terminalStylesheetHrefs loads app styles first and terminal styles last", 
     "/assets/terminal-page.css",
   ]);
 });
+
+test(
+  "node pty terminal sessions inject CODEX_SHELL",
+  { skip: process.platform === "win32" },
+  async () => {
+  const previousCodexShell = process.env.CODEX_SHELL;
+  const previousShell = process.env.SHELL;
+  delete process.env.CODEX_SHELL;
+  process.env.SHELL = "/bin/sh";
+
+  try {
+    const session = createNodePtyTerminalSessionFactory().createSession({
+      cols: 80,
+      cwd: "/tmp",
+      rows: 24,
+      terminalType: "xterm-256color",
+    });
+    let output = "";
+    session.onData((data) => {
+      output += data;
+    });
+    const exit = new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        session.close();
+        reject(new Error("Timed out waiting for terminal session to exit"));
+      }, 3000);
+      session.onExit(() => {
+        clearTimeout(timeout);
+        resolve();
+      });
+    });
+
+    session.write('printf "codex-shell=%s\\n" "$CODEX_SHELL"; exit\r');
+    await exit;
+
+    assert.match(output, /codex-shell=1/);
+  } finally {
+    if (previousCodexShell === undefined) {
+      delete process.env.CODEX_SHELL;
+    } else {
+      process.env.CODEX_SHELL = previousCodexShell;
+    }
+    if (previousShell === undefined) {
+      delete process.env.SHELL;
+    } else {
+      process.env.SHELL = previousShell;
+    }
+  }
+  },
+);
 
 test("terminal socket handler creates a session and forwards input, resize, and close", async () => {
   const socket = new FakeSocket();

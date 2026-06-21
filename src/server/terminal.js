@@ -222,6 +222,7 @@ function createNodePtyTerminalSessionFactory() {
                 cwd: options.cwd,
                 env: {
                     ...process.env,
+                    CODEX_SHELL: "1",
                     TERM: options.terminalType,
                     COLORTERM: "truecolor",
                 },

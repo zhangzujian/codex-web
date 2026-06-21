@@ -227,4 +227,5 @@ test("terminal html carries the requested locale for terminal i18n", () => {
   assert.match(html, /<html lang="zh-CN"/);
   assert.match(html, /<title>终端<\/title>/);
   assert.match(html, /data-terminal-locale="zh-CN"/);
+  assert.match(html, /data-backend-websocket-token="secret"/);
 });
