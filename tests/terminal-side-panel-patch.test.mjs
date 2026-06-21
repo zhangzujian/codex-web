@@ -46,11 +46,22 @@ const sidePanelActionChunk = [
   'import{a as Bs,i as js,s as Ks}from"./thread-side-panel-tabs-source.js";',
   'import{t as Md}from"./terminal-icon.js";',
   "function tt(){",
+  "  let R=i(J,`searchFiles`),B=i(J,`openSideChat`),V=i(J,`openBrowserTab`),ee=i(J,`openReviewTab`),ne=i(Je,P);",
   "  let Pe=()=>{js(a,P)&&n?.()};",
   "  let Re=()=>{De(a,r),n?.()};",
   "  return [{id:`terminal`,Icon:Md,onSelect:Re,title:(0,Q.jsx)(T,{id:`thread.sidePanel.newTab.terminal.title`,defaultMessage:`Terminal`})}];",
   "}",
 ].join("");
+
+const terminalCommandShortcutChunk = [
+  "function It(e){",
+  "let t=(0,$.c)(40),r=o(U),u=s(Oe),m=Ae(r),_;",
+  "t[8]!==m||t[9]!==r||t[10]!==u?(_=()=>{m&&q(r,void 0,u)},t[8]=m,t[9]=r,t[10]=u,t[11]=_):_=t[11],v(`toggle-terminal`,_),Ne(`toggleBottomPanel`,g);",
+  "let y;t[12]!==r||t[13]!==u?(y=()=>{q(r,void 0,u)},t[12]=r,t[13]=u,t[14]=y):y=t[14],Ne(`toggleTerminal`,y);",
+  "return null}",
+].join("");
+
+const sidePanelActionWithTerminalCommandChunk = `${sidePanelActionChunk}${terminalCommandShortcutChunk}`;
 
 const browserChromeChunk = [
   "var fs=`about:blank#codex-browser-sidebar-attach-token=`;",
@@ -87,7 +98,7 @@ const newTabMenuChunk = [
   "function it(e){return de(e)}",
 ].join("");
 
-const sidePanelActionWithNewTabMenuChunk = `${sidePanelActionChunk}${newTabMenuChunk}`;
+const sidePanelActionWithNewTabMenuChunk = `${sidePanelActionWithTerminalCommandChunk}${newTabMenuChunk}`;
 
 const openInPrimaryIconChunk = [
   "function ft(){",
@@ -126,8 +137,12 @@ test("patchTerminalSidePanelSource replaces the openSessionSandboxSidePanel stub
   assert.match(patched, /i=codexWebTerminalLocale\(e\.get\(Rr\)\?\.locale\)/);
   assert.match(patched, /function codexWebTerminalLocale\(e\)/);
   assert.doesNotMatch(patched, /navigator\.language/);
-  assert.match(patched, /browserConversationId:re\(crypto\.randomUUID\(\)\)/);
-  assert.match(patched, /browserTabId:re\(crypto\.randomUUID\(\)\)/);
+  assert.match(patched, /c=re\(crypto\.randomUUID\(\)\)/);
+  assert.match(patched, /l=re\(crypto\.randomUUID\(\)\)/);
+  assert.match(patched, /browserConversationId:c/);
+  assert.match(patched, /browserTabId:l/);
+  assert.match(patched, /terminalConversationId=\$\{encodeURIComponent\(c\)\}/);
+  assert.match(patched, /terminalBrowserTabId=\$\{encodeURIComponent\(l\)\}/);
   assert.match(patched, /initiator:`side_panel_terminal`/);
   assert.match(patched, /cwd:r\?\?void 0/);
   assert.doesNotMatch(
@@ -153,7 +168,7 @@ test("patchTerminalSidePanelSource upgrades an older terminal patch even when th
 
   assert.match(
     patched,
-    /function rm\(e,t,n=!0\)\{let r=e\.get\(Or\),i=codexWebTerminalLocale\(e\.get\(Rr\)\?\.locale\);return Rp\(e,\{browserConversationId:re\(crypto\.randomUUID\(\)\),browserTabId:re\(crypto\.randomUUID\(\)\)/,
+    /function rm\(e,t,n=!0\)\{let r=e\.get\(Or\),i=codexWebTerminalLocale\(e\.get\(Rr\)\?\.locale\),c=re\(crypto\.randomUUID\(\)\),l=re\(crypto\.randomUUID\(\)\);return Rp\(e,\{browserConversationId:c,browserTabId:l/,
   );
 });
 
@@ -369,12 +384,33 @@ test("patchTerminalSidePanelAsset patches the discovered source chunk", () => {
 });
 
 test("patchTerminalActionSource points Terminal at the side panel opener", () => {
-  const patched = patchTerminalActionSource(sidePanelActionChunk, {
+  const patched = patchTerminalActionSource(sidePanelActionWithTerminalCommandChunk, {
     terminalActionFunctionName: "Pe",
+    terminalOpenerFunctionName: "js",
   });
 
   assert.match(patched, /let Re=\(\)=>\{De\(a,r\),n\?\.\(\)\}/);
-  assert.match(patched, /id:`terminal`,Icon:Md,onSelect:Pe,title:/);
+  assert.match(
+    patched,
+    /codexWebTerminalKeyboardShortcut=i\(J,`toggleTerminal`\)/,
+  );
+  assert.match(
+    patched,
+    /\(codexWebInstallTerminalBrowserShortcut\(Pe\),\{id:`terminal`,Icon:Md,onSelect:Pe,keyboardShortcut:codexWebTerminalKeyboardShortcut,title:/,
+  );
+  assert.match(patched, /function codexWebInstallTerminalBrowserShortcut/);
+  assert.match(
+    patched,
+    /Ne\(`toggleTerminal`,y\);codexWebInstallTerminalBrowserShortcut\(\(\)=>\{js\(r\)\}\);/,
+  );
+  assert.doesNotMatch(patched, /codexWebInstallTerminalBrowserShortcut\(y\)/);
+  assert.equal(
+    patchTerminalActionSource(patched, {
+      terminalActionFunctionName: "Pe",
+      terminalOpenerFunctionName: "js",
+    }),
+    patched,
+  );
 });
 
 test("findTerminalActionAsset finds the side panel Terminal action importer", () => {
@@ -422,7 +458,18 @@ test("patchTerminalSidePanelSupport patches the source and Terminal action", () 
     /\$\{globalThis\.location\.origin\}\/__terminal\?cwd=/,
   );
   assert.match(fs.readFileSync(sourcePath, "utf8"), /S\.isTerminal\?/);
-  assert.match(fs.readFileSync(actionPath, "utf8"), /onSelect:Pe,title:/);
+  assert.match(
+    fs.readFileSync(actionPath, "utf8"),
+    /codexWebTerminalKeyboardShortcut=i\(J,`toggleTerminal`\)/,
+  );
+  assert.match(
+    fs.readFileSync(actionPath, "utf8"),
+    /\(codexWebInstallTerminalBrowserShortcut\(Pe\),\{id:`terminal`,Icon:Md,onSelect:Pe,keyboardShortcut:codexWebTerminalKeyboardShortcut,title:/,
+  );
+  assert.doesNotMatch(
+    fs.readFileSync(actionPath, "utf8"),
+    /codexWebInstallTerminalBrowserShortcut\(y\)/,
+  );
   assert.match(
     fs.readFileSync(applicationMenuPath, "utf8"),
     /function In\(\)\{return!1\/\*codexWebDisableApplicationMenu\*\/\}/,

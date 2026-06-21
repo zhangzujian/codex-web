@@ -8,6 +8,10 @@ const PUBLIC_TERMINAL_EXPORT = "openSessionSandboxSidePanel";
 const PUBLIC_BROWSER_PANEL_EXPORT =
   "openThreadBrowserSidePanelTabWithPendingState";
 const PATCH_MARKER = "side_panel_terminal";
+const TERMINAL_KEYBOARD_SHORTCUT_SYMBOL =
+  "codexWebTerminalKeyboardShortcut";
+const TERMINAL_BROWSER_SHORTCUT_FUNCTION =
+  "function codexWebInstallTerminalBrowserShortcut(e){let t=globalThis;if(t.codexWebTerminalBrowserShortcutHandler)document.removeEventListener(`keydown`,t.codexWebTerminalBrowserShortcutHandler,!0);let n=t.codexWebTerminalBrowserShortcutHandler=t=>{if(t.ctrlKey&&!t.metaKey&&!t.altKey&&!t.shiftKey&&t.code===`Backquote`){t.preventDefault();e()}};document.addEventListener(`keydown`,n,!0)}";
 const TERMINAL_BROWSER_CHROME_MARKER = "codexWebIsTerminalTab";
 const TERMINAL_SETTINGS_PARENT_CLOSE_MARKER =
   "codexWebCloseTerminalSettingsOnOutsidePointer";
@@ -77,6 +81,7 @@ export function findTerminalActionAsset(assetsDir, terminalPatchTarget) {
 
     return {
       assetPath,
+      terminalOpenerFunctionName: importedSpecifier.local,
       terminalActionFunctionName: findTerminalActionFunctionName(
         source,
         importedSpecifier.local,
@@ -149,17 +154,13 @@ export function patchTerminalSidePanelSource(
     functionSource.includes(PATCH_MARKER) &&
     functionSource.includes("globalThis.location.origin") &&
     functionSource.includes(localeExpression) &&
-    functionSource.includes(
-      `browserConversationId:${randomUuidSymbol}(crypto.randomUUID())`,
-    ) &&
-    functionSource.includes(
-      `browserTabId:${randomUuidSymbol}(crypto.randomUUID())`,
-    )
+    functionSource.includes("terminalConversationId=") &&
+    functionSource.includes("terminalBrowserTabId=")
   ) {
     return patchTerminalLocaleHelperSource(source);
   }
 
-  const replacement = `function ${functionName}(${functionRange.params}){let r=${appScopeParam}.get(${cwdSymbol}),i=${localeExpression};return ${openBrowserPanelFunctionName}(${appScopeParam},{browserConversationId:${randomUuidSymbol}(crypto.randomUUID()),browserTabId:${randomUuidSymbol}(crypto.randomUUID()),initialUrl:\`\${globalThis.location.origin}/__terminal?cwd=\${encodeURIComponent(r??\`\`)}\${i?\`&locale=\${encodeURIComponent(i)}\`:\`\`}\`,initiator:\`side_panel_terminal\`,source:\`manual\`,target:\`right\`,cwd:r??void 0})!=null}`;
+  const replacement = `function ${functionName}(${functionRange.params}){let r=${appScopeParam}.get(${cwdSymbol}),i=${localeExpression},c=${randomUuidSymbol}(crypto.randomUUID()),l=${randomUuidSymbol}(crypto.randomUUID());return ${openBrowserPanelFunctionName}(${appScopeParam},{browserConversationId:c,browserTabId:l,initialUrl:\`\${globalThis.location.origin}/__terminal?cwd=\${encodeURIComponent(r??\`\`)}\${i?\`&locale=\${encodeURIComponent(i)}\`:\`\`}&terminalConversationId=\${encodeURIComponent(c)}&terminalBrowserTabId=\${encodeURIComponent(l)}\`,initiator:\`side_panel_terminal\`,source:\`manual\`,target:\`right\`,cwd:r??void 0})!=null}`;
   return patchTerminalLocaleHelperSource(
     source.slice(0, functionRange.start) +
       replacement +
@@ -184,27 +185,158 @@ function patchTerminalLocaleHelperSource(source) {
 
 export function patchTerminalActionSource(
   source,
-  { terminalActionFunctionName },
+  { terminalActionFunctionName, terminalOpenerFunctionName },
 ) {
+  let patched = patchTerminalActionKeyboardShortcutSource(source);
   const actionPattern =
-    /(id:`terminal`[\s\S]{0,160}?onSelect\s*:\s*)[$A-Za-z_][\w$]*(\s*,\s*title\s*:\s*\(0,[\s\S]{0,180}?thread\.sidePanel\.newTab\.terminal\.title)/;
-  const match = actionPattern.exec(source);
+    /(id:`terminal`[\s\S]{0,160}?onSelect\s*:\s*)[$A-Za-z_][\w$]*((?:\s*,\s*keyboardShortcut:[^,}]+)?\s*,\s*title\s*:\s*\(0,[\s\S]{0,180}?thread\.sidePanel\.newTab\.terminal\.title)/;
+  const match = actionPattern.exec(patched);
   if (!match) {
     throw new Error("Terminal side panel action handler not found");
   }
 
-  const currentHandler = source.slice(
+  const currentHandler = patched.slice(
     match.index + match[1].length,
     match.index + match[0].length - match[2].length,
   );
-  if (currentHandler === terminalActionFunctionName) {
+  if (currentHandler !== terminalActionFunctionName) {
+    patched =
+      patched.slice(0, match.index) +
+      `${match[1]}${terminalActionFunctionName}${match[2]}` +
+      patched.slice(match.index + match[0].length);
+  }
+
+  return patchTerminalActionBrowserShortcutSource(
+    patchTerminalCommandBrowserShortcutSource(
+      patchTerminalActionKeyboardShortcutField(
+        removeTerminalCommandBrowserShortcutSource(patched),
+        terminalActionFunctionName,
+      ),
+      terminalOpenerFunctionName,
+    ),
+    terminalActionFunctionName,
+  );
+}
+
+function patchTerminalCommandBrowserShortcutSource(
+  source,
+  terminalOpenerFunctionName,
+) {
+  if (!terminalOpenerFunctionName || !source.includes("Ne(`toggleTerminal`,")) {
+    return source;
+  }
+  if (
+    source.includes(
+      `codexWebInstallTerminalBrowserShortcut(()=>{${terminalOpenerFunctionName}(`,
+    )
+  ) {
     return source;
   }
 
+  const commandPattern =
+    /(\b([$A-Za-z_][\w$]*)=o\(U\)[\s\S]{0,700}?Ne\(`toggleTerminal`,[$A-Za-z_][\w$]*\);)(?!codexWebInstallTerminalBrowserShortcut)/;
+  return replaceOnce(
+    source,
+    commandPattern,
+    `$1codexWebInstallTerminalBrowserShortcut(()=>{${terminalOpenerFunctionName}($2)});`,
+    "Terminal browser shortcut command registration target not found",
+  );
+}
+
+function patchTerminalActionBrowserShortcutSource(
+  source,
+  terminalActionFunctionName,
+) {
+  const installCall = `codexWebInstallTerminalBrowserShortcut(${terminalActionFunctionName})`;
+  let patched = source.includes(TERMINAL_BROWSER_SHORTCUT_FUNCTION)
+    ? source
+    : `${TERMINAL_BROWSER_SHORTCUT_FUNCTION}${source}`;
+
+  const terminalActionPattern =
+    /id:`terminal`[\s\S]{0,300}?thread\.sidePanel\.newTab\.terminal\.title/;
+  const terminalActionMatch = terminalActionPattern.exec(patched);
+  if (!terminalActionMatch) {
+    throw new Error("Terminal browser shortcut action target not found");
+  }
+
+  const objectStart = patched.lastIndexOf("{", terminalActionMatch.index);
+  if (objectStart === -1) {
+    throw new Error("Terminal browser shortcut object start not found");
+  }
+  if (
+    patched.slice(objectStart - installCall.length - 2, objectStart) ===
+    `(${installCall},`
+  ) {
+    return patched;
+  }
+
+  const objectEnd = findMatchingDelimiter(patched, objectStart, "{", "}") + 1;
+  const objectSource = patched.slice(objectStart, objectEnd);
+  if (objectSource.includes(installCall)) {
+    return patched;
+  }
+  if (!objectSource.includes(`onSelect:${terminalActionFunctionName}`)) {
+    throw new Error("Terminal browser shortcut handler target not found");
+  }
+
   return (
-    source.slice(0, match.index) +
-    `${match[1]}${terminalActionFunctionName}${match[2]}` +
-    source.slice(match.index + match[0].length)
+    patched.slice(0, objectStart) +
+    `(${installCall},` +
+    objectSource +
+    ")" +
+    patched.slice(objectEnd)
+  );
+}
+
+function patchTerminalActionKeyboardShortcutSource(source) {
+  if (
+    source.includes(
+      `${TERMINAL_KEYBOARD_SHORTCUT_SYMBOL}=i(J,\`toggleTerminal\`)`,
+    )
+  ) {
+    return source;
+  }
+
+  return replaceOnce(
+    source,
+    /(\b[$A-Za-z_][\w$]*=i\(J,`openReviewTab`\),)/,
+    `$1${TERMINAL_KEYBOARD_SHORTCUT_SYMBOL}=i(J,\`toggleTerminal\`),`,
+    "Terminal keyboard shortcut signal target not found",
+  );
+}
+
+function patchTerminalActionKeyboardShortcutField(
+  source,
+  terminalActionFunctionName,
+) {
+  const terminalActionPattern =
+    /id:`terminal`[\s\S]{0,260}?thread\.sidePanel\.newTab\.terminal\.title/;
+  const terminalActionMatch = terminalActionPattern.exec(source);
+  if (!terminalActionMatch) {
+    throw new Error("Terminal side panel action shortcut target not found");
+  }
+  if (terminalActionMatch[0].includes("keyboardShortcut:")) {
+    return source;
+  }
+
+  const shortcutPattern = new RegExp(
+    `(id:\\\`terminal\\\`[\\s\\S]{0,180}?onSelect\\s*:\\s*${escapeRegex(
+      terminalActionFunctionName,
+    )})(\\s*,\\s*title\\s*:\\s*\\(0,[\\s\\S]{0,180}?thread\\.sidePanel\\.newTab\\.terminal\\.title)`,
+  );
+
+  return replaceOnce(
+    source,
+    shortcutPattern,
+    `$1,keyboardShortcut:${TERMINAL_KEYBOARD_SHORTCUT_SYMBOL}$2`,
+    "Terminal side panel action shortcut insertion target not found",
+  );
+}
+
+function removeTerminalCommandBrowserShortcutSource(source) {
+  return source.replace(
+    /Ne\(`toggleTerminal`,([$A-Za-z_][\w$]*)\);codexWebInstallTerminalBrowserShortcut\(\1\);/g,
+    "Ne(`toggleTerminal`,$1);",
   );
 }
 
