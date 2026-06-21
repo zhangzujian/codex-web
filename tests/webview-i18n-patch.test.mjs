@@ -144,6 +144,37 @@ test("i18n patch translates composer add menu labels as complete Chinese phrases
   assert.doesNotMatch(patchedLocale, /文件 and 文件夹s/);
 });
 
+test("i18n patch translates settings General nav before settings fallback", () => {
+  const defaultMessages = new Map([
+    ["settings.nav.general-settings", "General"],
+  ]);
+  const localeSource =
+    "var e=`备用`,t={};export{t as default,e as greeting};";
+
+  const patchedLocale = patchZhCnLocaleSource(localeSource, defaultMessages);
+
+  assert.match(
+    patchedLocale,
+    /"settings\.nav\.general-settings":`常规`/,
+  );
+  assert.doesNotMatch(patchedLocale, /"settings\.nav\.general-settings":`设置`/);
+});
+
+test("i18n patch translates settings Pets nav before settings fallback", () => {
+  const defaultMessages = new Map([
+    ["settings.nav.pets", "Pets"],
+    ["settings.section.pets", "Pets"],
+  ]);
+  const localeSource =
+    "var e=`备用`,t={};export{t as default,e as greeting};";
+
+  const patchedLocale = patchZhCnLocaleSource(localeSource, defaultMessages);
+
+  assert.match(patchedLocale, /"settings\.nav\.pets":`宠物`/);
+  assert.match(patchedLocale, /"settings\.section\.pets":`宠物`/);
+  assert.doesNotMatch(patchedLocale, /"settings\.(nav|section)\.pets":`设置`/);
+});
+
 test("i18n default-message collection does not skip non-locale chunks with locale-like names", () => {
   const assetsDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-web-i18n-"));
 
