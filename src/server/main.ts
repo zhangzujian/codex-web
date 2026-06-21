@@ -30,6 +30,10 @@ import {
 type ServerOptions = {
   host: string;
   port: number;
+  tls?: {
+    certPath: string;
+    keyPath: string;
+  };
 };
 
 type RendererToMainMessage =
@@ -169,7 +173,7 @@ function printUsage(): void {
   console.log(
     [
       "Usage:",
-      "  server [--host <host>] [--port <port>]",
+      "  server [--host <host>] [--port <port>] [--tls-cert <path> --tls-key <path>]",
       "",
       "Defaults:",
       "  --host 127.0.0.1",
@@ -178,6 +182,7 @@ function printUsage(): void {
       "Examples:",
       "  yarn server",
       "  yarn server --port 9000",
+      "  yarn server --host 0.0.0.0 --tls-cert certs/codex-web.crt --tls-key certs/codex-web.key",
     ].join("\n"),
   );
 }
@@ -190,7 +195,7 @@ function parsePort(raw: string): number {
   return parsed;
 }
 
-function parseServerArgs(args: string[]): ServerOptions {
+export function parseServerArgs(args: string[]): ServerOptions {
   const parsed = parseCliArgs({
     args,
     allowPositionals: false,
@@ -205,6 +210,12 @@ function parseServerArgs(args: string[]): ServerOptions {
       port: {
         type: "string",
       },
+      "tls-cert": {
+        type: "string",
+      },
+      "tls-key": {
+        type: "string",
+      },
     },
     strict: true,
   });
@@ -214,9 +225,41 @@ function parseServerArgs(args: string[]): ServerOptions {
     process.exit(0);
   }
 
-  return {
+  const tlsCert = parsed.values["tls-cert"];
+  const tlsKey = parsed.values["tls-key"];
+  if ((tlsCert && !tlsKey) || (!tlsCert && tlsKey)) {
+    throw new Error("--tls-cert and --tls-key must be provided together");
+  }
+
+  const options: ServerOptions = {
     host: parsed.values.host ?? "127.0.0.1",
     port: parsed.values.port ? parsePort(parsed.values.port) : 8214,
+  };
+  if (tlsCert && tlsKey) {
+    options.tls = {
+      certPath: tlsCert,
+      keyPath: tlsKey,
+    };
+  }
+  return options;
+}
+
+export async function createFastifyOptions(options: ServerOptions) {
+  if (!options.tls) {
+    return { logger: false };
+  }
+
+  const [cert, key] = await Promise.all([
+    fs.readFile(options.tls.certPath, "utf8"),
+    fs.readFile(options.tls.keyPath, "utf8"),
+  ]);
+
+  return {
+    logger: false,
+    https: {
+      cert,
+      key,
+    },
   };
 }
 
@@ -409,7 +452,7 @@ function ensureElectronLikeProcessContext(): void {
 
 async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
   const bridgeState = getIpcMainBridgeState();
-  const app = Fastify({ logger: false });
+  const app = Fastify(await createFastifyOptions(options));
   const websocketServer = new WebSocketServer({ noServer: true });
   const terminalWebsocketServer = new WebSocketServer({ noServer: true });
   const sockets = new Set<WebSocket>();
@@ -725,7 +768,10 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
   });
 
   await app.listen({ host: options.host, port: options.port });
-  console.log(`IPC bridge listening at ws://${options.host}:${options.port}`);
+  const socketProtocol = options.tls ? "wss" : "ws";
+  console.log(
+    `IPC bridge listening at ${socketProtocol}://${options.host}:${options.port}`,
+  );
 
   ensureElectronLikeProcessContext();
   installModuleAliasHook();

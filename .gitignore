@@ -4,3 +4,4 @@ sentry
 .cache/
 .playwright-cli/
 .worktrees/
+certs/

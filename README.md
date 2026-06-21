@@ -40,6 +40,31 @@ nix run github:0xcaff/codex-web
 
 then open <http://127.0.0.1:8214> in a browser.
 
+### https on a lan
+
+Generate a local self-signed certificate for the address you will open in the
+browser. Replace `<LAN_IP>` with that address:
+
+```bash
+LAN_IP="<LAN_IP>"
+mkdir -p certs
+openssl req -x509 -newkey rsa:4096 -nodes -sha256 -days 3650 \
+  -keyout certs/codex-web.key \
+  -out certs/codex-web.crt \
+  -subj "/CN=${LAN_IP}" \
+  -addext "subjectAltName=IP:${LAN_IP},IP:127.0.0.1,DNS:localhost"
+chmod 600 certs/codex-web.key
+```
+
+Then listen on the LAN and enable TLS:
+
+```bash
+codex-web --host 0.0.0.0 --tls-cert certs/codex-web.crt --tls-key certs/codex-web.key
+```
+
+Open `https://${LAN_IP}:8214`. Because this is self-signed, the browser
+will require trusting or bypassing the certificate warning.
+
 ### sign in
 
 ensure the codex cli on the host machine is signed in before starting the

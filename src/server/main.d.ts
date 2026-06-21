@@ -1,4 +1,23 @@
 #!/usr/bin/env node
+type ServerOptions = {
+    host: string;
+    port: number;
+    tls?: {
+        certPath: string;
+        keyPath: string;
+    };
+};
+export declare function parseServerArgs(args: string[]): ServerOptions;
+export declare function createFastifyOptions(options: ServerOptions): Promise<{
+    logger: boolean;
+    https?: undefined;
+} | {
+    logger: boolean;
+    https: {
+        cert: string;
+        key: string;
+    };
+}>;
 export declare function isAllowedBackendWebSocketRequest({ host, origin, requestUrl, token, }: {
     host?: string | string[];
     origin?: string | string[];
@@ -14,4 +33,5 @@ export declare function createTerminalHtml({ backendWebSocketToken, cwd: request
     stylesheetHrefs: string[];
 }): string;
 export declare function injectWebviewRuntimeScripts(html: string, backendWebSocketToken: string): string;
+export {};
 //# sourceMappingURL=main.d.ts.map

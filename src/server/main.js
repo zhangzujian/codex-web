@@ -4,6 +4,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.parseServerArgs = parseServerArgs;
+exports.createFastifyOptions = createFastifyOptions;
 exports.isAllowedBackendWebSocketRequest = isAllowedBackendWebSocketRequest;
 exports.shouldBlockFsRequestPath = shouldBlockFsRequestPath;
 exports.shouldServeWebviewShellPath = shouldServeWebviewShellPath;
@@ -40,7 +42,7 @@ function compareWorkspaceDirectoryEntries(left, right) {
 function printUsage() {
     console.log([
         "Usage:",
-        "  server [--host <host>] [--port <port>]",
+        "  server [--host <host>] [--port <port>] [--tls-cert <path> --tls-key <path>]",
         "",
         "Defaults:",
         "  --host 127.0.0.1",
@@ -49,6 +51,7 @@ function printUsage() {
         "Examples:",
         "  yarn server",
         "  yarn server --port 9000",
+        "  yarn server --host 0.0.0.0 --tls-cert certs/codex-web.crt --tls-key certs/codex-web.key",
     ].join("\n"));
 }
 function parsePort(raw) {
@@ -73,6 +76,12 @@ function parseServerArgs(args) {
             port: {
                 type: "string",
             },
+            "tls-cert": {
+                type: "string",
+            },
+            "tls-key": {
+                type: "string",
+            },
         },
         strict: true,
     });
@@ -80,9 +89,37 @@ function parseServerArgs(args) {
         printUsage();
         process.exit(0);
     }
-    return {
+    const tlsCert = parsed.values["tls-cert"];
+    const tlsKey = parsed.values["tls-key"];
+    if ((tlsCert && !tlsKey) || (!tlsCert && tlsKey)) {
+        throw new Error("--tls-cert and --tls-key must be provided together");
+    }
+    const options = {
         host: parsed.values.host ?? "127.0.0.1",
         port: parsed.values.port ? parsePort(parsed.values.port) : 8214,
+    };
+    if (tlsCert && tlsKey) {
+        options.tls = {
+            certPath: tlsCert,
+            keyPath: tlsKey,
+        };
+    }
+    return options;
+}
+async function createFastifyOptions(options) {
+    if (!options.tls) {
+        return { logger: false };
+    }
+    const [cert, key] = await Promise.all([
+        promises_1.default.readFile(options.tls.certPath, "utf8"),
+        promises_1.default.readFile(options.tls.keyPath, "utf8"),
+    ]);
+    return {
+        logger: false,
+        https: {
+            cert,
+            key,
+        },
     };
 }
 function getIpcMainBridgeState() {
@@ -220,7 +257,7 @@ function ensureElectronLikeProcessContext() {
 }
 async function startIpcBridgeServer(options) {
     const bridgeState = getIpcMainBridgeState();
-    const app = (0, fastify_1.default)({ logger: false });
+    const app = (0, fastify_1.default)(await createFastifyOptions(options));
     const websocketServer = new ws_1.WebSocketServer({ noServer: true });
     const terminalWebsocketServer = new ws_1.WebSocketServer({ noServer: true });
     const sockets = new Set();
@@ -463,7 +500,8 @@ async function startIpcBridgeServer(options) {
         handleTerminalSocket(socket);
     });
     await app.listen({ host: options.host, port: options.port });
-    console.log(`IPC bridge listening at ws://${options.host}:${options.port}`);
+    const socketProtocol = options.tls ? "wss" : "ws";
+    console.log(`IPC bridge listening at ${socketProtocol}://${options.host}:${options.port}`);
     ensureElectronLikeProcessContext();
     (0, module_1.installModuleAliasHook)();
     const matches = await (0, glob_1.glob)("../../scratch/asar/.vite/build/main-*.js", {

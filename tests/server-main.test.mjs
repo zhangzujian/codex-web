@@ -4,7 +4,9 @@ import { runInNewContext } from "node:vm";
 
 import {
   createTerminalHtml,
+  createFastifyOptions,
   isAllowedBackendWebSocketRequest,
+  parseServerArgs,
   shouldServeWebviewShellPath,
   shouldBlockFsRequestPath,
 } from "../src/server/main.js";
@@ -15,6 +17,18 @@ test("isAllowedBackendWebSocketRequest accepts same-origin upgrades with the exp
     isAllowedBackendWebSocketRequest({
       host: "127.0.0.1:8214",
       origin: "http://127.0.0.1:8214",
+      requestUrl: "/__backend/ipc?token=secret",
+      token: "secret",
+    }),
+    true,
+  );
+});
+
+test("isAllowedBackendWebSocketRequest accepts https same-origin upgrades with the expected token", () => {
+  assert.equal(
+    isAllowedBackendWebSocketRequest({
+      host: "192.168.132.78:8214",
+      origin: "https://192.168.132.78:8214",
       requestUrl: "/__backend/ipc?token=secret",
       token: "secret",
     }),
@@ -106,6 +120,59 @@ test("shouldServeWebviewShellPath allows known app shell browser routes", () => 
 test("shouldServeWebviewShellPath rejects unknown fallback routes", () => {
   assert.equal(shouldServeWebviewShellPath("/unexpected"), false);
   assert.equal(shouldServeWebviewShellPath("/@fs/tmp/poc.html"), false);
+});
+
+test("parseServerArgs accepts tls certificate and key paths", () => {
+  assert.deepEqual(
+    parseServerArgs([
+      "--host",
+      "0.0.0.0",
+      "--port",
+      "9443",
+      "--tls-cert",
+      "certs/codex-web.crt",
+      "--tls-key",
+      "certs/codex-web.key",
+    ]),
+    {
+      host: "0.0.0.0",
+      port: 9443,
+      tls: {
+        certPath: "certs/codex-web.crt",
+        keyPath: "certs/codex-web.key",
+      },
+    },
+  );
+});
+
+test("parseServerArgs requires tls cert and key together", () => {
+  assert.throws(
+    () => parseServerArgs(["--tls-cert", "certs/codex-web.crt"]),
+    /--tls-cert and --tls-key must be provided together/,
+  );
+  assert.throws(
+    () => parseServerArgs(["--tls-key", "certs/codex-web.key"]),
+    /--tls-cert and --tls-key must be provided together/,
+  );
+});
+
+test("createFastifyOptions loads tls certificate and key", async () => {
+  const options = await createFastifyOptions({
+    host: "0.0.0.0",
+    port: 9443,
+    tls: {
+      certPath: new URL("fixtures/test-cert.pem", import.meta.url).pathname,
+      keyPath: new URL("fixtures/test-key.pem", import.meta.url).pathname,
+    },
+  });
+
+  assert.deepEqual(options, {
+    logger: false,
+    https: {
+      cert: "test certificate\n",
+      key: "test key\n",
+    },
+  });
 });
 
 test("webview shell installs Statsig overrides before module scripts run", () => {
