@@ -14,6 +14,10 @@ import {
 import { handleSyncIpc } from "./sync-ipc.mts";
 import { createStatsigOverrideAdapter } from "./statsig-overrides.mts";
 import { getPathForFile } from "./web-utils.mts";
+import {
+  initialSidebarStateForRoute,
+  isMobileSidebarViewport,
+} from "./mobile-viewport.mts";
 
 type IpcListener = (event: unknown, ...args: unknown[]) => void;
 
@@ -377,8 +381,6 @@ function requestWorkspaceDirectoryEntries(
 }
 
 const themeMediaQuery = matchMedia("(prefers-color-scheme: dark)");
-const mobileMediaQuery = matchMedia("(max-width: 768px)");
-const initialSidebarState = !mobileMediaQuery.matches;
 const electronShim = (window.__ELECTRON_SHIM__ ??= {});
 
 electronShim.overrideAdapter = createStatsigOverrideAdapter();
@@ -386,6 +388,10 @@ electronShim.overrideAdapter = createStatsigOverrideAdapter();
 const initialRoute = mapBrowserPathToInitialRoute(
   window.location.pathname,
   window.location.search,
+);
+const initialSidebarState = initialSidebarStateForRoute(
+  window,
+  initialRoute.memoryPath,
 );
 electronShim.initialRoute = initialRoute.memoryPath;
 
@@ -398,7 +404,7 @@ electronShim.onMemoryNavigationChanged = (navigation) => {
   const path = navigation.location.pathname;
   if (
     navigation.action !== "POP" &&
-    mobileMediaQuery.matches &&
+    isMobileSidebarViewport(window) &&
     shouldCloseSidebarForMemoryPath(path)
   ) {
     electronShim.closeSidebar?.();

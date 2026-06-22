@@ -6,16 +6,28 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const MOBILE_VIEWPORT_WIDTH =
   "Math.min(window.innerWidth,window.visualViewport?.width??window.innerWidth,window.screen?.width??window.innerWidth)";
+const MOBILE_VIEWPORT_HAS_TOUCH =
+  "(globalThis.matchMedia?.(`(pointer: coarse)`)?.matches===!0||globalThis.navigator?.maxTouchPoints>0)";
 const MOBILE_VIEWPORT_IS_NARROW =
-  `(${MOBILE_VIEWPORT_WIDTH}<=Ur||globalThis.matchMedia?.(\`(pointer: coarse)\`)?.matches===!0&&${MOBILE_VIEWPORT_WIDTH}<=1024)`;
+  `(${MOBILE_VIEWPORT_WIDTH}<=Ur||${MOBILE_VIEWPORT_HAS_TOUCH}&&${MOBILE_VIEWPORT_WIDTH}<=1440)`;
+const MOBILE_RIGHT_PANEL_OPEN = `p&&${MOBILE_VIEWPORT_IS_NARROW}`;
 const LEGACY_MOBILE_VIEWPORT_WIDTH =
   "Math.min(window.innerWidth,window.visualViewport?.width??window.innerWidth)";
+const LEGACY_MOBILE_VIEWPORT_IS_NARROW =
+  `(${MOBILE_VIEWPORT_WIDTH}<=Ur||globalThis.matchMedia?.(\`(pointer: coarse)\`)?.matches===!0&&${MOBILE_VIEWPORT_WIDTH}<=1024)`;
+const LEGACY_TOUCH_MOBILE_VIEWPORT_IS_NARROW =
+  `(${MOBILE_VIEWPORT_WIDTH}<=Ur||${MOBILE_VIEWPORT_HAS_TOUCH}&&${MOBILE_VIEWPORT_WIDTH}<=1024)`;
+const LEGACY_COARSE_MOBILE_VIEWPORT_IS_NARROW =
+  `(${MOBILE_VIEWPORT_WIDTH}<=Ur||globalThis.matchMedia?.(\`(pointer: coarse)\`)?.matches===!0&&${MOBILE_VIEWPORT_WIDTH}<=1440)`;
 
 const DOCKED_LEFT_PANEL_PATTERNS = [
   "A=d&&T,",
   "A=d&&T&&window.innerWidth>Ur,",
   `A=d&&T&&${LEGACY_MOBILE_VIEWPORT_WIDTH}>Ur,`,
   `A=d&&T&&${MOBILE_VIEWPORT_WIDTH}>Ur,`,
+  `A=d&&T&&!${LEGACY_MOBILE_VIEWPORT_IS_NARROW},`,
+  `A=d&&T&&!${LEGACY_TOUCH_MOBILE_VIEWPORT_IS_NARROW},`,
+  `A=d&&T&&!${LEGACY_COARSE_MOBILE_VIEWPORT_IS_NARROW},`,
 ];
 const PATCHED_DOCKED_LEFT_PANEL = `A=d&&T&&!${MOBILE_VIEWPORT_IS_NARROW},`;
 
@@ -24,6 +36,9 @@ const DOCKED_LEFT_PANEL_RENDER_PATTERNS = [
   "d&&window.innerWidth>Ur&&(A||z)&&(0,Q.jsx)(Or,{",
   `d&&${LEGACY_MOBILE_VIEWPORT_WIDTH}>Ur&&(A||z)&&(0,Q.jsx)(Or,{`,
   `d&&${MOBILE_VIEWPORT_WIDTH}>Ur&&(A||z)&&(0,Q.jsx)(Or,{`,
+  `d&&!${LEGACY_MOBILE_VIEWPORT_IS_NARROW}&&(A||z)&&(0,Q.jsx)(Or,{`,
+  `d&&!${LEGACY_TOUCH_MOBILE_VIEWPORT_IS_NARROW}&&(A||z)&&(0,Q.jsx)(Or,{`,
+  `d&&!${LEGACY_COARSE_MOBILE_VIEWPORT_IS_NARROW}&&(A||z)&&(0,Q.jsx)(Or,{`,
 ];
 const PATCHED_DOCKED_LEFT_PANEL_RENDER =
   `d&&!${MOBILE_VIEWPORT_IS_NARROW}&&(A||z)&&(0,Q.jsx)(Or,{`;
@@ -33,18 +48,45 @@ const MOBILE_RIGHT_PANEL_FULL_WIDTH_PATTERNS = [
   "g=c(N)||p&&window.innerWidth<=Ur,_=c(L),",
   `g=c(N)||p&&${LEGACY_MOBILE_VIEWPORT_WIDTH}<=Ur,_=c(L),`,
   `g=c(N)||p&&${MOBILE_VIEWPORT_WIDTH}<=Ur,_=c(L),`,
+  `g=c(N)||p&&${LEGACY_MOBILE_VIEWPORT_IS_NARROW},_=c(L),`,
+  `g=c(N)||p&&${LEGACY_TOUCH_MOBILE_VIEWPORT_IS_NARROW},_=c(L),`,
+  `g=c(N)||p&&${MOBILE_VIEWPORT_IS_NARROW},_=c(L),`,
+  `g=c(N)||${LEGACY_MOBILE_VIEWPORT_IS_NARROW},_=c(L),`,
+  `g=c(N)||${LEGACY_TOUCH_MOBILE_VIEWPORT_IS_NARROW},_=c(L),`,
+  `g=c(N)||${LEGACY_COARSE_MOBILE_VIEWPORT_IS_NARROW},_=c(L),`,
+  `g=c(N)||${MOBILE_VIEWPORT_IS_NARROW},_=c(L),`,
 ];
 const PATCHED_MOBILE_RIGHT_PANEL_FULL_WIDTH =
   `g=c(N)||p&&${MOBILE_VIEWPORT_IS_NARROW},_=c(L),`;
+
+const LEFT_PANEL_SLOT_AVAILABLE_PATTERNS = [
+  "ve=d,",
+  `ve=d&&!(p&&${LEGACY_TOUCH_MOBILE_VIEWPORT_IS_NARROW}),`,
+  `ve=d&&!(p&&${LEGACY_COARSE_MOBILE_VIEWPORT_IS_NARROW}),`,
+];
+const PATCHED_LEFT_PANEL_SLOT_AVAILABLE =
+  `ve=d&&!(${MOBILE_RIGHT_PANEL_OPEN}),`;
+
+const RIGHT_PANEL_WIDTH_SOURCE_PATTERNS = [
+  "Ar({isFullWidth:g,mainContentWidth:ie}),",
+];
+const PATCHED_RIGHT_PANEL_WIDTH_SOURCE =
+  "Ar({isFullWidth:g,mainContentWidth:g?V:ie}),";
 
 const FLOATING_LEFT_PANEL_RENDER_PATTERNS = [
   "ve&&!T&&!z&&(0,Q.jsx)(Xr,{",
   "ve&&(!T||window.innerWidth<=Ur)&&!z&&(0,Q.jsx)(Xr,{",
   `ve&&(!T||${LEGACY_MOBILE_VIEWPORT_WIDTH}<=Ur)&&!z&&(0,Q.jsx)(Xr,{`,
   `ve&&(!T||${MOBILE_VIEWPORT_WIDTH}<=Ur)&&!z&&(0,Q.jsx)(Xr,{`,
+  `ve&&(!T||${LEGACY_MOBILE_VIEWPORT_IS_NARROW})&&!z&&(0,Q.jsx)(Xr,{`,
+  `ve&&(!T||${LEGACY_TOUCH_MOBILE_VIEWPORT_IS_NARROW})&&!z&&(0,Q.jsx)(Xr,{`,
+  `ve&&(!T||${LEGACY_COARSE_MOBILE_VIEWPORT_IS_NARROW})&&!z&&(0,Q.jsx)(Xr,{`,
+  `ve&&(!T||${MOBILE_VIEWPORT_IS_NARROW})&&!z&&(0,Q.jsx)(Xr,{`,
+  `ve&&(!T||${LEGACY_TOUCH_MOBILE_VIEWPORT_IS_NARROW})&&!z&&!(p&&${LEGACY_TOUCH_MOBILE_VIEWPORT_IS_NARROW})&&(0,Q.jsx)(Xr,{`,
+  `ve&&(!T||${LEGACY_COARSE_MOBILE_VIEWPORT_IS_NARROW})&&!z&&!(p&&${LEGACY_COARSE_MOBILE_VIEWPORT_IS_NARROW})&&(0,Q.jsx)(Xr,{`,
 ];
 const PATCHED_FLOATING_LEFT_PANEL_RENDER =
-  `ve&&(!T||${MOBILE_VIEWPORT_IS_NARROW})&&!z&&(0,Q.jsx)(Xr,{`;
+  `ve&&(!T||${MOBILE_VIEWPORT_IS_NARROW})&&!z&&!(${MOBILE_RIGHT_PANEL_OPEN})&&(0,Q.jsx)(Xr,{`;
 
 const FLOATING_LEFT_PANEL_VISIBLE_PATTERNS = [
   "isVisible:D&&!T&&!z,",
@@ -52,6 +94,9 @@ const FLOATING_LEFT_PANEL_VISIBLE_PATTERNS = [
   "isVisible:(D&&window.innerWidth>Ur||T&&window.innerWidth<=Ur)&&!z,",
   `isVisible:(D&&${LEGACY_MOBILE_VIEWPORT_WIDTH}>Ur||T&&${LEGACY_MOBILE_VIEWPORT_WIDTH}<=Ur)&&!z,`,
   `isVisible:(D&&${MOBILE_VIEWPORT_WIDTH}>Ur||T&&${MOBILE_VIEWPORT_WIDTH}<=Ur)&&!z,`,
+  `isVisible:(D&&!${LEGACY_MOBILE_VIEWPORT_IS_NARROW}||T&&${LEGACY_MOBILE_VIEWPORT_IS_NARROW})&&!z,`,
+  `isVisible:(D&&!${LEGACY_TOUCH_MOBILE_VIEWPORT_IS_NARROW}||T&&${LEGACY_TOUCH_MOBILE_VIEWPORT_IS_NARROW})&&!z,`,
+  `isVisible:(D&&!${LEGACY_COARSE_MOBILE_VIEWPORT_IS_NARROW}||T&&${LEGACY_COARSE_MOBILE_VIEWPORT_IS_NARROW})&&!z,`,
 ];
 const PATCHED_FLOATING_LEFT_PANEL_VISIBLE =
   `isVisible:(D&&!${MOBILE_VIEWPORT_IS_NARROW}||T&&${MOBILE_VIEWPORT_IS_NARROW})&&!z,`;
@@ -61,6 +106,9 @@ const FLOATING_LEFT_PANEL_TOGGLE_PATTERNS = [
   "onOpenSidebar:()=>{k(i,!(T&&window.innerWidth<=Ur),{animate:!1})}",
   `onOpenSidebar:()=>{k(i,!(T&&${LEGACY_MOBILE_VIEWPORT_WIDTH}<=Ur),{animate:!1})}`,
   `onOpenSidebar:()=>{k(i,!(T&&${MOBILE_VIEWPORT_WIDTH}<=Ur),{animate:!1})}`,
+  `onOpenSidebar:()=>{k(i,!(T&&${LEGACY_MOBILE_VIEWPORT_IS_NARROW}),{animate:!1})}`,
+  `onOpenSidebar:()=>{k(i,!(T&&${LEGACY_TOUCH_MOBILE_VIEWPORT_IS_NARROW}),{animate:!1})}`,
+  `onOpenSidebar:()=>{k(i,!(T&&${LEGACY_COARSE_MOBILE_VIEWPORT_IS_NARROW}),{animate:!1})}`,
 ];
 const PATCHED_FLOATING_LEFT_PANEL_TOGGLE =
   `onOpenSidebar:()=>{k(i,!(T&&${MOBILE_VIEWPORT_IS_NARROW}),{animate:!1})}`;
@@ -125,6 +173,18 @@ export function patchWebviewMobileSidebarSource(source) {
     MOBILE_RIGHT_PANEL_FULL_WIDTH_PATTERNS,
     PATCHED_MOBILE_RIGHT_PANEL_FULL_WIDTH,
     "mobile right panel full width condition",
+  );
+  patched = replaceOnce(
+    patched,
+    LEFT_PANEL_SLOT_AVAILABLE_PATTERNS,
+    PATCHED_LEFT_PANEL_SLOT_AVAILABLE,
+    "left panel slot availability",
+  );
+  patched = replaceOnce(
+    patched,
+    RIGHT_PANEL_WIDTH_SOURCE_PATTERNS,
+    PATCHED_RIGHT_PANEL_WIDTH_SOURCE,
+    "right panel width source",
   );
   patched = replaceOnce(
     patched,
