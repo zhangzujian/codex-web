@@ -24,6 +24,9 @@ const markdownRelativeImageSource = [
   "function pn(e){let t=(0,X.c)(80),{allowWide:n,alt:r,animateEnter:i,className:a,hostId:o,mediaCacheKey:s,mediaPresentation:c,rootRef:l,src:u,title:d}=e,f=n===void 0?!1:n,p=i===void 0?!1:i,m=N(),[h,g]=(0,Z.useState)(!1),[_,v]=(0,Z.useState)(null),[y,b]=(0,Z.useState)(null),x=u??``,C=H(x),w=x.length>0,T=Xt(x);return null}",
 ].join("");
 
+const markdownHeadingSource =
+  "const Y={heading:`heading`,heading1:`heading1`,heading2:`heading2`,heading3:`heading3`,heading4:`heading4`,heading5:`heading5`,heading6:`heading6`};const components={h1({children:e}){return(0,Q.jsx)(`h1`,{className:F(Y.heading,Y.heading1),children:e})},h2({children:e}){return(0,Q.jsx)(`h2`,{className:F(Y.heading,Y.heading2),children:e})},h3({children:e}){return(0,Q.jsx)(`h3`,{className:F(Y.heading,Y.heading3),children:e})},h4({children:e}){return(0,Q.jsx)(`h4`,{className:F(Y.heading,Y.heading4),children:e})},h5({children:e}){return(0,Q.jsx)(`h5`,{className:F(Y.heading,Y.heading5),children:e})},h6({children:e}){return(0,Q.jsx)(`h6`,{className:F(Y.heading,Y.heading6),children:e})}}";
+
 const reviewFileSourceMarkdownPreviewSource = [
   "function Ai(e){let t=(0,$.c)(52),{cwd:n,headerActions:r,hostId:a,initialEndLine:s,initialLine:c,onSelectFile:l,path:u,setTabState:d,tabId:p,tabState:m}=e,h;if(C!=null&&(E===`always`||N&&D)){z=N;let e;t[27]!==j||t[28]!==a||t[29]!==u||t[30]!==C?(e=(0,Z.jsx)(Ii,{gitBlameFeatureEnabled:j,hostId:a,path:u,previewKind:C}),t[27]=j,t[28]=a,t[29]=u,t[30]=C,t[31]=e):e=t[31],I=e}return I}",
   "function Ii(e){let t=(0,$.c)(19),{gitBlameFeatureEnabled:n,hostId:r,path:i,previewKind:a}=e,o;t[0]!==r||t[1]!==i?(o={before:null,after:{kind:`worktree`,hostId:r,path:i}},t[0]=r,t[1]=i,t[2]=o):o=t[2];let s=o,c;t[3]===Symbol.for(`react.memo_cache_sentinel`)?(c=(0,Z.jsx)(Wi,{isError:!0,isLoading:!1}),t[3]=c):c=t[3];let l=c;switch(a){case`markdown`:{let e;t[6]!==n||t[7]!==r||t[8]!==i?(e=(0,Z.jsx)(Fi,{gitBlameFeatureEnabled:n,hostId:r,path:i}),t[6]=n,t[7]=r,t[8]=i,t[9]=e):e=t[9];let a;return t[10]!==r||t[11]!==i||t[12]!==e?(a=(0,Z.jsx)(Mn,{className:`h-full bg-token-main-surface-primary`,hostId:r,path:i,fallback:e,scrollable:!0}),t[10]=r,t[11]=i,t[12]=e,t[13]=a):a=t[13],a}}}",
@@ -31,6 +34,9 @@ const reviewFileSourceMarkdownPreviewSource = [
 
 const markdownFilePreviewComponentSource =
   "function Oe(e){let t=(0,X.c)(23),{path:n,className:r,fallback:i,hostId:a,scrollable:o}=e,s=o===void 0?!1:o,c=n!=null&&n.length>0&&n!==`/dev/null`,l=n??``,u;t[0]===a?u=t[1]:(u=a==null?{}:{hostId:a},t[0]=a,t[1]=u);let d;t[2]!==l||t[3]!==u?(d={path:l,...u},t[2]=l,t[3]=u,t[4]=d):d=t[4];let f;t[5]===c?f=t[6]:(f={enabled:c},t[5]=c,t[6]=f);let p;t[7]!==d||t[8]!==f?(p={params:d,queryConfig:f},t[7]=d,t[8]=f,t[9]=p):p=t[9];let{data:m,isLoading:h,isError:g}=y(`read-file`,p),_=m?.contents??null;if(!c)return i;if(h){let e=s?`overflow-auto`:`overflow-clip`,n;t[10]!==r||t[11]!==e?(n=T(`relative`,e,r),t[10]=r,t[11]=e,t[12]=n):n=t[12];let i;t[13]===Symbol.for(`react.memo_cache_sentinel`)?(i=(0,Z.jsx)(ye,{className:`justify-center py-6 text-sm`}),t[13]=i):i=t[13];let a;return t[14]===n?a=t[15]:(a=(0,Z.jsx)(`div`,{className:n,children:i}),t[14]=n,t[15]=a),a}if(_==null||_.length===0||g)return i;let v=s?`normal`:`subtle`,b=s?`auto`:`clip`,x;t[16]===_?x=t[17]:(x=(0,Z.jsx)(be,{enableMetadataPreview:!0,markdown:_}),t[16]=_,t[17]=x);let S;return t[18]!==r||t[19]!==v||t[20]!==b||t[21]!==x?(S=(0,Z.jsx)(xe,{background:v,className:r,overflow:b,children:x}),t[18]=r,t[19]=v,t[20]=b,t[21]=x,t[22]=S):S=t[22],S}";
+
+const externalMarkdownLinkSource =
+  "function b(e){let t=(0,v.c)(22),{children:n,conversationId:r,href:i,isBrowserSidebarEnabled:a,originHostId:o}=e,s=r===void 0?null:r,l=a===void 0?!1:a,u=(0,g.useContext)(_);if(!i){let e;return t[0]===n?e=t[1]:(e=(0,y.jsx)(y.Fragment,{children:n}),t[0]=n,t[1]=e),e}let d;t[2]===i?d=t[3]:(d=S(i),t[2]=i,t[3]=d);return d}";
 
 test("markdown retry patch stabilizes streaming reset key and auto-retries fallback", () => {
   const patched = patchWebviewMarkdownRetrySource(
@@ -83,6 +89,24 @@ test("markdown patch resolves relative image URLs against cwd", () => {
     patched,
     /C=H\(x\)\?\?codexWebResolveMarkdownMediaPath\(x,codexWebCwd\)/,
   );
+});
+
+test("markdown headings get anchor ids for fragment links", () => {
+  const patched = patchWebviewMarkdownRetrySource(
+    markdownHeadingSource,
+    "markdown-CMykY9jH.js",
+  );
+
+  assert.match(patched, /function codexWebMarkdownHeadingId/);
+  assert.match(patched, /`h1`,\{id:codexWebMarkdownHeadingId\(e\),className:F\(Y\.heading,Y\.heading1\),children:e\}/);
+
+  const helperSource = patched.match(
+    /function codexWebMarkdownHeadingId\(.*?\}\}/,
+  )[0];
+  const helper = Function(`${helperSource};return codexWebMarkdownHeadingId`)();
+  assert.equal(helper("Maintainers"), "maintainers");
+  assert.equal(helper("Becoming a Maintainer"), "becoming-a-maintainer");
+  assert.equal(helper(["CNCF", " Resources"]), "cncf-resources");
 });
 
 test("markdown relative image helper rejects paths above cwd", () => {
@@ -159,6 +183,32 @@ test("markdown file preview component forwards cwd to markdown surface", () => {
     patched,
     /be,\{cwd:codexWebCwd,enableMetadataPreview:!0,markdown:_\}/,
   );
+});
+
+test("markdown fragment links render as local anchors", () => {
+  const patched = patchWebviewMarkdownRetrySource(
+    externalMarkdownLinkSource,
+    "external-markdown-link-D7Q03Cnc.js",
+  );
+
+  assert.match(
+    patched,
+    /if\(i\.startsWith\(`#`\)\)return\(0,y\.jsx\)\(`a`,\{href:i,onClick:e=>codexWebScrollMarkdownFragment\(e,i\),/,
+  );
+  assert.match(patched, /function codexWebScrollMarkdownFragment\(e,i\)\{e\.preventDefault\(\);/);
+});
+
+test("markdown fragment links scope duplicate anchors to the current markdown block", () => {
+  const patched = patchWebviewMarkdownRetrySource(
+    externalMarkdownLinkSource,
+    "external-markdown-link-D7Q03Cnc.js",
+  );
+
+  assert.match(patched, /function codexWebScrollMarkdownFragment/);
+  assert.match(patched, /currentTarget\.closest\(`\[data-selected-text-overlay-target\]`\)/);
+  assert.ok(patched.includes('querySelector(`[id="${t.replace'));
+  assert.match(patched, /document\.getElementById\(t\)/);
+  assert.match(patched, /onClick:e=>codexWebScrollMarkdownFragment\(e,i\)/);
 });
 
 test("markdown retry asset patch fails when regular fallback is not stabilized", () => {

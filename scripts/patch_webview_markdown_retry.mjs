@@ -46,6 +46,12 @@ const MARKDOWN_IMAGE_PATH_SOURCE =
   "x=u??``,C=H(x),w=x.length>0,T=Xt(x)";
 const MARKDOWN_IMAGE_PATH_WITH_RELATIVE_SOURCE =
   "x=u??``,C=H(x)??codexWebResolveMarkdownMediaPath(x,codexWebCwd),w=x.length>0,T=Xt(x)";
+const MARKDOWN_HEADING_ID_FUNCTION =
+  "function codexWebMarkdownHeadingId(e){let t=``;function n(e){if(e==null||typeof e==`boolean`)return;if(typeof e==`string`||typeof e==`number`){t+=` ${e}`;return}if(Array.isArray(e)){for(let t of e)n(t);return}typeof e==`object`&&n(e.props?.children)}n(e);let r=t.trim().toLowerCase().replace(/[^\\p{Letter}\\p{Number}\\s-]/gu,``).replace(/\\s+/g,`-`).replace(/-+/g,`-`).replace(/^-|-$/g,``);return r||void 0}";
+const MARKDOWN_HEADING_COMPONENTS_SOURCE =
+  "h1({children:e}){return(0,Q.jsx)(`h1`,{className:F(Y.heading,Y.heading1),children:e})},h2({children:e}){return(0,Q.jsx)(`h2`,{className:F(Y.heading,Y.heading2),children:e})},h3({children:e}){return(0,Q.jsx)(`h3`,{className:F(Y.heading,Y.heading3),children:e})},h4({children:e}){return(0,Q.jsx)(`h4`,{className:F(Y.heading,Y.heading4),children:e})},h5({children:e}){return(0,Q.jsx)(`h5`,{className:F(Y.heading,Y.heading5),children:e})},h6({children:e}){return(0,Q.jsx)(`h6`,{className:F(Y.heading,Y.heading6),children:e})}";
+const MARKDOWN_HEADING_COMPONENTS_WITH_IDS =
+  "h1({children:e}){return(0,Q.jsx)(`h1`,{id:codexWebMarkdownHeadingId(e),className:F(Y.heading,Y.heading1),children:e})},h2({children:e}){return(0,Q.jsx)(`h2`,{id:codexWebMarkdownHeadingId(e),className:F(Y.heading,Y.heading2),children:e})},h3({children:e}){return(0,Q.jsx)(`h3`,{id:codexWebMarkdownHeadingId(e),className:F(Y.heading,Y.heading3),children:e})},h4({children:e}){return(0,Q.jsx)(`h4`,{id:codexWebMarkdownHeadingId(e),className:F(Y.heading,Y.heading4),children:e})},h5({children:e}){return(0,Q.jsx)(`h5`,{id:codexWebMarkdownHeadingId(e),className:F(Y.heading,Y.heading5),children:e})},h6({children:e}){return(0,Q.jsx)(`h6`,{id:codexWebMarkdownHeadingId(e),className:F(Y.heading,Y.heading6),children:e})}";
 const MARKDOWN_FILE_CWD_FUNCTION =
   "function codexWebMarkdownFileCwd(e){if(typeof e!=`string`||e.length===0)return null;let t=e.replace(/\\\\/g,`/`),n=t.lastIndexOf(`/`);return n>0?t.slice(0,n):n===0?`/`:null}";
 const OLD_MARKDOWN_FILE_CWD_FUNCTION =
@@ -77,6 +83,16 @@ const MARKDOWN_FILE_PREVIEW_SURFACE_SOURCE =
   "t[18]!==r||t[19]!==v||t[20]!==b||t[21]!==x?(S=(0,Z.jsx)(xe,{background:v,className:r,overflow:b,children:x}),t[18]=r,t[19]=v,t[20]=b,t[21]=x,t[22]=S):S=t[22],S";
 const MARKDOWN_FILE_PREVIEW_SURFACE_WITH_CWD =
   "t[19]!==r||t[20]!==v||t[21]!==b||t[22]!==x?(S=(0,Z.jsx)(xe,{background:v,className:r,overflow:b,children:x}),t[19]=r,t[20]=v,t[21]=b,t[22]=x,t[23]=S):S=t[23],S";
+const MARKDOWN_FRAGMENT_SCROLL_FUNCTION =
+  "function codexWebScrollMarkdownFragment(e,i){e.preventDefault();try{let t=decodeURIComponent(i.slice(1)),n=e.currentTarget.closest(`[data-selected-text-overlay-target]`),r=n?.querySelector(`[id=\"${t.replace(/[\"\\\\]/g,`\\\\$&`)}\"]`)??document.getElementById(t);r?.scrollIntoView()}catch{}}";
+const MARKDOWN_FRAGMENT_LINK_SOURCE =
+  "if(!i){let e;return t[0]===n?e=t[1]:(e=(0,y.jsx)(y.Fragment,{children:n}),t[0]=n,t[1]=e),e}let d;";
+const OLD_MARKDOWN_FRAGMENT_LINK_WITH_ANCHOR =
+  "if(!i){let e;return t[0]===n?e=t[1]:(e=(0,y.jsx)(y.Fragment,{children:n}),t[0]=n,t[1]=e),e}if(i.startsWith(`#`))return(0,y.jsx)(`a`,{href:i,children:n});let d;";
+const OLD_MARKDOWN_FRAGMENT_LINK_WITH_GLOBAL_SCROLL =
+  "if(!i){let e;return t[0]===n?e=t[1]:(e=(0,y.jsx)(y.Fragment,{children:n}),t[0]=n,t[1]=e),e}if(i.startsWith(`#`))return(0,y.jsx)(`a`,{href:i,onClick:e=>{e.preventDefault();try{document.getElementById(decodeURIComponent(i.slice(1)))?.scrollIntoView()}catch{}},children:n});let d;";
+const MARKDOWN_FRAGMENT_LINK_WITH_ANCHOR =
+  "if(!i){let e;return t[0]===n?e=t[1]:(e=(0,y.jsx)(y.Fragment,{children:n}),t[0]=n,t[1]=e),e}if(i.startsWith(`#`))return(0,y.jsx)(`a`,{href:i,onClick:e=>codexWebScrollMarkdownFragment(e,i),children:n});let d;";
 const MARKDOWN_FALLBACK_START =
   "function br(e){let t=(0,X.c)(4),{onRetry:n}=e,r;";
 const MARKDOWN_FALLBACK_GLOBAL_RETRY_START =
@@ -87,6 +103,7 @@ const MARKDOWN_FALLBACK_AUTO_RETRY_START =
 export function patchWebviewMarkdownRetrySource(source, assetName = "") {
   const isKnownMarkdownAsset =
     assetName.startsWith("markdown-") ||
+    assetName.startsWith("external-markdown-link-") ||
     assetName.startsWith("review-file-source-tab-") ||
     assetName.startsWith("use-diff-annotations-") ||
     source.includes("function br(e)");
@@ -182,6 +199,12 @@ export function patchWebviewMarkdownRetrySource(source, assetName = "") {
   );
   patched = replaceOnceIfPresent(
     patched,
+    MARKDOWN_HEADING_COMPONENTS_SOURCE,
+    MARKDOWN_HEADING_COMPONENTS_WITH_IDS,
+    "Markdown heading ids",
+  );
+  patched = replaceOnceIfPresent(
+    patched,
     OLD_MARKDOWN_FILE_CWD_FUNCTION,
     MARKDOWN_FILE_CWD_FUNCTION,
     "Markdown file cwd helper",
@@ -228,6 +251,24 @@ export function patchWebviewMarkdownRetrySource(source, assetName = "") {
     MARKDOWN_FILE_PREVIEW_SURFACE_WITH_CWD,
     "Markdown file preview cache indexes",
   );
+  patched = replaceOnceIfPresent(
+    patched,
+    MARKDOWN_FRAGMENT_LINK_SOURCE,
+    MARKDOWN_FRAGMENT_LINK_WITH_ANCHOR,
+    "Markdown fragment link",
+  );
+  patched = replaceOnceIfPresent(
+    patched,
+    OLD_MARKDOWN_FRAGMENT_LINK_WITH_ANCHOR,
+    MARKDOWN_FRAGMENT_LINK_WITH_ANCHOR,
+    "Markdown fragment link",
+  );
+  patched = replaceOnceIfPresent(
+    patched,
+    OLD_MARKDOWN_FRAGMENT_LINK_WITH_GLOBAL_SCROLL,
+    MARKDOWN_FRAGMENT_LINK_WITH_ANCHOR,
+    "Markdown fragment link",
+  );
   if (
     patched.includes(MARKDOWN_SAFE_MEDIA_URL_SOURCE) &&
     !patched.includes("function codexWebSafeMarkdownMediaUrl")
@@ -239,6 +280,18 @@ export function patchWebviewMarkdownRetrySource(source, assetName = "") {
     !patched.includes("function codexWebResolveMarkdownMediaPath")
   ) {
     patched = `${MARKDOWN_RESOLVE_MEDIA_PATH_FUNCTION}${patched}`;
+  }
+  if (
+    patched.includes(MARKDOWN_HEADING_COMPONENTS_WITH_IDS) &&
+    !patched.includes("function codexWebMarkdownHeadingId")
+  ) {
+    patched = `${MARKDOWN_HEADING_ID_FUNCTION}${patched}`;
+  }
+  if (
+    patched.includes(MARKDOWN_FRAGMENT_LINK_WITH_ANCHOR) &&
+    !patched.includes("function codexWebScrollMarkdownFragment")
+  ) {
+    patched = `${MARKDOWN_FRAGMENT_SCROLL_FUNCTION}${patched}`;
   }
   if (
     patched.includes(REVIEW_MARKDOWN_PREVIEW_COMPONENT_WITH_CWD) &&
@@ -257,6 +310,8 @@ export function patchWebviewMarkdownRetryAssets(assetsDir) {
   let sawStreamingResetKey = false;
   let sawSafeMediaUrl = false;
   let sawRelativeImagePath = false;
+  let sawHeadingIds = false;
+  let sawFragmentLink = false;
   let sawReviewMarkdownPreviewCwd = false;
   let sawMarkdownFilePreviewCwd = false;
 
@@ -278,6 +333,8 @@ export function patchWebviewMarkdownRetryAssets(assetsDir) {
     sawRelativeImagePath ||= patched.includes(
       MARKDOWN_IMAGE_PATH_WITH_RELATIVE_SOURCE,
     );
+    sawHeadingIds ||= patched.includes(MARKDOWN_HEADING_COMPONENTS_WITH_IDS);
+    sawFragmentLink ||= patched.includes(MARKDOWN_FRAGMENT_LINK_WITH_ANCHOR);
     sawReviewMarkdownPreviewCwd ||=
       patched.includes(REVIEW_MARKDOWN_PREVIEW_COMPONENT_WITH_CWD) &&
       patched.includes(REVIEW_MARKDOWN_PREVIEW_WITH_CWD);
@@ -308,6 +365,12 @@ export function patchWebviewMarkdownRetryAssets(assetsDir) {
   }
   if (!sawRelativeImagePath) {
     throw new Error("Unable to patch Markdown relative image path");
+  }
+  if (!sawHeadingIds) {
+    throw new Error("Unable to patch Markdown heading ids");
+  }
+  if (!sawFragmentLink) {
+    throw new Error("Unable to patch Markdown fragment link");
   }
   if (!sawReviewMarkdownPreviewCwd) {
     throw new Error("Unable to patch review Markdown preview cwd");
