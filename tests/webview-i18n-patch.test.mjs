@@ -144,6 +144,51 @@ test("i18n patch translates composer add menu labels as complete Chinese phrases
   assert.doesNotMatch(patchedLocale, /文件 and 文件夹s/);
 });
 
+test("i18n patch translates thread delete confirmation copy", () => {
+  const defaultMessages = new Map([
+    ["threadHeader.deleteThread", "Remove chat"],
+    ["threadHeader.deleteThreadError", "Failed to remove chat"],
+    ["threadHeader.deleteThreadConfirm.title", "Remove chat?"],
+    [
+      "threadHeader.deleteThreadConfirm.body",
+      "This will permanently remove this chat from Codex.",
+    ],
+    ["threadHeader.deleteThreadConfirm.cancel", "Cancel"],
+    ["threadHeader.deleteThreadConfirm.confirm", "Remove"],
+    ["threadHeader.deleteThreadConfirm.removing", "Removing…"],
+  ]);
+  const localeSource =
+    "var e=`备用`,t={};export{t as default,e as greeting};";
+
+  const patchedLocale = patchZhCnLocaleSource(localeSource, defaultMessages);
+
+  assert.match(patchedLocale, /"threadHeader\.deleteThread":`移除对话`/);
+  assert.match(
+    patchedLocale,
+    /"threadHeader\.deleteThreadError":`无法移除对话`/,
+  );
+  assert.match(
+    patchedLocale,
+    /"threadHeader\.deleteThreadConfirm\.title":`移除对话？`/,
+  );
+  assert.match(
+    patchedLocale,
+    /"threadHeader\.deleteThreadConfirm\.body":`这会从 Codex 中永久移除该对话。`/,
+  );
+  assert.match(
+    patchedLocale,
+    /"threadHeader\.deleteThreadConfirm\.cancel":`取消`/,
+  );
+  assert.match(
+    patchedLocale,
+    /"threadHeader\.deleteThreadConfirm\.confirm":`移除`/,
+  );
+  assert.match(
+    patchedLocale,
+    /"threadHeader\.deleteThreadConfirm\.removing":`正在移除…`/,
+  );
+});
+
 test("i18n patch translates settings General nav before settings fallback", () => {
   const defaultMessages = new Map([
     ["settings.nav.general-settings", "General"],

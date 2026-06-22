@@ -17,12 +17,12 @@ const LOCALE_EXPORT_PATTERN = /,t=\{([\s\S]*)\};export\{t as default/;
 const ZH_CN_LOCALE_PATTERN = /^zh-CN-[\w-]+\.js$/;
 const ZH_CN_PATCH_START = "/*codex-web-zh-cn-missing-start*/";
 const ZH_CN_PATCH_END = "/*codex-web-zh-cn-missing-end*/";
-const EXPECTED_ZH_CN_MISSING_ID_COUNT = 1031;
+const EXPECTED_ZH_CN_MISSING_ID_COUNT = 1038;
 const EXPECTED_ZH_CN_MISSING_IDS_SHA256 =
-  "a26df3d20876385967b5005ed5876f3cfd5de04b244efc621f70593778e18088";
-const EXPECTED_ZH_CN_MISSING_WITH_BROWSER_ID_COUNT = 1032;
+  "3ec1587effb6ab4421c5dea92cf88b451cfc5e08931ffd4d2a5b4753092ada81";
+const EXPECTED_ZH_CN_MISSING_WITH_BROWSER_ID_COUNT = 1039;
 const EXPECTED_ZH_CN_MISSING_WITH_BROWSER_IDS_SHA256 =
-  "b3d9ae02c54d226986a77b85a96abb95d4b14cab94a4b7b12a2ba09f20f4b5a3";
+  "f5fd046ed80ed80089f0fddba5e5da5cfd1a290deebf4761c569bc562466df3b";
 const BROWSER_BUILD_ZH_CN_MISSING_IDS = Object.freeze([
   "codexWeb.terminal.title",
 ]);
@@ -53,6 +53,13 @@ const EXPLICIT_ZH_CN_TRANSLATIONS = new Map(
     "settings.cloudEnvironments.create.error": "无法创建云环境",
     "settings.cloudEnvironments.create.success": "已创建云环境",
     "threadPage.runAction.environment.create": "创建环境",
+    "threadHeader.deleteThread": "移除对话",
+    "threadHeader.deleteThreadError": "无法移除对话",
+    "threadHeader.deleteThreadConfirm.title": "移除对话？",
+    "threadHeader.deleteThreadConfirm.body": "这会从 Codex 中永久移除该对话。",
+    "threadHeader.deleteThreadConfirm.cancel": "取消",
+    "threadHeader.deleteThreadConfirm.confirm": "移除",
+    "threadHeader.deleteThreadConfirm.removing": "正在移除…",
   }),
 );
 const TRACKED_ZH_CN_PATCH_IDS = Object.freeze([

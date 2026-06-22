@@ -13,11 +13,13 @@ import { patchWebviewMarkdownRetryAssets } from "./patch_webview_markdown_retry.
 import { patchWebviewMobileSidebarAssets } from "./patch_webview_mobile_sidebar.mjs";
 import { patchWebviewMobileTabLayoutAssets } from "./patch_webview_mobile_tab_layout.mjs";
 import { patchWebviewOpenTargetLabelsAssets } from "./patch_webview_open_target_labels.mjs";
+import { patchWebviewThreadDeleteAssets } from "./patch_webview_thread_delete.mjs";
 import { patchWebviewTurnStreamingAssets } from "./patch_webview_turn_streaming.mjs";
 
 export function patchWebviewAssets(assetsDir) {
   const patchedFiles = [
     ...patchWebviewOpenTargetLabelsAssets(assetsDir),
+    ...patchWebviewThreadDeleteAssets(assetsDir),
     ...patchWebviewI18nAssets(assetsDir),
     ...patchWebviewConsoleNoiseAssets(assetsDir),
     ...patchWebviewMarkdownRetryAssets(assetsDir),
