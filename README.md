@@ -59,10 +59,10 @@ chmod 600 certs/codex-web.key
 Then listen on the LAN and enable TLS:
 
 ```bash
-codex-web --host 0.0.0.0 --tls-cert certs/codex-web.crt --tls-key certs/codex-web.key
+CODEX_WEB_AUTH_TOKEN=your-token codex-web --host 0.0.0.0 --port 9443 --tls-cert certs/codex-web.crt --tls-key certs/codex-web.key
 ```
 
-Open `https://${LAN_IP}:8214`. Because this is self-signed, the browser
+Open `https://${LAN_IP}:9443`. Because this is self-signed, the browser
 will require trusting or bypassing the certificate warning.
 
 ### sign in
@@ -104,9 +104,10 @@ run `codex-web` only on trusted networks. treat anyone who can reach the
 `codex-web` server as someone who can operate codex on the host machine as the
 same user running the server.
 
-if you need authn or authz, implement it outside of `codex-web`: proxy it through
-wireguard, tailscale, or an ssh tunnel and put an authentication gateway or
-reverse proxy in front.
+for personal browser access, set `CODEX_WEB_AUTH_TOKEN` or pass
+`--auth-token your-token`. the first browser visit asks for the token and then uses
+a long-lived http-only cookie. for shared or company access, still prefer
+wireguard, tailscale, an ssh tunnel, or a real authentication gateway in front.
 
 someone with access to the web ui may be able to:
 

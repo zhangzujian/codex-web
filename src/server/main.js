@@ -9,6 +9,9 @@ exports.createFastifyOptions = createFastifyOptions;
 exports.isAllowedBackendWebSocketRequest = isAllowedBackendWebSocketRequest;
 exports.shouldBlockFsRequestPath = shouldBlockFsRequestPath;
 exports.shouldServeWebviewShellPath = shouldServeWebviewShellPath;
+exports.createAuthCookie = createAuthCookie;
+exports.isAuthenticatedCookie = isAuthenticatedCookie;
+exports.createAuthLoginHtml = createAuthLoginHtml;
 exports.createTerminalHtml = createTerminalHtml;
 exports.injectWebviewRuntimeScripts = injectWebviewRuntimeScripts;
 const node_crypto_1 = require("node:crypto");
@@ -42,7 +45,7 @@ function compareWorkspaceDirectoryEntries(left, right) {
 function printUsage() {
     console.log([
         "Usage:",
-        "  server [--host <host>] [--port <port>] [--tls-cert <path> --tls-key <path>]",
+        "  server [--host <host>] [--port <port>] [--tls-cert <path> --tls-key <path>] [--auth-token <token>]",
         "",
         "Defaults:",
         "  --host 127.0.0.1",
@@ -51,7 +54,7 @@ function printUsage() {
         "Examples:",
         "  yarn server",
         "  yarn server --port 9000",
-        "  yarn server --host 0.0.0.0 --tls-cert certs/codex-web.crt --tls-key certs/codex-web.key",
+        "  CODEX_WEB_AUTH_TOKEN=your-token yarn server --host 0.0.0.0 --port 9443 --tls-cert certs/codex-web.crt --tls-key certs/codex-web.key",
     ].join("\n"));
 }
 function parsePort(raw) {
@@ -61,7 +64,7 @@ function parsePort(raw) {
     }
     return parsed;
 }
-function parseServerArgs(args) {
+function parseServerArgs(args, env = process.env) {
     const parsed = (0, node_util_1.parseArgs)({
         args,
         allowPositionals: false,
@@ -82,6 +85,9 @@ function parseServerArgs(args) {
             "tls-key": {
                 type: "string",
             },
+            "auth-token": {
+                type: "string",
+            },
         },
         strict: true,
     });
@@ -98,6 +104,12 @@ function parseServerArgs(args) {
         host: parsed.values.host ?? "127.0.0.1",
         port: parsed.values.port ? parsePort(parsed.values.port) : 8214,
     };
+    const authToken = (parsed.values["auth-token"] ?? env.CODEX_WEB_AUTH_TOKEN)?.trim();
+    if (authToken) {
+        options.auth = {
+            token: authToken,
+        };
+    }
     if (tlsCert && tlsKey) {
         options.tls = {
             certPath: tlsCert,
@@ -270,7 +282,42 @@ async function startIpcBridgeServer(options) {
         },
     });
     const uploadRoot = await promises_1.default.mkdtemp(node_path_1.default.join(node_os_1.default.tmpdir(), "codex-web-uploads-"));
+    app.get("/__auth/login", async (request, reply) => {
+        return reply.type("text/html").send(createAuthLoginHtml(request.url));
+    });
+    app.post("/__auth/session", async (request, reply) => {
+        if (!options.auth) {
+            return reply.code(404).send({ error: "Not Found" });
+        }
+        const body = request.body;
+        const token = typeof body === "object" &&
+            body !== null &&
+            "token" in body &&
+            typeof body.token === "string"
+            ? body.token
+            : "";
+        if (!isSameSecret(token, options.auth.token)) {
+            return reply.code(401).send({ error: "Unauthorized" });
+        }
+        reply.header("set-cookie", createAuthCookie({
+            token: options.auth.token,
+            secure: Boolean(options.tls),
+        }));
+        return reply.send({ ok: true });
+    });
     app.addHook("onRequest", async (request, reply) => {
+        if (options.auth &&
+            !isPublicAuthPath(request.url) &&
+            !isAuthenticatedCookie({
+                cookieHeader: request.headers.cookie,
+                token: options.auth.token,
+            })) {
+            if (request.method === "GET" &&
+                singleHeaderValue(request.headers.accept)?.includes("text/html")) {
+                return reply.redirect(authLoginPath(request.url));
+            }
+            return reply.code(401).send({ error: "Unauthorized" });
+        }
         if (shouldBlockFsRequestPath(request.url, request.headers)) {
             return reply.code(403).send({ error: "Forbidden" });
         }
@@ -329,6 +376,15 @@ async function startIpcBridgeServer(options) {
         const url = new URL(requestUrl, `http://${host}`);
         const isBackendWebSocket = url.pathname === "/__backend/terminal" ||
             url.pathname === "/__backend/ipc";
+        if (isBackendWebSocket &&
+            options.auth &&
+            !isAuthenticatedCookie({
+                cookieHeader: request.headers.cookie,
+                token: options.auth.token,
+            })) {
+            socket.destroy();
+            return;
+        }
         if (isBackendWebSocket &&
             !isAllowedBackendWebSocketRequest({
                 host: request.headers.host,
@@ -617,6 +673,122 @@ function shouldServeWebviewShellPath(requestPath) {
         return search.length > 0;
     }
     return /^\/thread\/[^/]+$/.test(pathname);
+}
+const AUTH_COOKIE_NAME = "codex_web_session";
+const AUTH_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
+function createAuthCookie({ now = Date.now(), secure, token, }) {
+    const expiresAt = now + AUTH_COOKIE_MAX_AGE_SECONDS * 1000;
+    const payload = `${expiresAt}.${(0, node_crypto_1.randomBytes)(16).toString("base64url")}`;
+    const value = `${payload}.${authSignature(token, payload)}`;
+    return [
+        `${AUTH_COOKIE_NAME}=${value}`,
+        "Path=/",
+        "HttpOnly",
+        "SameSite=Lax",
+        `Max-Age=${AUTH_COOKIE_MAX_AGE_SECONDS}`,
+        secure ? "Secure" : "",
+    ]
+        .filter(Boolean)
+        .join("; ");
+}
+function isAuthenticatedCookie({ cookieHeader, now = Date.now(), token, }) {
+    const cookie = parseCookieHeader(singleHeaderValue(cookieHeader));
+    const value = cookie.get(AUTH_COOKIE_NAME);
+    if (!value) {
+        return false;
+    }
+    const parts = value.split(".");
+    if (parts.length !== 3) {
+        return false;
+    }
+    const [expiresAtRaw, nonce, signature] = parts;
+    const expiresAt = Number(expiresAtRaw);
+    if (!Number.isFinite(expiresAt) || expiresAt < now) {
+        return false;
+    }
+    return isSameSecret(signature, authSignature(token, `${expiresAtRaw}.${nonce}`));
+}
+function authSignature(token, payload) {
+    return (0, node_crypto_1.createHmac)("sha256", token).update(payload).digest("base64url");
+}
+function isSameSecret(left, right) {
+    const leftBuffer = Buffer.from(left);
+    const rightBuffer = Buffer.from(right);
+    return (leftBuffer.length === rightBuffer.length &&
+        (0, node_crypto_1.timingSafeEqual)(leftBuffer, rightBuffer));
+}
+function parseCookieHeader(cookieHeader) {
+    const cookies = new Map();
+    for (const part of cookieHeader?.split(";") ?? []) {
+        const separator = part.indexOf("=");
+        if (separator === -1) {
+            continue;
+        }
+        cookies.set(part.slice(0, separator).trim(), part.slice(separator + 1));
+    }
+    return cookies;
+}
+function isPublicAuthPath(requestPath) {
+    try {
+        const { pathname } = new URL(requestPath, "http://localhost");
+        return pathname === "/__auth/login" || pathname === "/__auth/session";
+    }
+    catch {
+        return false;
+    }
+}
+function authLoginPath(requestPath) {
+    return `/__auth/login?next=${encodeURIComponent(requestPath)}`;
+}
+function createAuthLoginHtml(requestPath) {
+    const next = safeAuthNextPath(new URL(requestPath, "http://localhost").searchParams.get("next"));
+    return `<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>codex-web login</title>
+    <style>
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0c0d0e; color: #f8fafc; font: 16px system-ui, sans-serif; }
+      form { width: min(320px, calc(100vw - 32px)); display: grid; gap: 12px; }
+      input, button { box-sizing: border-box; width: 100%; border-radius: 6px; border: 1px solid rgb(255 255 255 / 0.18); padding: 10px 12px; font: inherit; }
+      input { background: #15171a; color: inherit; }
+      button { background: #f8fafc; color: #0c0d0e; cursor: pointer; }
+      p { min-height: 20px; margin: 0; color: #ffb4a8; font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <form data-login-form>
+      <input name="token" type="password" autocomplete="current-password" autofocus placeholder="Token" />
+      <button type="submit">Sign in</button>
+      <p data-error></p>
+    </form>
+    <script>
+      const form = document.querySelector("[data-login-form]");
+      const error = document.querySelector("[data-error]");
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        error.textContent = "";
+        const response = await fetch("/__auth/session", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ token: new FormData(form).get("token") }),
+        });
+        if (response.ok) {
+          location.href = ${JSON.stringify(next)};
+        } else {
+          error.textContent = "Invalid token";
+        }
+      });
+    </script>
+  </body>
+</html>`;
+}
+function safeAuthNextPath(next) {
+    if (!next?.startsWith("/") || next.startsWith("//") || next.includes("\\")) {
+        return "/";
+    }
+    return next;
 }
 function singleHeaderValue(value) {
     if (Array.isArray(value)) {

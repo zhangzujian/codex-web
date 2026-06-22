@@ -3,9 +3,12 @@ import test from "node:test";
 import { runInNewContext } from "node:vm";
 
 import {
+  createAuthCookie,
+  createAuthLoginHtml,
   createTerminalHtml,
   createFastifyOptions,
   isAllowedBackendWebSocketRequest,
+  isAuthenticatedCookie,
   parseServerArgs,
   shouldServeWebviewShellPath,
   shouldBlockFsRequestPath,
@@ -124,16 +127,19 @@ test("shouldServeWebviewShellPath rejects unknown fallback routes", () => {
 
 test("parseServerArgs accepts tls certificate and key paths", () => {
   assert.deepEqual(
-    parseServerArgs([
-      "--host",
-      "0.0.0.0",
-      "--port",
-      "9443",
-      "--tls-cert",
-      "certs/codex-web.crt",
-      "--tls-key",
-      "certs/codex-web.key",
-    ]),
+    parseServerArgs(
+      [
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "9443",
+        "--tls-cert",
+        "certs/codex-web.crt",
+        "--tls-key",
+        "certs/codex-web.key",
+      ],
+      {},
+    ),
     {
       host: "0.0.0.0",
       port: 9443,
@@ -145,13 +151,84 @@ test("parseServerArgs accepts tls certificate and key paths", () => {
   );
 });
 
+test("parseServerArgs accepts an auth token", () => {
+  assert.deepEqual(
+    parseServerArgs(["--auth-token", "test-token"], {}),
+    {
+      host: "127.0.0.1",
+      port: 8214,
+      auth: {
+        token: "test-token",
+      },
+    },
+  );
+});
+
+test("parseServerArgs accepts auth token from the environment", () => {
+  assert.deepEqual(parseServerArgs([], { CODEX_WEB_AUTH_TOKEN: "test-token" }), {
+    host: "127.0.0.1",
+    port: 8214,
+    auth: {
+      token: "test-token",
+    },
+  });
+});
+
+test("auth cookie validates only with the matching token", () => {
+  const cookie = createAuthCookie({
+    token: "test-token",
+    secure: true,
+    now: 1_000,
+  });
+
+  assert.match(cookie, /HttpOnly/);
+  assert.match(cookie, /Secure/);
+  assert.equal(
+    isAuthenticatedCookie({
+      cookieHeader: cookie,
+      token: "test-token",
+      now: 1_000,
+    }),
+    true,
+  );
+  assert.equal(
+    isAuthenticatedCookie({
+      cookieHeader: cookie,
+      token: "wrong",
+      now: 1_000,
+    }),
+    false,
+  );
+});
+
+test("auth login page only redirects to same-origin paths", () => {
+  assert.match(
+    createAuthLoginHtml("/__auth/login?next=%2Fthread%2Fabc%3Fx%3D1"),
+    /location\.href = "\/thread\/abc\?x=1"/,
+  );
+  assert.match(
+    createAuthLoginHtml(
+      "/__auth/login?next=https%3A%2F%2Fexample.com%2Fsteal",
+    ),
+    /location\.href = "\/"/,
+  );
+  assert.match(
+    createAuthLoginHtml("/__auth/login?next=%2F%2Fexample.com%2Fsteal"),
+    /location\.href = "\/"/,
+  );
+  assert.match(
+    createAuthLoginHtml("/__auth/login?next=%2F%5Cexample.com%2Fsteal"),
+    /location\.href = "\/"/,
+  );
+});
+
 test("parseServerArgs requires tls cert and key together", () => {
   assert.throws(
-    () => parseServerArgs(["--tls-cert", "certs/codex-web.crt"]),
+    () => parseServerArgs(["--tls-cert", "certs/codex-web.crt"], {}),
     /--tls-cert and --tls-key must be provided together/,
   );
   assert.throws(
-    () => parseServerArgs(["--tls-key", "certs/codex-web.key"]),
+    () => parseServerArgs(["--tls-key", "certs/codex-web.key"], {}),
     /--tls-cert and --tls-key must be provided together/,
   );
 });

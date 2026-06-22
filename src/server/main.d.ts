@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 type ServerOptions = {
+    auth?: {
+        token: string;
+    };
     host: string;
     port: number;
     tls?: {
@@ -7,7 +10,7 @@ type ServerOptions = {
         keyPath: string;
     };
 };
-export declare function parseServerArgs(args: string[]): ServerOptions;
+export declare function parseServerArgs(args: string[], env?: NodeJS.ProcessEnv): ServerOptions;
 export declare function createFastifyOptions(options: ServerOptions): Promise<{
     logger: boolean;
     https?: undefined;
@@ -26,6 +29,17 @@ export declare function isAllowedBackendWebSocketRequest({ host, origin, request
 }): boolean;
 export declare function shouldBlockFsRequestPath(requestPath: string, headers?: Record<string, string | string[] | undefined>): boolean;
 export declare function shouldServeWebviewShellPath(requestPath: string): boolean;
+export declare function createAuthCookie({ now, secure, token, }: {
+    now?: number;
+    secure: boolean;
+    token: string;
+}): string;
+export declare function isAuthenticatedCookie({ cookieHeader, now, token, }: {
+    cookieHeader: string | string[] | undefined;
+    now?: number;
+    token: string;
+}): boolean;
+export declare function createAuthLoginHtml(requestPath: string): string;
 export declare function createTerminalHtml({ backendWebSocketToken, cwd: requestedCwd, locale: requestedLocale, stylesheetHrefs, }: {
     backendWebSocketToken: string;
     cwd: string | undefined;
