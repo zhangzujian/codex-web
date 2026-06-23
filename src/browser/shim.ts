@@ -23,6 +23,7 @@ import {
 } from "./sync-ipc.mts";
 import { createStatsigOverrideAdapter } from "./statsig-overrides.mts";
 import { getPathForFile } from "./web-utils.mts";
+import { exposedMainWorldValue } from "./context-bridge.mts";
 import {
   initialSidebarStateForRoute,
   isMobileSidebarViewport,
@@ -622,13 +623,7 @@ ensureSocket();
 
 export const contextBridge = {
   exposeInMainWorld(_key: string, _api: unknown): void {
-    if (_key === "electronBridge" && isRecord(_api)) {
-      const sanitized = { ..._api };
-      delete sanitized.showApplicationMenu;
-      Reflect.set(window, _key, sanitized);
-      return;
-    }
-    Reflect.set(window, _key, _api);
+    Reflect.set(window, _key, exposedMainWorldValue(_key, _api));
   },
 };
 

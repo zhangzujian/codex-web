@@ -18,6 +18,7 @@ import {
   normalizeSharedObjectUpdateForRoute,
 } from "../src/browser/sync-ipc.mts";
 import { createStatsigOverrideAdapter } from "../src/browser/statsig-overrides.mts";
+import { exposedMainWorldValue } from "../src/browser/context-bridge.mts";
 
 test("browser shim installs the Sentry IPC fetch no-op", async () => {
   const shimSource = await import("node:fs/promises").then((fs) =>
@@ -27,13 +28,16 @@ test("browser shim installs the Sentry IPC fetch no-op", async () => {
   assert.match(shimSource, /installSentryIpcFetchNoop\(window\)/);
 });
 
-test("browser shim hides the unused application menu bridge", async () => {
-  const shimSource = await import("node:fs/promises").then((fs) =>
-    fs.readFile(new URL("../src/browser/shim.ts", import.meta.url), "utf8"),
-  );
+test("browser shim hides the unused application menu bridge", () => {
+  const showApplicationMenu = () => {};
+  const electronBridge = exposedMainWorldValue("electronBridge", {
+    openPath: () => {},
+    showApplicationMenu,
+  });
+  const otherBridge = { showApplicationMenu };
 
-  assert.match(shimSource, /_key === "electronBridge"/);
-  assert.match(shimSource, /delete sanitized\.showApplicationMenu/);
+  assert.deepEqual(Object.keys(electronBridge).sort(), ["openPath"]);
+  assert.equal(exposedMainWorldValue("otherBridge", otherBridge), otherBridge);
 });
 
 test("getPathForFile returns Electron-provided absolute file paths", () => {

@@ -63,6 +63,9 @@ const newTabMenuChunk = [
 
 const sidePanelActionWithNewTabMenuChunk = `${sidePanelActionWithTerminalCommandChunk}${newTabMenuChunk}`;
 
+const legacyTerminalNativeShortcutFunction =
+  "function codexWebInstallNativeTerminalShortcut(e){let t=globalThis;if(t.codexWebNativeTerminalShortcutHandler)document.removeEventListener(`keydown`,t.codexWebNativeTerminalShortcutHandler,!0);let n=t.codexWebNativeTerminalShortcutHandler=t=>{let n=t.target instanceof Element?t.target:null,r=document.activeElement instanceof Element?document.activeElement:null,i=n?.closest(`[role=\"tabpanel\"]`)??r?.closest(`[role=\"tabpanel\"]`);if((t.ctrlKey||t.metaKey)&&!t.altKey&&!t.shiftKey&&t.code===`KeyW`&&i!=null){t.preventDefault();return}if(t.defaultPrevented)return;if(t.ctrlKey&&!t.metaKey&&!t.altKey&&!t.shiftKey&&t.code===`Backquote`){t.preventDefault();e()}};document.addEventListener(`keydown`,n,!0)}";
+
 const appShellNavigationChunk = [
   "function $n(e){",
   "let L=(0,Q.jsx)(nr,{viewTransitionName:`sidebar-trigger`});",
@@ -131,8 +134,8 @@ test("patchTerminalActionSource keeps Terminal on the native desktop opener", ()
   assert.doesNotMatch(patched, /globalThis\.open/);
   assert.doesNotMatch(patched, /codexWebInstallTerminalBrowserShortcut/);
   assert.match(patched, /function codexWebInstallNativeTerminalShortcut/);
-  assert.match(patched, /code===`KeyW`/);
-  assert.match(patched, /document\.activeElement/);
+  assert.doesNotMatch(patched, /KeyW/);
+  assert.doesNotMatch(patched, /document\.activeElement/);
   assert.doesNotMatch(patched, /Terminal input/);
   assert.match(
     patched,
@@ -161,6 +164,25 @@ test("patchTerminalActionSource removes old browser terminal shortcut calls", ()
   assert.match(
     patched,
     /Ne\(`toggleTerminal`,y\);codexWebInstallNativeTerminalShortcut\(y\);return null/,
+  );
+});
+
+test("patchTerminalActionSource replaces legacy native shortcut patches", () => {
+  const legacyPatchedChunk =
+    legacyTerminalNativeShortcutFunction +
+    sidePanelActionWithTerminalCommandChunk.replace(
+      "Ne(`toggleTerminal`,y);",
+      "Ne(`toggleTerminal`,y);codexWebInstallNativeTerminalShortcut(y);",
+    );
+
+  const patched = patchTerminalActionSource(legacyPatchedChunk, {
+    terminalActionFunctionName: "Pe",
+  });
+
+  assert.doesNotMatch(patched, /KeyW/);
+  assert.equal(
+    patched.match(/function codexWebInstallNativeTerminalShortcut/g)?.length,
+    1,
   );
 });
 
