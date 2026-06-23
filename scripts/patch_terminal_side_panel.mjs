@@ -5,14 +5,14 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const PUBLIC_TERMINAL_EXPORT = "openSessionSandboxSidePanel";
-const APPLICATION_MENU_PATCH_MARKER = "codexWebDisableApplicationMenu";
-const APPLICATION_MENU_FEATURE_PATTERN =
-  /function\s+([$A-Za-z_][\w$]*)\(\)\{return yt\(\)&&window\.electronBridge\?\.showApplicationMenu!=null\}/;
 const TERMINAL_NATIVE_SHORTCUT_FUNCTION =
   "function codexWebInstallNativeTerminalShortcut(e){let t=globalThis;if(t.codexWebNativeTerminalShortcutHandler)document.removeEventListener(`keydown`,t.codexWebNativeTerminalShortcutHandler,!0);let n=t.codexWebNativeTerminalShortcutHandler=t=>{let n=t.target instanceof Element?t.target:null,r=document.activeElement instanceof Element?document.activeElement:null,i=n?.closest(`[role=\"tabpanel\"]`)??r?.closest(`[role=\"tabpanel\"]`);if((t.ctrlKey||t.metaKey)&&!t.altKey&&!t.shiftKey&&t.code===`KeyW`&&i!=null){t.preventDefault();return}if(t.defaultPrevented)return;if(t.ctrlKey&&!t.metaKey&&!t.altKey&&!t.shiftKey&&t.code===`Backquote`){t.preventDefault();e()}};document.addEventListener(`keydown`,n,!0)}";
 const TERMINAL_BROWSER_SHORTCUT_FUNCTION =
   "function codexWebInstallTerminalBrowserShortcut(e){let t=globalThis;if(t.codexWebTerminalBrowserShortcutHandler)document.removeEventListener(`keydown`,t.codexWebTerminalBrowserShortcutHandler,!0);let n=t.codexWebTerminalBrowserShortcutHandler=t=>{if(t.ctrlKey&&!t.metaKey&&!t.altKey&&!t.shiftKey&&t.code===`Backquote`){t.preventDefault();e()}};document.addEventListener(`keydown`,n,!0)}";
-const TERMINAL_CTRL_W_PATCH = "if(Z(t,`w`))return J(t),i(`\\x17`),!1;";
+const SIDEBAR_NAVIGATION_BUTTONS_PATTERN =
+  /let J;t\[\d+\]!==H\|\|t\[\d+\]!==q\?\(J=\(0,Q\.jsx\)\(_t,\{electron:!0,extension:!0,children:\(0,Q\.jsxs\)\(Q\.Fragment,\{children:\[H,q\]\}\)\}\),t\[\d+\]=H,t\[\d+\]=q,t\[\d+\]=J\):J=t\[\d+\];/;
+const PATCHED_SIDEBAR_NAVIGATION_BUTTONS_PATTERN =
+  /let J=null;[^]*?children:\[L,J\]/;
 
 export function findTerminalSidePanelAsset(assetsDir) {
   const terminal = resolvePublicExport(assetsDir, PUBLIC_TERMINAL_EXPORT);
@@ -64,7 +64,7 @@ export function findTerminalActionAsset(assetsDir, terminalPatchTarget) {
   );
 }
 
-export function findApplicationMenuAsset(assetsDir) {
+export function findSidebarNavigationButtonsAsset(assetsDir) {
   const candidates = fs
     .readdirSync(assetsDir)
     .filter((name) => name.endsWith(".js"))
@@ -73,38 +73,17 @@ export function findApplicationMenuAsset(assetsDir) {
   for (const assetPath of candidates) {
     const source = fs.readFileSync(assetPath, "utf8");
     if (
-      source.includes("windowsMenuBar.file") &&
-      (source.includes("showApplicationMenu") ||
-        source.includes(APPLICATION_MENU_PATCH_MARKER))
+      source.includes("viewTransitionName:`sidebar-trigger`") &&
+      (SIDEBAR_NAVIGATION_BUTTONS_PATTERN.test(source) ||
+        PATCHED_SIDEBAR_NAVIGATION_BUTTONS_PATTERN.test(source))
     ) {
       return assetPath;
     }
   }
 
-  throw new Error(`Unable to find application menu asset in ${assetsDir}`);
-}
-
-export function patchApplicationMenuSource(source) {
-  const match = APPLICATION_MENU_FEATURE_PATTERN.exec(source);
-  if (match) {
-    return source;
-  }
-
-  const patchedPattern = new RegExp(
-    `function\\s+([$A-Za-z_][\\w$]*)\\(\\)\\{return!1/\\*${escapeRegex(
-      APPLICATION_MENU_PATCH_MARKER,
-    )}\\*/\\}`,
+  throw new Error(
+    `Unable to find sidebar navigation buttons asset in ${assetsDir}`,
   );
-  const patchedMatch = patchedPattern.exec(source);
-  if (patchedMatch) {
-    return (
-      source.slice(0, patchedMatch.index) +
-      `function ${patchedMatch[1]}(){return yt()&&window.electronBridge?.showApplicationMenu!=null}` +
-      source.slice(patchedMatch.index + patchedMatch[0].length)
-    );
-  }
-
-  throw new Error("Application menu feature gate not found");
 }
 
 export function patchTerminalActionSource(
@@ -228,17 +207,18 @@ export function patchTerminalNewTabMenuSource(source) {
   return patched;
 }
 
-export function patchNativeTerminalCtrlWSource(source) {
-  if (source.includes(TERMINAL_CTRL_W_PATCH)) {
-    return source;
-  }
-
-  return replaceOnce(
-    source,
-    "if(t.type!==`keydown`)return!0;",
-    `if(t.type!==\`keydown\`)return!0;${TERMINAL_CTRL_W_PATCH}`,
-    "Native terminal key handler target not found",
+export function patchSidebarNavigationButtonsSource(source) {
+  const patched = source.replace(
+    SIDEBAR_NAVIGATION_BUTTONS_PATTERN,
+    "let J=null;",
   );
+  if (
+    patched !== source ||
+    PATCHED_SIDEBAR_NAVIGATION_BUTTONS_PATTERN.test(source)
+  ) {
+    return patched;
+  }
+  throw new Error("Sidebar navigation buttons target not found");
 }
 
 export function patchTerminalSidePanelAsset(assetsDir) {
@@ -259,20 +239,10 @@ export function patchTerminalActionAsset(assetsDir, terminalPatchTarget) {
   return patchTarget.assetPath;
 }
 
-export function patchApplicationMenuAsset(assetsDir) {
-  const assetPath = findApplicationMenuAsset(assetsDir);
+export function patchSidebarNavigationButtonsAsset(assetsDir) {
+  const assetPath = findSidebarNavigationButtonsAsset(assetsDir);
   const source = fs.readFileSync(assetPath, "utf8");
-  const patched = patchApplicationMenuSource(source);
-  if (patched !== source) {
-    fs.writeFileSync(assetPath, patched);
-  }
-  return assetPath;
-}
-
-export function patchNativeTerminalCtrlWAsset(assetsDir) {
-  const assetPath = findNativeTerminalAsset(assetsDir);
-  const source = fs.readFileSync(assetPath, "utf8");
-  const patched = patchNativeTerminalCtrlWSource(source);
+  const patched = patchSidebarNavigationButtonsSource(source);
   if (patched !== source) {
     fs.writeFileSync(assetPath, patched);
   }
@@ -283,28 +253,8 @@ export function patchTerminalSidePanelSupport(assetsDir) {
   const terminalPatchTarget = findTerminalSidePanelAsset(assetsDir);
   return [
     patchTerminalActionAsset(assetsDir, terminalPatchTarget),
-    patchNativeTerminalCtrlWAsset(assetsDir),
-    patchApplicationMenuAsset(assetsDir),
+    patchSidebarNavigationButtonsAsset(assetsDir),
   ];
-}
-
-function findNativeTerminalAsset(assetsDir) {
-  const candidates = fs
-    .readdirSync(assetsDir)
-    .filter((name) => name.endsWith(".js"))
-    .map((name) => path.join(assetsDir, name));
-
-  for (const assetPath of candidates) {
-    const source = fs.readFileSync(assetPath, "utf8");
-    if (
-      source.includes("attachCustomKeyEventHandler") &&
-      source.includes("data-codex-terminal")
-    ) {
-      return assetPath;
-    }
-  }
-
-  throw new Error(`Unable to find native terminal asset in ${assetsDir}`);
 }
 
 function resolvePublicExport(assetsDir, publicName) {

@@ -7,10 +7,10 @@ import test from "node:test";
 import {
   findTerminalActionAsset,
   findTerminalSidePanelAsset,
-  patchApplicationMenuSource,
-  patchNativeTerminalCtrlWSource,
+  patchSidebarNavigationButtonsAsset,
   patchTerminalActionSource,
   patchTerminalNewTabMenuSource,
+  patchSidebarNavigationButtonsSource,
   patchTerminalSidePanelAsset,
   patchTerminalSidePanelSupport,
   patchThreadOpenInPrimaryIconSource,
@@ -63,22 +63,14 @@ const newTabMenuChunk = [
 
 const sidePanelActionWithNewTabMenuChunk = `${sidePanelActionWithTerminalCommandChunk}${newTabMenuChunk}`;
 
-const applicationMenuChunk = [
-  "function $n(){return(0,$.jsx)(`button`,{id:`sidebar-trigger`})}",
-  "function In(){return yt()&&window.electronBridge?.showApplicationMenu!=null}",
-  "var Ln=_({file:{id:`windowsMenuBar.file`,defaultMessage:`File`},edit:{id:`windowsMenuBar.edit`,defaultMessage:`Edit`},view:{id:`windowsMenuBar.view`,defaultMessage:`View`},help:{id:`windowsMenuBar.help`,defaultMessage:`Help`}});",
-  "function zn(){if(!In())return null;return Rn.map(e=>(0,$.jsx)(`button`,{children:e.id}))}",
-  "function ni(){let n=(0,$.jsx)($n,{}),r=null,i=(0,$.jsx)(zn,{});return(0,$.jsxs)(`div`,{children:[n,r,i]})}",
-].join("");
-
-const nativeTerminalChunk = [
-  "function oe({clipboard:e,event:t,onNewTerminalTab:n,pasteOnCtrlV:r=!1,sendText:i,term:a}){",
-  "if(t.type!==`keydown`)return!0;",
-  "if(n!=null&&le(t,[`t`]))return J(t),n(),!1;",
-  "let o=ce(t);return o==null?!0:(J(t),i(o),!1)}",
-  "function J(e){e.preventDefault(),e.stopPropagation()}",
-  "function Z(e,t){return e.ctrlKey&&!e.shiftKey&&!e.altKey&&!e.metaKey&&e.key.toLowerCase()===t}",
-  "function terminal(){f.attachCustomKeyEventHandler(e=>oe({event:e,sendText:e=>write(e)}));return {\"data-codex-terminal\":!0}}",
+const appShellNavigationChunk = [
+  "function $n(e){",
+  "let L=(0,Q.jsx)(nr,{viewTransitionName:`sidebar-trigger`});",
+  "let H=(0,Q.jsx)(nr,{ariaLabel:R,disabled:z,shortcut:x,tooltipContent:B,onClick:tr,children:V});",
+  "let q=(0,Q.jsx)(nr,{ariaLabel:U,disabled:W,shortcut:S,tooltipContent:G,onClick:er,children:K});",
+  "let J;t[46]!==H||t[47]!==q?(J=(0,Q.jsx)(_t,{electron:!0,extension:!0,children:(0,Q.jsxs)(Q.Fragment,{children:[H,q]})}),t[46]=H,t[47]=q,t[48]=J):J=t[48];",
+  "let Y;return t[49]!==L||t[50]!==J?(Y=(0,Q.jsxs)(`div`,{className:`flex items-center gap-1`,children:[L,J]}),t[49]=L,t[50]=J,t[51]=Y):Y=t[51],Y",
+  "}",
 ].join("");
 
 const openInPrimaryIconChunk = [
@@ -205,21 +197,45 @@ test("patchTerminalNewTabMenuSource keeps Browser available for legacy terminal 
   assert.equal(patchTerminalNewTabMenuSource(patched), patched);
 });
 
-test("patchNativeTerminalCtrlWSource keeps Ctrl+W inside the terminal", () => {
-  const patched = patchNativeTerminalCtrlWSource(nativeTerminalChunk);
-
-  assert.match(
-    patched,
-    /if\(Z\(t,`w`\)\)return J\(t\),i\(`\\x17`\),!1;/,
-  );
-  assert.equal(patchNativeTerminalCtrlWSource(patched), patched);
-});
-
 test("patchThreadOpenInPrimaryIconSource uses resolved icons for the top Open in button", () => {
   const patched = patchThreadOpenInPrimaryIconSource(openInPrimaryIconChunk);
 
   assert.match(patched, /src:g\.resolvedIcon\?\?g\.icon,className:`icon-sm`/);
   assert.equal(patchThreadOpenInPrimaryIconSource(patched), patched);
+});
+
+test("patchSidebarNavigationButtonsSource removes back and forward buttons", () => {
+  const patched = patchSidebarNavigationButtonsSource(appShellNavigationChunk);
+
+  assert.match(patched, /viewTransitionName:`sidebar-trigger`/);
+  assert.match(patched, /J=null/);
+  assert.doesNotMatch(patched, /children:\[H,q\]/);
+  assert.equal(patchSidebarNavigationButtonsSource(patched), patched);
+});
+
+test("patchSidebarNavigationButtonsSource ignores unrelated null locals", () => {
+  const patched = patchSidebarNavigationButtonsSource(
+    `function unrelated(){let J=null;}${appShellNavigationChunk}`,
+  );
+
+  assert.doesNotMatch(patched, /children:\[H,q\]/);
+});
+
+test("patchSidebarNavigationButtonsAsset skips unrelated null locals", () => {
+  const assetsDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "codex-web-sidebar-navigation-assets-"),
+  );
+  const unrelatedPath = path.join(assetsDir, "a.js");
+  fs.writeFileSync(
+    unrelatedPath,
+    "function unrelated(){let J=null;}let L=(0,Q.jsx)(nr,{viewTransitionName:`sidebar-trigger`});",
+  );
+  const appShellPath = path.join(assetsDir, "z.js");
+  fs.writeFileSync(appShellPath, appShellNavigationChunk);
+
+  assert.equal(patchSidebarNavigationButtonsAsset(assetsDir), appShellPath);
+  assert.match(fs.readFileSync(unrelatedPath, "utf8"), /let J=null/);
+  assert.doesNotMatch(fs.readFileSync(appShellPath, "utf8"), /children:\[H,q\]/);
 });
 
 test("patchTerminalSidePanelSupport keeps sidebar Terminal native", () => {
@@ -234,21 +250,11 @@ test("patchTerminalSidePanelSupport keeps sidebar Terminal native", () => {
   fs.writeFileSync(sourcePath, sourceChunk);
   const actionPath = path.join(assetsDir, "thread-app-shell-chrome.js");
   fs.writeFileSync(actionPath, sidePanelActionWithNewTabMenuChunk);
-  const nativeTerminalPath = path.join(
-    assetsDir,
-    "thread-page-bottom-panel-state.js",
-  );
-  fs.writeFileSync(nativeTerminalPath, nativeTerminalChunk);
-  const applicationMenuPath = path.join(assetsDir, "app-shell.js");
-  fs.writeFileSync(applicationMenuPath, applicationMenuChunk);
-
+  const appShellPath = path.join(assetsDir, "app-shell.js");
+  fs.writeFileSync(appShellPath, appShellNavigationChunk);
   const patchedPaths = patchTerminalSidePanelSupport(assetsDir);
 
-  assert.deepEqual(patchedPaths, [
-    actionPath,
-    nativeTerminalPath,
-    applicationMenuPath,
-  ]);
+  assert.deepEqual(patchedPaths, [actionPath, appShellPath]);
   assert.equal(fs.readFileSync(sourcePath, "utf8"), sourceChunk);
   assert.doesNotMatch(
     fs.readFileSync(actionPath, "utf8"),
@@ -266,23 +272,5 @@ test("patchTerminalSidePanelSupport keeps sidebar Terminal native", () => {
     fs.readFileSync(actionPath, "utf8"),
     /e\.props\?\.codexWebIsTerminal!==!0/,
   );
-  assert.match(
-    fs.readFileSync(applicationMenuPath, "utf8"),
-    /window\.electronBridge\?\.showApplicationMenu!=null/,
-  );
-  assert.match(
-    fs.readFileSync(nativeTerminalPath, "utf8"),
-    /i\(`\\x17`\)/,
-  );
-});
-
-test("patchApplicationMenuSource restores an older disabled desktop menu bar patch", () => {
-  const previouslyPatched = applicationMenuChunk.replace(
-    "function In(){return yt()&&window.electronBridge?.showApplicationMenu!=null}",
-    "function In(){return!1/*codexWebDisableApplicationMenu*/}",
-  );
-  const patched = patchApplicationMenuSource(previouslyPatched);
-
-  assert.match(patched, /window\.electronBridge\?\.showApplicationMenu!=null/);
-  assert.equal(patchApplicationMenuSource(patched), patched);
+  assert.doesNotMatch(fs.readFileSync(appShellPath, "utf8"), /children:\[H,q\]/);
 });

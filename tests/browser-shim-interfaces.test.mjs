@@ -27,6 +27,15 @@ test("browser shim installs the Sentry IPC fetch no-op", async () => {
   assert.match(shimSource, /installSentryIpcFetchNoop\(window\)/);
 });
 
+test("browser shim hides the unused application menu bridge", async () => {
+  const shimSource = await import("node:fs/promises").then((fs) =>
+    fs.readFile(new URL("../src/browser/shim.ts", import.meta.url), "utf8"),
+  );
+
+  assert.match(shimSource, /_key === "electronBridge"/);
+  assert.match(shimSource, /delete sanitized\.showApplicationMenu/);
+});
+
 test("getPathForFile returns Electron-provided absolute file paths", () => {
   assert.equal(getPathForFile({ path: "/tmp/upload.txt" }), "/tmp/upload.txt");
 });

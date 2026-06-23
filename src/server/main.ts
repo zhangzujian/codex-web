@@ -1334,7 +1334,7 @@ export function injectWebviewRuntimeScripts(
   html: string,
   backendWebSocketToken: string,
 ): string {
-  const scripts = `<script>${statsigOverrideBootstrapScript()}</script><script>window.__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__=${JSON.stringify(backendWebSocketToken)};</script>`;
+  const scripts = `<script>${terminalCtrlWBootstrapScript()}</script><script>${statsigOverrideBootstrapScript()}</script><script>window.__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__=${JSON.stringify(backendWebSocketToken)};</script>`;
   const shellHtml = html.replace(
     '<link rel="manifest" href="/manifest.json" />',
     '<link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />',
@@ -1342,6 +1342,89 @@ export function injectWebviewRuntimeScripts(
   return shellHtml.includes("<head>")
     ? shellHtml.replace("<head>", `<head>${scripts}`)
     : `${scripts}${shellHtml}`;
+}
+
+function terminalCtrlWBootstrapScript(): string {
+  return `(() => {
+  if (window.__CODEX_WEB_TERMINAL_CTRL_W_SHIM__ || typeof EventTarget !== "function") {
+    return;
+  }
+  window.__CODEX_WEB_TERMINAL_CTRL_W_SHIM__ = true;
+  const originalAddEventListener = EventTarget.prototype.addEventListener;
+  const originalRemoveEventListener = EventTarget.prototype.removeEventListener;
+  const keydownListenerWrappers = new WeakMap();
+  const isGlobalKeyTarget = (target) =>
+    target === window ||
+    target === document ||
+    target === document.body ||
+    target === document.documentElement;
+  const isTerminalCtrlW = (event) => {
+    const target = event?.target instanceof Element ? event.target : null;
+    const key = typeof event?.key === "string" ? event.key.toLowerCase() : "";
+    return (
+      event?.ctrlKey === true &&
+      event.metaKey !== true &&
+      event.altKey !== true &&
+      event.shiftKey !== true &&
+      (key === "w" || event.code === "KeyW") &&
+      target?.closest?.("[data-codex-terminal]") != null
+    );
+  };
+  const invokeListener = (listener, thisArg, event) =>
+    typeof listener === "function"
+      ? listener.call(thisArg, event)
+      : listener.handleEvent.call(listener, event);
+  const preventTerminalCtrlWBrowserDefault = (event) => {
+    if (isTerminalCtrlW(event)) {
+      event.preventDefault?.();
+    }
+  };
+  originalAddEventListener.call(
+    window,
+    "keydown",
+    preventTerminalCtrlWBrowserDefault,
+    true,
+  );
+  originalAddEventListener.call(
+    document,
+    "keydown",
+    preventTerminalCtrlWBrowserDefault,
+    true,
+  );
+  EventTarget.prototype.addEventListener = function (type, listener, options) {
+    if (
+      type !== "keydown" ||
+      (typeof listener !== "function" &&
+        typeof listener?.handleEvent !== "function")
+    ) {
+      return originalAddEventListener.call(this, type, listener, options);
+    }
+    let wrapped = keydownListenerWrappers.get(listener);
+    if (wrapped == null) {
+      wrapped = function (event) {
+        if (isTerminalCtrlW(event) && isGlobalKeyTarget(this)) {
+          event.preventDefault?.();
+          return;
+        }
+        return invokeListener(listener, this, event);
+      };
+      keydownListenerWrappers.set(listener, wrapped);
+    }
+    return originalAddEventListener.call(this, type, wrapped, options);
+  };
+  EventTarget.prototype.removeEventListener = function (type, listener, options) {
+    const wrapped =
+      type === "keydown" && listener != null
+        ? keydownListenerWrappers.get(listener)
+        : null;
+    return originalRemoveEventListener.call(
+      this,
+      type,
+      wrapped ?? listener,
+      options,
+    );
+  };
+})();`;
 }
 
 function statsigOverrideBootstrapScript(): string {
