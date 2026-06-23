@@ -1,6 +1,7 @@
 export type SyncIpcEnvironment = {
   appVersion: string;
   buildFlavor: string;
+  getCurrentRoute?: () => string;
   getSystemThemeVariant: () => "dark" | "light" | string;
 };
 
@@ -12,12 +13,25 @@ export type SharedObjectSnapshot = {
   };
   pending_worktrees: unknown[];
   remote_connections: unknown[];
+  remote_ssh_connections: unknown[];
   remote_control_connections: unknown[];
   remote_control_connections_state: {
     authRequired: boolean;
     available: boolean;
   };
   statsig_default_enable_features: Record<string, boolean>;
+};
+
+export const REMOTE_DEFAULT_HOST_ID = "remote:default";
+export const LOCAL_HOST_CONFIG = {
+  id: "local",
+  display_name: "Local",
+  kind: "local",
+};
+export const REMOTE_DEFAULT_HOST_CONFIG = {
+  id: REMOTE_DEFAULT_HOST_ID,
+  display_name: "Remote",
+  kind: "ssh",
 };
 
 export function handleSyncIpc(
@@ -43,7 +57,7 @@ export function handleSyncIpc(
   }
 
   if (channel === "codex_desktop:get-shared-object-snapshot") {
-    return sharedObjectSnapshot();
+    return sharedObjectSnapshot(env.getCurrentRoute?.());
   }
 
   if (channel === "codex_desktop:get-system-theme-variant") {
@@ -53,14 +67,123 @@ export function handleSyncIpc(
   throw new Error(`Unsupported ipcRenderer.sendSync channel: ${channel}`);
 }
 
-function sharedObjectSnapshot(): SharedObjectSnapshot {
+export function hostConfigForRoute(route: string | undefined): {
+  display_name: string;
+  id: string;
+  kind: string;
+} {
+  return isSettingsRoute(route)
+    ? { ...LOCAL_HOST_CONFIG }
+    : { ...REMOTE_DEFAULT_HOST_CONFIG };
+}
+
+export function normalizeSharedObjectUpdateForRoute(
+  message: unknown,
+  route: string | undefined,
+): unknown {
+  if (
+    !isRecord(message) ||
+    message.type !== "shared-object-updated" ||
+    message.key !== "host_config"
+  ) {
+    return message;
+  }
+
   return {
-    host_config: {
-      id: "local",
-      display_name: "Local",
-      kind: "local",
-    },
-    remote_connections: [],
+    ...message,
+    value: hostConfigForRoute(route),
+  };
+}
+
+export function isReadConfigForHostFetchMessage(
+  message: unknown,
+): message is { requestId: string; type: "fetch"; url: string } {
+  if (
+    !isRecord(message) ||
+    message.type !== "fetch" ||
+    typeof message.requestId !== "string" ||
+    typeof message.url !== "string"
+  ) {
+    return false;
+  }
+
+  try {
+    const url = new URL(message.url);
+    return (
+      url.protocol === "vscode:" &&
+      url.href === "vscode://codex/read-config-for-host"
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function normalizeReadConfigForHostFetchResponse(
+  message: unknown,
+): unknown {
+  if (
+    !isRecord(message) ||
+    message.type !== "fetch-response" ||
+    message.responseType !== "success" ||
+    typeof message.bodyJsonString !== "string"
+  ) {
+    return message;
+  }
+
+  let body: unknown;
+  try {
+    body = JSON.parse(message.bodyJsonString);
+  } catch {
+    return message;
+  }
+
+  if (!isRecord(body) || !isRecord(body.config)) {
+    return message;
+  }
+
+  const features = isRecord(body.config.features) ? body.config.features : {};
+  return {
+    ...message,
+    bodyJsonString: JSON.stringify({
+      ...body,
+      config: {
+        ...body.config,
+        features: {
+          ...features,
+          remote_connections: true,
+          remote_ssh_connections: true,
+        },
+      },
+    }),
+  };
+}
+
+function isSettingsRoute(route: string | undefined): boolean {
+  return route === "/settings" || route?.startsWith("/settings/");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function remoteDefaultConnection() {
+  return {
+    hostId: REMOTE_DEFAULT_HOST_ID,
+    displayName: "Remote",
+    source: "codex-web",
+    sshHost: "remote",
+    sshPort: null,
+    sshAlias: null,
+    identity: null,
+    autoConnect: true,
+  };
+}
+
+function sharedObjectSnapshot(route?: string): SharedObjectSnapshot {
+  return {
+    host_config: hostConfigForRoute(route),
+    remote_connections: [remoteDefaultConnection()],
+    remote_ssh_connections: [remoteDefaultConnection()],
     remote_control_connections: [],
     remote_control_connections_state: {
       available: false,
@@ -82,6 +205,8 @@ function sharedObjectSnapshot(): SharedObjectSnapshot {
       tool_search: true,
       tool_suggest: false,
       tool_call_mcp_elicitation: true,
+      remote_connections: true,
+      remote_ssh_connections: true,
       memories: false,
       realtime_conversation: false,
     },

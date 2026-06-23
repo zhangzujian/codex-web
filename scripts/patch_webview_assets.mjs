@@ -1,39 +1,80 @@
 #!/usr/bin/env node
 
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { patchBrowserPanelIframeAsset } from "./patch_browser_panel_iframe.mjs";
 import { patchTerminalSidePanelSupport } from "./patch_terminal_side_panel.mjs";
-import { patchWebviewAutomationsEmptyStateIconAssets } from "./patch_webview_automations_empty_state_icon.mjs";
-import { patchWebviewAutomationsNavAssets } from "./patch_webview_automations_nav.mjs";
-import { patchWebviewClipboardAssets } from "./patch_webview_clipboard.mjs";
-import { patchWebviewConsoleNoiseAssets } from "./patch_webview_console_noise.mjs";
-import { patchWebviewI18nAssets } from "./patch_webview_i18n.mjs";
-import { patchWebviewMarkdownRetryAssets } from "./patch_webview_markdown_retry.mjs";
-import { patchWebviewMobileSidebarAssets } from "./patch_webview_mobile_sidebar.mjs";
-import { patchWebviewMobileTabLayoutAssets } from "./patch_webview_mobile_tab_layout.mjs";
-import { patchWebviewOpenTargetLabelsAssets } from "./patch_webview_open_target_labels.mjs";
-import { patchWebviewThreadDeleteAssets } from "./patch_webview_thread_delete.mjs";
-import { patchWebviewTurnStreamingAssets } from "./patch_webview_turn_streaming.mjs";
+
+const STATSIG_OPTIONS_PATTERN =
+  /(\b[$A-Za-z_][\w$]*\s*=\s*)\{\s*networkConfig\s*:\s*\{\s*api\s*:\s*([^,}]+?)\s*,\s*logEventUrl\s*:\s*([^,}]+?)\s*,\s*sdkExceptionUrl\s*:\s*([^,}]+?)\s*,\s*networkOverrideFunc\s*:\s*([^,}]+?)\s*,?\s*\}\s*,?\s*\}/s;
+const PATCHED_STATSIG_OPTIONS_PATTERN =
+  /\b[$A-Za-z_][\w$]*\s*=\s*\{\s*overrideAdapter\s*:\s*window\.__ELECTRON_SHIM__\.overrideAdapter\s*,\s*disableLogging\s*:\s*true\s*,\s*networkConfig\s*:\s*\{(?=[^}]*\bapi\s*:)(?=[^}]*\blogEventUrl\s*:)(?=[^}]*\bsdkExceptionUrl\s*:)(?=[^}]*\bpreventAllNetworkTraffic\s*:\s*true)(?=[^}]*\bnetworkOverrideFunc\s*:)[^}]*\}/s;
+const PARTIAL_PATCHED_STATSIG_OPTIONS_PATTERN =
+  /\b[$A-Za-z_][\w$]*\s*=\s*\{\s*overrideAdapter\s*:\s*window\.__ELECTRON_SHIM__\.overrideAdapter\s*,\s*networkConfig\s*:\s*\{(?=[^}]*\bapi\s*:)(?=[^}]*\blogEventUrl\s*:)(?=[^}]*\bsdkExceptionUrl\s*:)(?=[^}]*\bpreventAllNetworkTraffic\s*:\s*true)(?=[^}]*\bnetworkOverrideFunc\s*:)[^}]*\}/s;
 
 export function patchWebviewAssets(assetsDir) {
   const patchedFiles = [
-    ...patchWebviewOpenTargetLabelsAssets(assetsDir),
-    ...patchWebviewThreadDeleteAssets(assetsDir),
-    ...patchWebviewI18nAssets(assetsDir),
-    ...patchWebviewConsoleNoiseAssets(assetsDir),
-    ...patchWebviewMarkdownRetryAssets(assetsDir),
-    ...patchWebviewTurnStreamingAssets(assetsDir),
+    // ponytail: keep only browser access plumbing; no desktop UI/UX asset rewrites.
     ...patchTerminalSidePanelSupport(assetsDir),
-    ...patchWebviewAutomationsNavAssets(assetsDir),
-    ...patchWebviewAutomationsEmptyStateIconAssets(assetsDir),
-    ...patchWebviewClipboardAssets(assetsDir),
-    ...patchWebviewMobileSidebarAssets(assetsDir),
-    ...patchWebviewMobileTabLayoutAssets(assetsDir),
     patchBrowserPanelIframeAsset(assetsDir),
+    patchStatsigTelemetryDisableAsset(assetsDir),
   ];
 
   return [...new Set(patchedFiles)];
+}
+
+export function patchStatsigTelemetryDisableSupport(source) {
+  if (PATCHED_STATSIG_OPTIONS_PATTERN.test(source)) {
+    return source;
+  }
+  if (
+    !/disableLogging\s*:\s*true/.test(source) &&
+    PARTIAL_PATCHED_STATSIG_OPTIONS_PATTERN.test(source)
+  ) {
+    const patched = source.replace(
+      /(overrideAdapter\s*:\s*window\.__ELECTRON_SHIM__\.overrideAdapter\s*,?)/,
+      "$1disableLogging:true,",
+    );
+    if (patched !== source) {
+      return patched;
+    }
+  }
+  if (!STATSIG_OPTIONS_PATTERN.test(source)) {
+    throw new Error("Statsig init options not found");
+  }
+  return source.replace(
+    STATSIG_OPTIONS_PATTERN,
+    (_match, prefix, api, logEventUrl, sdkExceptionUrl, networkOverrideFunc) =>
+      `${prefix}{overrideAdapter:window.__ELECTRON_SHIM__.overrideAdapter,disableLogging:true,networkConfig:{api:${api.trim()},logEventUrl:${logEventUrl.trim()},sdkExceptionUrl:${sdkExceptionUrl.trim()},preventAllNetworkTraffic:true,networkOverrideFunc:${networkOverrideFunc.trim()}}}`,
+  );
+}
+
+export function patchStatsigTelemetryDisableAsset(assetsDir) {
+  const candidates = fs
+    .readdirSync(assetsDir)
+    .filter((name) => name.endsWith(".js"))
+    .map((name) => path.join(assetsDir, name))
+    .filter((assetPath) =>
+      fs.readFileSync(assetPath, "utf8").includes("networkOverrideFunc"),
+    );
+
+  for (const assetPath of candidates) {
+    const source = fs.readFileSync(assetPath, "utf8");
+    let patched;
+    try {
+      patched = patchStatsigTelemetryDisableSupport(source);
+    } catch {
+      continue;
+    }
+    if (patched !== source) {
+      fs.writeFileSync(assetPath, patched);
+      return assetPath;
+    }
+    return assetPath;
+  }
+
+  throw new Error(`Statsig asset not found in ${assetsDir}`);
 }
 
 const invokedPath = process.argv[1]

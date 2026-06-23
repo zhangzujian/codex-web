@@ -11,7 +11,13 @@ import {
   openSelectWorkspaceRootDialog,
   type WorkspaceDirectoryEntries,
 } from "./workspace-root-dialog";
-import { handleSyncIpc } from "./sync-ipc.mts";
+import {
+  handleSyncIpc,
+  hostConfigForRoute,
+  isReadConfigForHostFetchMessage,
+  normalizeReadConfigForHostFetchResponse,
+  normalizeSharedObjectUpdateForRoute,
+} from "./sync-ipc.mts";
 import { createStatsigOverrideAdapter } from "./statsig-overrides.mts";
 import { getPathForFile } from "./web-utils.mts";
 import {
@@ -138,14 +144,17 @@ const pendingDirectoryEntries = new Map<
     resolve: (value: WorkspaceDirectoryEntries) => void;
   }
 >();
+const readConfigForHostRequestIds = new Set<string>();
 const rendererListeners = new Map<string, Set<IpcListener>>();
 const virtualPorts = new Map<string, MessagePort>();
+let currentMemoryPath = "/";
 
 export function emitRendererEvent(
   channel: string,
   args: unknown[],
   portIds: string[] = [],
 ): void {
+  const normalizedArgs = normalizeRendererEventArgs(channel, args);
   const listeners = rendererListeners.get(channel);
   if (!listeners || listeners.size === 0) {
     return;
@@ -158,8 +167,35 @@ export function emitRendererEvent(
     sender: null,
   };
   for (const listener of listeners) {
-    listener(event, ...args);
+    listener(event, ...normalizedArgs);
   }
+}
+
+function normalizeRendererEventArgs(
+  channel: string,
+  args: unknown[],
+): unknown[] {
+  if (channel !== "codex_desktop:message-for-view" || args.length === 0) {
+    return args;
+  }
+  const message = normalizeRendererMessageForView(
+    normalizeSharedObjectUpdateForRoute(args[0], currentMemoryPath),
+  );
+  return [message, ...args.slice(1)];
+}
+
+function normalizeRendererMessageForView(message: unknown): unknown {
+  if (!isRecord(message) || typeof message.requestId !== "string") {
+    return message;
+  }
+  if (!readConfigForHostRequestIds.has(message.requestId)) {
+    return message;
+  }
+  if (message.type === "fetch-response") {
+    readConfigForHostRequestIds.delete(message.requestId);
+    return normalizeReadConfigForHostFetchResponse(message);
+  }
+  return message;
 }
 
 function handleIncomingMessage(message: MainToRendererMessage): void {
@@ -220,6 +256,18 @@ function flushOutboundQueue(): void {
   }
 }
 
+function rejectPendingRequests(error: Error): void {
+  for (const [requestId, pending] of pendingInvokes) {
+    pendingInvokes.delete(requestId);
+    pending.reject(error);
+  }
+  for (const [requestId, pending] of pendingDirectoryEntries) {
+    pendingDirectoryEntries.delete(requestId);
+    pending.reject(error);
+  }
+  readConfigForHostRequestIds.clear();
+}
+
 function scheduleReconnect(): void {
   if (reconnectTimeoutId !== null) {
     return;
@@ -262,9 +310,11 @@ function ensureSocket(): void {
     }
   });
   socket.addEventListener("close", () => {
+    rejectPendingRequests(new Error("IPC bridge socket closed"));
     scheduleReconnect();
   });
   socket.addEventListener("error", () => {
+    rejectPendingRequests(new Error("IPC bridge socket error"));
     scheduleReconnect();
   });
 }
@@ -389,6 +439,7 @@ const initialRoute = mapBrowserPathToInitialRoute(
   window.location.pathname,
   window.location.search,
 );
+currentMemoryPath = initialRoute.memoryPath;
 const initialSidebarState = initialSidebarStateForRoute(
   window,
   initialRoute.memoryPath,
@@ -402,6 +453,8 @@ if (initialRoute.browserPath) {
 electronShim.initialSidebarState = initialSidebarState;
 electronShim.onMemoryNavigationChanged = (navigation) => {
   const path = navigation.location.pathname;
+  currentMemoryPath = path;
+  emitRouteScopedHostConfigUpdate();
   if (
     navigation.action !== "POP" &&
     isMobileSidebarViewport(window) &&
@@ -426,6 +479,16 @@ electronShim.onMemoryNavigationChanged = (navigation) => {
 
   window.history.pushState(undefined, "", browserPath.path);
 };
+
+function emitRouteScopedHostConfigUpdate(): void {
+  emitRendererEvent("codex_desktop:message-for-view", [
+    {
+      type: "shared-object-updated",
+      key: "host_config",
+      value: hostConfigForRoute(currentMemoryPath),
+    },
+  ]);
+}
 
 const buildFlavor: "prod" | "dev" | "agent" | string = "prod";
 
@@ -462,6 +525,10 @@ installCryptoRandomUuidFallback();
 export const ipcRenderer = {
   invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     if (channel === "codex_desktop:message-from-view" && args.length === 1) {
+      if (isReadConfigForHostFetchMessage(args[0])) {
+        readConfigForHostRequestIds.add(args[0].requestId);
+      }
+
       if (isOpenInBrowserMessage(args[0])) {
         window.open(args[0].url, "_blank", "noopener,noreferrer");
       }
@@ -540,6 +607,7 @@ export const ipcRenderer = {
     return handleSyncIpc(channel, {
       appVersion: __CODEX_APP_VERSION__,
       buildFlavor,
+      getCurrentRoute: () => currentMemoryPath,
       getSystemThemeVariant: () => (themeMediaQuery.matches ? "dark" : "light"),
     });
   },

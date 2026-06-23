@@ -18,11 +18,15 @@ import fastifyStatic from "@fastify/static";
 import { installModuleAliasHook } from "./module";
 import { glob } from "glob";
 import {
-  createNodePtyTerminalSessionFactory,
+  createCommandExecRemoteProcessConnection,
+  createRemoteTerminalSessionFactory,
   createTerminalSocketHandler,
   defaultTerminalCwd,
   terminalStylesheetHrefs,
+  type AppServerRpcClient,
+  type TerminalSessionFactory,
 } from "./terminal";
+import { createCodexAppServerClient } from "./app-server-client";
 import {
   createBrowserPanelRuntime,
   handleBrowserPanelRuntimeIpcMessage,
@@ -31,6 +35,14 @@ import {
   canHandleNativeOpenFetchMessage,
   handleNativeOpenFetchMessage,
 } from "./native-open";
+import {
+  canHandleRemoteDefaultFetchMessage,
+  handleRemoteDefaultFetchMessage,
+} from "./remote-default-fetch";
+import {
+  canHandleRemoteDefaultMcpMessage,
+  handleRemoteDefaultMcpMessage,
+} from "./remote-default-mcp";
 
 type ServerOptions = {
   auth?: {
@@ -302,6 +314,10 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function sendSocketMessage(
   socket: WebSocket,
   message: MainToRendererMessage,
@@ -371,15 +387,27 @@ function createVirtualMessagePort({
   };
 }
 
-async function getWorkspaceDirectoryEntries({
-  directoryPath,
-  directoriesOnly,
-}: {
-  directoryPath: string | null;
-  directoriesOnly: boolean;
-}): Promise<WorkspaceDirectoryEntries> {
+export async function getWorkspaceDirectoryEntries(
+  {
+    directoryPath,
+    directoriesOnly,
+  }: {
+    directoryPath: string | null;
+    directoriesOnly: boolean;
+  },
+  appServerClient?: {
+    rpc: (method: string, params: unknown) => Promise<unknown>;
+  },
+): Promise<WorkspaceDirectoryEntries> {
   const requestedPath = directoryPath?.trim() || os.homedir();
   const resolvedPath = path.resolve(requestedPath);
+  if (appServerClient) {
+    return getRemoteWorkspaceDirectoryEntries({
+      appServerClient,
+      directoriesOnly,
+      resolvedPath,
+    });
+  }
   const stat = await fs.stat(resolvedPath);
   if (!stat.isDirectory()) {
     throw new Error(`Directory not found: ${requestedPath}`);
@@ -411,6 +439,69 @@ async function getWorkspaceDirectoryEntries({
     parentPath,
     entries,
   };
+}
+
+async function getRemoteWorkspaceDirectoryEntries({
+  appServerClient,
+  directoriesOnly,
+  resolvedPath,
+}: {
+  appServerClient: {
+    rpc: (method: string, params: unknown) => Promise<unknown>;
+  };
+  directoriesOnly: boolean;
+  resolvedPath: string;
+}): Promise<WorkspaceDirectoryEntries> {
+  const response = await appServerClient.rpc("fs/readDirectory", {
+    path: resolvedPath,
+  });
+  const entries = remoteFsReadDirectoryEntries(response)
+    .flatMap((entry): WorkspaceDirectoryEntry[] => {
+      const type = entry.isDirectory ? "directory" : "file";
+      if (directoriesOnly && type !== "directory") {
+        return [];
+      }
+      return [
+        {
+          name: entry.fileName,
+          path: path.join(resolvedPath, entry.fileName),
+          type,
+        },
+      ];
+    })
+    .sort(compareWorkspaceDirectoryEntries);
+  const rootPath = path.parse(resolvedPath).root;
+  return {
+    directoryPath: resolvedPath,
+    parentPath: resolvedPath === rootPath ? null : path.dirname(resolvedPath),
+    entries,
+  };
+}
+
+function remoteFsReadDirectoryEntries(
+  response: unknown,
+): Array<{ fileName: string; isDirectory: boolean }> {
+  if (!isRecord(response) || !Array.isArray(response.entries)) {
+    return [];
+  }
+  return response.entries.flatMap(
+    (
+      entry,
+    ): Array<{
+      fileName: string;
+      isDirectory: boolean;
+    }> => {
+      if (!isRecord(entry) || typeof entry.fileName !== "string") {
+        return [];
+      }
+      return [
+        {
+          fileName: entry.fileName,
+          isDirectory: entry.isDirectory === true,
+        },
+      ];
+    },
+  );
 }
 
 function ensureElectronLikeProcessContext(): void {
@@ -472,17 +563,37 @@ function ensureElectronLikeProcessContext(): void {
   }
 }
 
+export function createDefaultTerminalSessionFactory(
+  appServerClient: AppServerRpcClient = createCodexAppServerClient(),
+): TerminalSessionFactory {
+  return createRemoteTerminalSessionFactory(
+    createCommandExecRemoteProcessConnection(appServerClient),
+  );
+}
+
+function resolveRemoteTerminalCwd(requestedCwd: string | undefined): string {
+  return path.resolve(requestedCwd?.trim() || os.homedir());
+}
+
 async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
+  ensureElectronLikeProcessContext();
   const bridgeState = getIpcMainBridgeState();
   const app = Fastify(await createFastifyOptions(options));
   const websocketServer = new WebSocketServer({ noServer: true });
   const terminalWebsocketServer = new WebSocketServer({ noServer: true });
   const sockets = new Set<WebSocket>();
   const backendWebSocketToken = randomUUID();
-  const terminalSessionFactory = createNodePtyTerminalSessionFactory();
+  const appServerClient = createCodexAppServerClient();
+  const terminalSessionFactory =
+    createDefaultTerminalSessionFactory(appServerClient);
   const handleTerminalSocket = createTerminalSocketHandler(
     terminalSessionFactory,
+    { resolveCwd: resolveRemoteTerminalCwd },
   );
+
+  app.addHook("onClose", async () => {
+    appServerClient.dispose();
+  });
 
   await app.register(fastifyMultipart, {
     limits: {
@@ -737,6 +848,24 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
           });
           return;
         }
+        if (
+          message.channel === "codex_desktop:message-from-view" &&
+          canHandleRemoteDefaultFetchMessage(message.args[0])
+        ) {
+          void handleRemoteDefaultFetchMessage(message.args[0], {
+            respond: (payload) => bridgeState.broadcastToRenderer?.(payload),
+          });
+          return;
+        }
+        if (
+          message.channel === "codex_desktop:message-from-view" &&
+          canHandleRemoteDefaultMcpMessage(message.args[0])
+        ) {
+          void handleRemoteDefaultMcpMessage(message.args[0], {
+            respond: (payload) => bridgeState.broadcastToRenderer?.(payload),
+          });
+          return;
+        }
         const handledByBrowserPanelRuntime =
           handleBrowserPanelRuntimeIpcMessage(
             browserPanelRuntime,
@@ -757,7 +886,7 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
 
       if (message.type === "workspace-directory-entries-request") {
         const { requestId } = message;
-        getWorkspaceDirectoryEntries(message)
+        getWorkspaceDirectoryEntries(message, appServerClient)
           .then((result) => {
             const payload: MainToRendererMessage = {
               type: "workspace-directory-entries-result",
@@ -790,6 +919,36 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
           canHandleNativeOpenFetchMessage(args[0])
         ) {
           void handleNativeOpenFetchMessage(args[0], {
+            respond: (payload) => bridgeState.broadcastToRenderer?.(payload),
+          });
+          sendSocketMessage(socket, {
+            type: "ipc-renderer-invoke-result",
+            requestId,
+            ok: true,
+            result: undefined,
+          });
+          return;
+        }
+        if (
+          channel === "codex_desktop:message-from-view" &&
+          canHandleRemoteDefaultFetchMessage(args[0])
+        ) {
+          void handleRemoteDefaultFetchMessage(args[0], {
+            respond: (payload) => bridgeState.broadcastToRenderer?.(payload),
+          });
+          sendSocketMessage(socket, {
+            type: "ipc-renderer-invoke-result",
+            requestId,
+            ok: true,
+            result: undefined,
+          });
+          return;
+        }
+        if (
+          channel === "codex_desktop:message-from-view" &&
+          canHandleRemoteDefaultMcpMessage(args[0])
+        ) {
+          void handleRemoteDefaultMcpMessage(args[0], {
             respond: (payload) => bridgeState.broadcastToRenderer?.(payload),
           });
           sendSocketMessage(socket, {
@@ -994,6 +1153,9 @@ export function shouldServeWebviewShellPath(requestPath: string): boolean {
   }
   if (pathname === "/share/receive") {
     return search.length > 0;
+  }
+  if (pathname === "/settings" || pathname.startsWith("/settings/")) {
+    return true;
   }
   return /^\/thread\/[^/]+$/.test(pathname);
 }
@@ -1239,6 +1401,9 @@ function statsigOverrideBootstrapScript(): string {
   shim.overrideAdapter = {
     getGateOverride(evaluation) {
       if (evaluation?.name === "3075919032") {
+        return { ...evaluation, value: true };
+      }
+      if (evaluation?.name === "4114442250" || evaluation?.name === "1042620455") {
         return { ...evaluation, value: true };
       }
       if (evaluation?.name === "2929582856") {

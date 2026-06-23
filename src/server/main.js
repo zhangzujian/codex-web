@@ -6,6 +6,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.parseServerArgs = parseServerArgs;
 exports.createFastifyOptions = createFastifyOptions;
+exports.getWorkspaceDirectoryEntries = getWorkspaceDirectoryEntries;
+exports.createDefaultTerminalSessionFactory = createDefaultTerminalSessionFactory;
 exports.isAllowedBackendWebSocketRequest = isAllowedBackendWebSocketRequest;
 exports.shouldBlockFsRequestPath = shouldBlockFsRequestPath;
 exports.shouldServeWebviewShellPath = shouldServeWebviewShellPath;
@@ -27,8 +29,11 @@ const static_1 = __importDefault(require("@fastify/static"));
 const module_1 = require("./module");
 const glob_1 = require("glob");
 const terminal_1 = require("./terminal");
+const app_server_client_1 = require("./app-server-client");
 const browser_panel_runtime_1 = require("./browser-panel-runtime");
 const native_open_1 = require("./native-open");
+const remote_default_fetch_1 = require("./remote-default-fetch");
+const remote_default_mcp_1 = require("./remote-default-mcp");
 function workspaceDirectoryEntryTypeRank(entry) {
     return entry.type === "directory" ? 0 : 1;
 }
@@ -147,6 +152,9 @@ function errorMessage(error) {
     }
     return String(error);
 }
+function isRecord(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 function sendSocketMessage(socket, message) {
     if (socket.readyState === ws_1.WebSocket.OPEN) {
         socket.send(JSON.stringify(message));
@@ -201,9 +209,16 @@ function createVirtualMessagePort({ onClose, portId, socket, }) {
         },
     };
 }
-async function getWorkspaceDirectoryEntries({ directoryPath, directoriesOnly, }) {
+async function getWorkspaceDirectoryEntries({ directoryPath, directoriesOnly, }, appServerClient) {
     const requestedPath = directoryPath?.trim() || node_os_1.default.homedir();
     const resolvedPath = node_path_1.default.resolve(requestedPath);
+    if (appServerClient) {
+        return getRemoteWorkspaceDirectoryEntries({
+            appServerClient,
+            directoriesOnly,
+            resolvedPath,
+        });
+    }
     const stat = await promises_1.default.stat(resolvedPath);
     if (!stat.isDirectory()) {
         throw new Error(`Directory not found: ${requestedPath}`);
@@ -230,6 +245,48 @@ async function getWorkspaceDirectoryEntries({ directoryPath, directoriesOnly, })
         parentPath,
         entries,
     };
+}
+async function getRemoteWorkspaceDirectoryEntries({ appServerClient, directoriesOnly, resolvedPath, }) {
+    const response = await appServerClient.rpc("fs/readDirectory", {
+        path: resolvedPath,
+    });
+    const entries = remoteFsReadDirectoryEntries(response)
+        .flatMap((entry) => {
+        const type = entry.isDirectory ? "directory" : "file";
+        if (directoriesOnly && type !== "directory") {
+            return [];
+        }
+        return [
+            {
+                name: entry.fileName,
+                path: node_path_1.default.join(resolvedPath, entry.fileName),
+                type,
+            },
+        ];
+    })
+        .sort(compareWorkspaceDirectoryEntries);
+    const rootPath = node_path_1.default.parse(resolvedPath).root;
+    return {
+        directoryPath: resolvedPath,
+        parentPath: resolvedPath === rootPath ? null : node_path_1.default.dirname(resolvedPath),
+        entries,
+    };
+}
+function remoteFsReadDirectoryEntries(response) {
+    if (!isRecord(response) || !Array.isArray(response.entries)) {
+        return [];
+    }
+    return response.entries.flatMap((entry) => {
+        if (!isRecord(entry) || typeof entry.fileName !== "string") {
+            return [];
+        }
+        return [
+            {
+                fileName: entry.fileName,
+                isDirectory: entry.isDirectory === true,
+            },
+        ];
+    });
 }
 function ensureElectronLikeProcessContext() {
     if (!process.env.CODEX_CLI_PATH && process.env.CODEX_UNIX_SOCKET) {
@@ -267,15 +324,26 @@ function ensureElectronLikeProcessContext() {
         processWithLinkedBinding._codexWebLinkedBindingShimInstalled = true;
     }
 }
+function createDefaultTerminalSessionFactory(appServerClient = (0, app_server_client_1.createCodexAppServerClient)()) {
+    return (0, terminal_1.createRemoteTerminalSessionFactory)((0, terminal_1.createCommandExecRemoteProcessConnection)(appServerClient));
+}
+function resolveRemoteTerminalCwd(requestedCwd) {
+    return node_path_1.default.resolve(requestedCwd?.trim() || node_os_1.default.homedir());
+}
 async function startIpcBridgeServer(options) {
+    ensureElectronLikeProcessContext();
     const bridgeState = getIpcMainBridgeState();
     const app = (0, fastify_1.default)(await createFastifyOptions(options));
     const websocketServer = new ws_1.WebSocketServer({ noServer: true });
     const terminalWebsocketServer = new ws_1.WebSocketServer({ noServer: true });
     const sockets = new Set();
     const backendWebSocketToken = (0, node_crypto_1.randomUUID)();
-    const terminalSessionFactory = (0, terminal_1.createNodePtyTerminalSessionFactory)();
-    const handleTerminalSocket = (0, terminal_1.createTerminalSocketHandler)(terminalSessionFactory);
+    const appServerClient = (0, app_server_client_1.createCodexAppServerClient)();
+    const terminalSessionFactory = createDefaultTerminalSessionFactory(appServerClient);
+    const handleTerminalSocket = (0, terminal_1.createTerminalSocketHandler)(terminalSessionFactory, { resolveCwd: resolveRemoteTerminalCwd });
+    app.addHook("onClose", async () => {
+        appServerClient.dispose();
+    });
     await app.register(multipart_1.default, {
         limits: {
             fileSize: Infinity,
@@ -470,6 +538,20 @@ async function startIpcBridgeServer(options) {
                     });
                     return;
                 }
+                if (message.channel === "codex_desktop:message-from-view" &&
+                    (0, remote_default_fetch_1.canHandleRemoteDefaultFetchMessage)(message.args[0])) {
+                    void (0, remote_default_fetch_1.handleRemoteDefaultFetchMessage)(message.args[0], {
+                        respond: (payload) => bridgeState.broadcastToRenderer?.(payload),
+                    });
+                    return;
+                }
+                if (message.channel === "codex_desktop:message-from-view" &&
+                    (0, remote_default_mcp_1.canHandleRemoteDefaultMcpMessage)(message.args[0])) {
+                    void (0, remote_default_mcp_1.handleRemoteDefaultMcpMessage)(message.args[0], {
+                        respond: (payload) => bridgeState.broadcastToRenderer?.(payload),
+                    });
+                    return;
+                }
                 const handledByBrowserPanelRuntime = (0, browser_panel_runtime_1.handleBrowserPanelRuntimeIpcMessage)(browserPanelRuntime, message.channel, message.args);
                 if (handledByBrowserPanelRuntime) {
                     return;
@@ -479,7 +561,7 @@ async function startIpcBridgeServer(options) {
             }
             if (message.type === "workspace-directory-entries-request") {
                 const { requestId } = message;
-                getWorkspaceDirectoryEntries(message)
+                getWorkspaceDirectoryEntries(message, appServerClient)
                     .then((result) => {
                     const payload = {
                         type: "workspace-directory-entries-result",
@@ -509,6 +591,32 @@ async function startIpcBridgeServer(options) {
                 if (channel === "codex_desktop:message-from-view" &&
                     (0, native_open_1.canHandleNativeOpenFetchMessage)(args[0])) {
                     void (0, native_open_1.handleNativeOpenFetchMessage)(args[0], {
+                        respond: (payload) => bridgeState.broadcastToRenderer?.(payload),
+                    });
+                    sendSocketMessage(socket, {
+                        type: "ipc-renderer-invoke-result",
+                        requestId,
+                        ok: true,
+                        result: undefined,
+                    });
+                    return;
+                }
+                if (channel === "codex_desktop:message-from-view" &&
+                    (0, remote_default_fetch_1.canHandleRemoteDefaultFetchMessage)(args[0])) {
+                    void (0, remote_default_fetch_1.handleRemoteDefaultFetchMessage)(args[0], {
+                        respond: (payload) => bridgeState.broadcastToRenderer?.(payload),
+                    });
+                    sendSocketMessage(socket, {
+                        type: "ipc-renderer-invoke-result",
+                        requestId,
+                        ok: true,
+                        result: undefined,
+                    });
+                    return;
+                }
+                if (channel === "codex_desktop:message-from-view" &&
+                    (0, remote_default_mcp_1.canHandleRemoteDefaultMcpMessage)(args[0])) {
+                    void (0, remote_default_mcp_1.handleRemoteDefaultMcpMessage)(args[0], {
                         respond: (payload) => bridgeState.broadcastToRenderer?.(payload),
                     });
                     sendSocketMessage(socket, {
@@ -671,6 +779,9 @@ function shouldServeWebviewShellPath(requestPath) {
     }
     if (pathname === "/share/receive") {
         return search.length > 0;
+    }
+    if (pathname === "/settings" || pathname.startsWith("/settings/")) {
+        return true;
     }
     return /^\/thread\/[^/]+$/.test(pathname);
 }
@@ -850,6 +961,9 @@ function statsigOverrideBootstrapScript() {
   shim.overrideAdapter = {
     getGateOverride(evaluation) {
       if (evaluation?.name === "3075919032") {
+        return { ...evaluation, value: true };
+      }
+      if (evaluation?.name === "4114442250" || evaluation?.name === "1042620455") {
         return { ...evaluation, value: true };
       }
       if (evaluation?.name === "2929582856") {

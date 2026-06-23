@@ -9,7 +9,9 @@ function getIpcMainBridgeState() {
     return globals.__codexElectronIpcBridge;
 }
 function log(method, args) {
-    console.log(`[electron-main-stub] ${method}`, args);
+    if (process.env.CODEX_WEB_ELECTRON_STUB_DEBUG) {
+        process.stderr.write(`[electron-main-stub] ${method} ${args.length}\n`);
+    }
 }
 function createDeepStub(pathLabel) {
     const fn = (...args) => {
@@ -99,6 +101,59 @@ function extractVirtualPortIds(transfer) {
         : null)
         .filter((portId) => portId !== null) ?? []);
 }
+const REMOTE_DEFAULT_HOST_ID = "remote:default";
+const REMOTE_DEFAULT_HOST_CONFIG = {
+    id: REMOTE_DEFAULT_HOST_ID,
+    display_name: "Remote",
+    kind: "ssh",
+};
+const REMOTE_DEFAULT_CONNECTION = {
+    hostId: REMOTE_DEFAULT_HOST_ID,
+    displayName: "Remote",
+    source: "codex-web",
+    sshHost: "remote",
+    sshPort: null,
+    sshAlias: null,
+    identity: null,
+    autoConnect: true,
+};
+function isRecord(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function remoteDefaultSharedObjectValue(key, value) {
+    if (key === "host_config") {
+        return { ...REMOTE_DEFAULT_HOST_CONFIG };
+    }
+    if (key === "remote_connections" || key === "remote_ssh_connections") {
+        return [{ ...REMOTE_DEFAULT_CONNECTION }];
+    }
+    if (key === "statsig_default_enable_features") {
+        return {
+            ...(isRecord(value) ? value : {}),
+            remote_connections: true,
+            remote_ssh_connections: true,
+        };
+    }
+    return value;
+}
+function normalizeRendererIpcMessage(channel, message) {
+    if (channel !== "codex_desktop:message-for-view" ||
+        !isRecord(message) ||
+        message.type !== "shared-object-updated" ||
+        typeof message.key !== "string") {
+        return message;
+    }
+    return {
+        ...message,
+        value: remoteDefaultSharedObjectValue(message.key, message.value),
+    };
+}
+function normalizeRendererIpcArgs(channel, args) {
+    if (channel !== "codex_desktop:message-for-view" || args.length === 0) {
+        return args;
+    }
+    return [normalizeRendererIpcMessage(channel, args[0]), ...args.slice(1)];
+}
 const rendererUrl = "http://localhost:5175/";
 const rendererMainFrame = {
     url: rendererUrl,
@@ -116,7 +171,7 @@ const rendererWebContents = {
         getIpcMainBridgeState().broadcastToRenderer?.({
             type: "ipc-main-event",
             channel,
-            args: [message],
+            args: [normalizeRendererIpcMessage(channel, message)],
             ...(portIds.length > 0 ? { portIds } : {}),
         });
     },
@@ -125,7 +180,7 @@ const rendererWebContents = {
         getIpcMainBridgeState().broadcastToRenderer?.({
             type: "ipc-main-event",
             channel,
-            args,
+            args: normalizeRendererIpcArgs(channel, args),
         });
     },
 };
@@ -177,6 +232,7 @@ function createIpcMainStub() {
     };
 }
 let appReady = false;
+let appReadyPromise = null;
 const commandLineSwitches = new Map();
 const appBase = {
     ...createEmitterStub("app"),
@@ -225,8 +281,16 @@ const appBase = {
     },
     whenReady() {
         log("app.whenReady", []);
-        appReady = true;
-        return Promise.resolve();
+        if (appReady) {
+            return Promise.resolve();
+        }
+        appReadyPromise ??= new Promise((resolve) => {
+            setImmediate(() => {
+                appReady = true;
+                resolve();
+            });
+        });
+        return appReadyPromise;
     },
     commandLine: {
         appendSwitch(name, value) {
@@ -307,7 +371,7 @@ class BrowserWindow {
                 getIpcMainBridgeState().broadcastToRenderer?.({
                     type: "ipc-main-event",
                     channel,
-                    args: [message],
+                    args: [normalizeRendererIpcMessage(channel, message)],
                     ...(portIds.length > 0 ? { portIds } : {}),
                 });
             },
@@ -320,7 +384,7 @@ class BrowserWindow {
                 getIpcMainBridgeState().broadcastToRenderer?.({
                     type: "ipc-main-event",
                     channel,
-                    args,
+                    args: normalizeRendererIpcArgs(channel, args),
                 });
             },
         }, {

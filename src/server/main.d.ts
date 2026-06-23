@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { type AppServerRpcClient, type TerminalSessionFactory } from "./terminal";
 type ServerOptions = {
     auth?: {
         token: string;
@@ -9,6 +10,16 @@ type ServerOptions = {
         certPath: string;
         keyPath: string;
     };
+};
+type WorkspaceDirectoryEntry = {
+    name: string;
+    path: string;
+    type: "directory" | "file";
+};
+type WorkspaceDirectoryEntries = {
+    directoryPath: string;
+    parentPath: string | null;
+    entries: WorkspaceDirectoryEntry[];
 };
 export declare function parseServerArgs(args: string[], env?: NodeJS.ProcessEnv): ServerOptions;
 export declare function createFastifyOptions(options: ServerOptions): Promise<{
@@ -21,6 +32,13 @@ export declare function createFastifyOptions(options: ServerOptions): Promise<{
         key: string;
     };
 }>;
+export declare function getWorkspaceDirectoryEntries({ directoryPath, directoriesOnly, }: {
+    directoryPath: string | null;
+    directoriesOnly: boolean;
+}, appServerClient?: {
+    rpc: (method: string, params: unknown) => Promise<unknown>;
+}): Promise<WorkspaceDirectoryEntries>;
+export declare function createDefaultTerminalSessionFactory(appServerClient?: AppServerRpcClient): TerminalSessionFactory;
 export declare function isAllowedBackendWebSocketRequest({ host, origin, requestUrl, token, }: {
     host?: string | string[];
     origin?: string | string[];

@@ -6,13 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { patchWebviewAssets } from "./patch_webview_assets.mjs";
 
 const REQUIRED_UPSTREAM_ASSET_PATTERNS = Object.freeze([
-  /^app-main-[\w-]+\.js$/,
-  /^context-menu-[\w-]+\.js$/,
-  /^open-target-context-menu-items-[\w-]+\.js$/,
-  /^user-message-attachments-[\w-]+\.js$/,
-  /^workspace-file-context-menu-[\w-]+\.js$/,
-  /^zh-CN-[\w-]+\.js$/,
-  /statsig.*\.js$/,
+  /^browser-sidebar-manager-[\w-]+\.js$/,
 ]);
 
 export function hasUpstreamWebviewAssets(assetsDir) {

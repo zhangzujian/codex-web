@@ -35,6 +35,7 @@ export type StatsigOverrideAdapter = {
 
 const I18N_DYNAMIC_CONFIG_NAME = "72216192";
 const AUTOMATIONS_GATE_NAME = "3075919032";
+const REMOTE_CONNECTIONS_GATE_NAMES = new Set(["4114442250", "1042620455"]);
 
 function getI18nValue(value: Record<string, unknown> = {}) {
   return {
@@ -56,7 +57,10 @@ function readOverrideValue(
 export function createStatsigOverrideAdapter(): StatsigOverrideAdapter {
   return {
     getGateOverride(evaluation) {
-      if (evaluation.name === AUTOMATIONS_GATE_NAME) {
+      if (
+        evaluation.name === AUTOMATIONS_GATE_NAME ||
+        REMOTE_CONNECTIONS_GATE_NAMES.has(evaluation.name)
+      ) {
         return {
           ...evaluation,
           value: true,

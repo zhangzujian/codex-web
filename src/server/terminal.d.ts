@@ -51,10 +51,58 @@ export type TerminalSessionOptions = {
 export type TerminalSessionFactory = {
     createSession: (options: TerminalSessionOptions) => TerminalSession;
 };
+export type RemoteProcessOutputDelta = {
+    capReached?: boolean;
+    chunk: Buffer;
+};
+export type RemoteProcessSession = {
+    response: Promise<{
+        exitCode: number | null;
+    }>;
+    resize: (size: {
+        cols: number;
+        rows: number;
+    }) => Promise<unknown>;
+    terminate: () => Promise<unknown>;
+    write: (data: Buffer, options?: {
+        closeStdin?: boolean;
+    }) => Promise<unknown>;
+};
+export type RemoteProcessConnection = {
+    startProcess: (options: {
+        command: string[];
+        cwd: string;
+        env: Record<string, string | null>;
+        onStderrDelta: (delta: RemoteProcessOutputDelta) => void;
+        onStdoutDelta: (delta: RemoteProcessOutputDelta) => void;
+        outputBytesCap: null;
+        processHandle: string;
+        size: {
+            cols: number;
+            rows: number;
+        };
+        streamStdoutStderr: true;
+        timeoutMs: null;
+        tty: true;
+    }) => Promise<RemoteProcessSession>;
+};
+export type AppServerRpcClient = {
+    onNotification: (listener: (notification: {
+        method: string;
+        params: unknown;
+    }) => void) => () => void;
+    rpc: (method: string, params: unknown, options?: {
+        timeoutMs?: number | null;
+    }) => Promise<unknown>;
+};
 export declare function parseTerminalClientMessage(value: unknown): TerminalClientMessage;
 export declare function resolveTerminalCwd(requestedCwd: string | undefined): string;
-export declare function createTerminalSocketHandler(factory: TerminalSessionFactory): (socket: Pick<WebSocket, "on" | "send" | "close" | "readyState">) => void;
+export declare function createTerminalSocketHandler(factory: TerminalSessionFactory, { resolveCwd, }?: {
+    resolveCwd?: (requestedCwd: string | undefined) => string;
+}): (socket: Pick<WebSocket, "on" | "send" | "close" | "readyState">) => void;
 export declare function createNodePtyTerminalSessionFactory(): TerminalSessionFactory;
+export declare function createRemoteTerminalSessionFactory(connection: RemoteProcessConnection): TerminalSessionFactory;
+export declare function createCommandExecRemoteProcessConnection(client: AppServerRpcClient): RemoteProcessConnection;
 export declare function defaultTerminalCwd(): string;
 export declare function terminalStylesheetHrefs(assetFiles: string[]): string[];
 //# sourceMappingURL=terminal.d.ts.map

@@ -60,7 +60,9 @@ function getIpcMainBridgeState(): IpcMainBridgeState {
 }
 
 function log(method: string, args: unknown[]): void {
-  console.log(`[electron-main-stub] ${method}`, args);
+  if (process.env.CODEX_WEB_ELECTRON_STUB_DEBUG) {
+    process.stderr.write(`[electron-main-stub] ${method} ${args.length}\n`);
+  }
 }
 
 function createDeepStub(pathLabel: string): StubFunction {
@@ -175,6 +177,70 @@ function extractVirtualPortIds(transfer: unknown[] | undefined): string[] {
   );
 }
 
+const REMOTE_DEFAULT_HOST_ID = "remote:default";
+const REMOTE_DEFAULT_HOST_CONFIG = {
+  id: REMOTE_DEFAULT_HOST_ID,
+  display_name: "Remote",
+  kind: "ssh",
+};
+const REMOTE_DEFAULT_CONNECTION = {
+  hostId: REMOTE_DEFAULT_HOST_ID,
+  displayName: "Remote",
+  source: "codex-web",
+  sshHost: "remote",
+  sshPort: null,
+  sshAlias: null,
+  identity: null,
+  autoConnect: true,
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function remoteDefaultSharedObjectValue(key: string, value: unknown): unknown {
+  if (key === "host_config") {
+    return { ...REMOTE_DEFAULT_HOST_CONFIG };
+  }
+  if (key === "remote_connections" || key === "remote_ssh_connections") {
+    return [{ ...REMOTE_DEFAULT_CONNECTION }];
+  }
+  if (key === "statsig_default_enable_features") {
+    return {
+      ...(isRecord(value) ? value : {}),
+      remote_connections: true,
+      remote_ssh_connections: true,
+    };
+  }
+  return value;
+}
+
+function normalizeRendererIpcMessage(
+  channel: string,
+  message: unknown,
+): unknown {
+  if (
+    channel !== "codex_desktop:message-for-view" ||
+    !isRecord(message) ||
+    message.type !== "shared-object-updated" ||
+    typeof message.key !== "string"
+  ) {
+    return message;
+  }
+
+  return {
+    ...message,
+    value: remoteDefaultSharedObjectValue(message.key, message.value),
+  };
+}
+
+function normalizeRendererIpcArgs(channel: string, args: unknown[]): unknown[] {
+  if (channel !== "codex_desktop:message-for-view" || args.length === 0) {
+    return args;
+  }
+  return [normalizeRendererIpcMessage(channel, args[0]), ...args.slice(1)];
+}
+
 const rendererUrl = "http://localhost:5175/";
 const rendererMainFrame = {
   url: rendererUrl,
@@ -196,7 +262,7 @@ const rendererWebContents: StubWebContents = {
     getIpcMainBridgeState().broadcastToRenderer?.({
       type: "ipc-main-event",
       channel,
-      args: [message],
+      args: [normalizeRendererIpcMessage(channel, message)],
       ...(portIds.length > 0 ? { portIds } : {}),
     });
   },
@@ -205,7 +271,7 @@ const rendererWebContents: StubWebContents = {
     getIpcMainBridgeState().broadcastToRenderer?.({
       type: "ipc-main-event",
       channel,
-      args,
+      args: normalizeRendererIpcArgs(channel, args),
     });
   },
 };
@@ -293,6 +359,7 @@ function createIpcMainStub(): {
 }
 
 let appReady = false;
+let appReadyPromise: Promise<void> | null = null;
 const commandLineSwitches = new Map<string, string>();
 
 const appBase = {
@@ -342,8 +409,16 @@ const appBase = {
   },
   whenReady(): Promise<void> {
     log("app.whenReady", []);
-    appReady = true;
-    return Promise.resolve();
+    if (appReady) {
+      return Promise.resolve();
+    }
+    appReadyPromise ??= new Promise((resolve) => {
+      setImmediate(() => {
+        appReady = true;
+        resolve();
+      });
+    });
+    return appReadyPromise;
   },
   commandLine: {
     appendSwitch(name: string, value?: string): void {
@@ -438,7 +513,7 @@ class BrowserWindow {
           getIpcMainBridgeState().broadcastToRenderer?.({
             type: "ipc-main-event",
             channel,
-            args: [message],
+            args: [normalizeRendererIpcMessage(channel, message)],
             ...(portIds.length > 0 ? { portIds } : {}),
           });
         },
@@ -451,7 +526,7 @@ class BrowserWindow {
           getIpcMainBridgeState().broadcastToRenderer?.({
             type: "ipc-main-event",
             channel,
-            args,
+            args: normalizeRendererIpcArgs(channel, args),
           });
         },
       } as Record<string, unknown>,

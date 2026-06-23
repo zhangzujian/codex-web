@@ -117,6 +117,8 @@ test("shouldBlockFsRequestPath allows passive local file assets", () => {
 test("shouldServeWebviewShellPath allows known app shell browser routes", () => {
   assert.equal(shouldServeWebviewShellPath("/"), true);
   assert.equal(shouldServeWebviewShellPath("/thread/thread-1"), true);
+  assert.equal(shouldServeWebviewShellPath("/settings"), true);
+  assert.equal(shouldServeWebviewShellPath("/settings/connections"), true);
   assert.equal(shouldServeWebviewShellPath("/share/receive?text=hello"), true);
 });
 
@@ -152,8 +154,18 @@ test("parseServerArgs accepts tls certificate and key paths", () => {
 });
 
 test("parseServerArgs accepts an auth token", () => {
+  assert.deepEqual(parseServerArgs(["--auth-token", "test-token"], {}), {
+    host: "127.0.0.1",
+    port: 8214,
+    auth: {
+      token: "test-token",
+    },
+  });
+});
+
+test("parseServerArgs accepts auth token from the environment", () => {
   assert.deepEqual(
-    parseServerArgs(["--auth-token", "test-token"], {}),
+    parseServerArgs([], { CODEX_WEB_AUTH_TOKEN: "test-token" }),
     {
       host: "127.0.0.1",
       port: 8214,
@@ -164,13 +176,69 @@ test("parseServerArgs accepts an auth token", () => {
   );
 });
 
-test("parseServerArgs accepts auth token from the environment", () => {
-  assert.deepEqual(parseServerArgs([], { CODEX_WEB_AUTH_TOKEN: "test-token" }), {
-    host: "127.0.0.1",
-    port: 8214,
-    auth: {
-      token: "test-token",
+test("default terminal session factory uses the app-server command exec connection", async () => {
+  const notifications = new Set();
+  const rpcCalls = [];
+  const appServerClient = {
+    onNotification(listener) {
+      notifications.add(listener);
+      return () => notifications.delete(listener);
     },
+    async rpc(method, params) {
+      rpcCalls.push([method, params]);
+      if (method === "command/exec") {
+        return await new Promise(() => {});
+      }
+      return {};
+    },
+  };
+
+  const session = serverMain
+    .createDefaultTerminalSessionFactory(appServerClient)
+    .createSession({
+      cols: 80,
+      cwd: "/workspace",
+      rows: 24,
+      terminalType: "xterm-256color",
+    });
+  await new Promise((resolve) => setImmediate(resolve));
+  session.close();
+
+  assert.equal(rpcCalls[0]?.[0], "command/exec");
+  assert.equal(rpcCalls[0]?.[1].processId, session.id);
+});
+
+test("workspace directory entries can be read through app-server fs", async () => {
+  const rpcCalls = [];
+  const appServerClient = {
+    async rpc(method, params) {
+      rpcCalls.push([method, params]);
+      return {
+        entries: [
+          { fileName: "file.txt", isDirectory: false, isFile: true },
+          { fileName: ".config", isDirectory: true, isFile: false },
+          { fileName: "src", isDirectory: true, isFile: false },
+        ],
+      };
+    },
+  };
+
+  const result = await serverMain.getWorkspaceDirectoryEntries(
+    {
+      directoriesOnly: true,
+      directoryPath: "/workspace",
+    },
+    appServerClient,
+  );
+
+  assert.deepEqual(rpcCalls, [["fs/readDirectory", { path: "/workspace" }]]);
+  assert.deepEqual(result, {
+    directoryPath: "/workspace",
+    parentPath: "/",
+    entries: [
+      { name: "src", path: "/workspace/src", type: "directory" },
+      { name: ".config", path: "/workspace/.config", type: "directory" },
+    ],
   });
 });
 
@@ -207,9 +275,7 @@ test("auth login page only redirects to same-origin paths", () => {
     /location\.href = "\/thread\/abc\?x=1"/,
   );
   assert.match(
-    createAuthLoginHtml(
-      "/__auth/login?next=https%3A%2F%2Fexample.com%2Fsteal",
-    ),
+    createAuthLoginHtml("/__auth/login?next=https%3A%2F%2Fexample.com%2Fsteal"),
     /location\.href = "\/"/,
   );
   assert.match(
@@ -289,8 +355,20 @@ test("webview shell installs Statsig overrides before module scripts run", () =>
     name: "3075919032",
     value: false,
   });
+  const remoteConnectionsGateOverride = adapter.getGateOverride({
+    name: "4114442250",
+    value: false,
+  });
+  const remoteSshConnectionsGateOverride = adapter.getGateOverride({
+    name: "1042620455",
+    value: false,
+  });
   assert.equal(automationsGateOverride.name, "3075919032");
   assert.equal(automationsGateOverride.value, true);
+  assert.equal(remoteConnectionsGateOverride.name, "4114442250");
+  assert.equal(remoteConnectionsGateOverride.value, true);
+  assert.equal(remoteSshConnectionsGateOverride.name, "1042620455");
+  assert.equal(remoteSshConnectionsGateOverride.value, true);
 });
 
 test("terminal html carries the requested locale for terminal i18n", () => {

@@ -23,6 +23,10 @@ export function mapBrowserPathToInitialRoute(pathname: string, search: string) {
 }
 
 function mapBrowserPathToRoute(pathname: string): string {
+  if (pathname === "/settings" || pathname.startsWith("/settings/")) {
+    return pathname;
+  }
+
   const match = pathname.match(/^\/thread\/([^/]+)$/);
   if (match) {
     try {
@@ -38,6 +42,10 @@ function mapBrowserPathToRoute(pathname: string): string {
 export function mapMemoryPathToBrowserPath(pathname: string) {
   if (pathname === "/") {
     return { path: "/", titleChange: "Codex" };
+  }
+
+  if (pathname === "/settings" || pathname.startsWith("/settings/")) {
+    return { path: pathname };
   }
 
   const match = pathname.match(/^\/local\/([^/?#]+)$/);
@@ -59,6 +67,8 @@ export function dispatchNavigateToRoute(path: string): void {
   );
 }
 
-window.addEventListener("popstate", () => {
-  dispatchNavigateToRoute(mapBrowserPathToRoute(window.location.pathname));
-});
+if (typeof window !== "undefined") {
+  window.addEventListener("popstate", () => {
+    dispatchNavigateToRoute(mapBrowserPathToRoute(window.location.pathname));
+  });
+}
