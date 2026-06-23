@@ -1390,9 +1390,13 @@ export function injectWebviewRuntimeScripts(
   backendWebSocketToken: string,
 ): string {
   const scripts = `<script>${statsigOverrideBootstrapScript()}</script><script>window.__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__=${JSON.stringify(backendWebSocketToken)};</script>`;
-  return html.includes("<head>")
-    ? html.replace("<head>", `<head>${scripts}`)
-    : `${scripts}${html}`;
+  const shellHtml = html.replace(
+    '<link rel="manifest" href="/manifest.json" />',
+    '<link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />',
+  );
+  return shellHtml.includes("<head>")
+    ? shellHtml.replace("<head>", `<head>${scripts}`)
+    : `${scripts}${shellHtml}`;
 }
 
 function statsigOverrideBootstrapScript(): string {

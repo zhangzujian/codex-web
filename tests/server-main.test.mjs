@@ -371,6 +371,20 @@ test("webview shell installs Statsig overrides before module scripts run", () =>
   assert.equal(remoteSshConnectionsGateOverride.value, true);
 });
 
+test("webview shell fetches the manifest with auth credentials", () => {
+  const html = `<!doctype html>
+<html>
+  <head>
+    <link rel="manifest" href="/manifest.json" />
+  </head>
+</html>`;
+
+  assert.match(
+    serverMain.injectWebviewRuntimeScripts(html, "secret"),
+    /<link rel="manifest" href="\/manifest\.json" crossorigin="use-credentials" \/>/,
+  );
+});
+
 test("terminal html carries the requested locale for terminal i18n", () => {
   const html = createTerminalHtml({
     backendWebSocketToken: "secret",
