@@ -1335,13 +1335,28 @@ export function injectWebviewRuntimeScripts(
   backendWebSocketToken: string,
 ): string {
   const scripts = `<script>${terminalCtrlWBootstrapScript()}</script><script>${statsigOverrideBootstrapScript()}</script><script>window.__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__=${JSON.stringify(backendWebSocketToken)};</script>`;
-  const shellHtml = html.replace(
-    '<link rel="manifest" href="/manifest.json" />',
-    '<link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />',
-  );
+  const preload =
+    '<base href="/" /><script type="module" src="./assets/preload.js"></script>';
+  const shellHtml = removeContentSecurityPolicyMeta(html)
+    .replace(
+      '<link rel="manifest" href="/manifest.json" />',
+      '<link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />',
+    )
+    .replace(/<base\b[^>]*>\s*/i, "")
+    .replace(
+      /<script\s+type="module"\s+src="\.\/assets\/preload\.js"><\/script>\s*/i,
+      "",
+    );
   return shellHtml.includes("<head>")
-    ? shellHtml.replace("<head>", `<head>${scripts}`)
-    : `${scripts}${shellHtml}`;
+    ? shellHtml.replace("<head>", `<head>${scripts}${preload}`)
+    : `${scripts}${preload}${shellHtml}`;
+}
+
+function removeContentSecurityPolicyMeta(html: string): string {
+  return html.replace(
+    /<meta\b(?=[^>]*http-equiv=["']?Content-Security-Policy["']?)[^>]*>\s*/gi,
+    "",
+  );
 }
 
 function terminalCtrlWBootstrapScript(): string {

@@ -23,8 +23,6 @@ const archiveName = `Codex-darwin-arm64-${appVersion}.zip`;
 const appZipPath = `Codex.app/Contents/Resources/app.asar`;
 const appZipDir = `Codex.app/Contents/Resources`;
 const patchNames = [
-  "webview-remove-csp.patch",
-  "webview-preload.patch",
   "webview-initial-route.patch",
   "webview-use-atfs-for-local-files.patch",
 ];
@@ -304,6 +302,17 @@ test("build:browser uses the browser build asset patch wrapper", async () => {
   assert.equal(
     packageJson.scripts["build:browser"],
     "vite build --config vite.browser.config.ts && node scripts/patch_browser_build_assets.mjs scratch/asar/webview/assets",
+  );
+});
+
+test("package scripts do not expose the static unpacked webview server", async () => {
+  const packageJson = JSON.parse(
+    await readFile(new URL("../package.json", import.meta.url), "utf8"),
+  );
+
+  assert.equal(
+    packageJson.scripts["launch:unpacked:server"],
+    undefined,
   );
 });
 

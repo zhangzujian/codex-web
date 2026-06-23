@@ -323,7 +323,10 @@ test("webview shell installs Statsig overrides before module scripts run", async
   const html = `<!doctype html>
 <html>
   <head>
-    <script type="module" src="./assets/preload.js"></script>
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'"
+    />
     <script type="module" crossorigin src="./assets/index.js"></script>
   </head>
 </html>`;
@@ -336,10 +339,17 @@ test("webview shell installs Statsig overrides before module scripts run", async
   const preloadIndex = injected.indexOf("./assets/preload.js");
   const appIndex = injected.indexOf("./assets/index.js");
 
+  assert.equal(injected.includes("Content-Security-Policy"), false);
+  assert.match(injected, /<base href="\/" \/>/);
+  assert.match(
+    injected,
+    /<script type="module" src="\.\/assets\/preload\.js"><\/script>/,
+  );
   assert.notEqual(overrideIndex, -1);
   assert.notEqual(layerOverrideIndex, -1);
   assert.notEqual(localeSourceIndex, -1);
   assert.notEqual(tokenIndex, -1);
+  assert.notEqual(preloadIndex, -1);
   assert.ok(overrideIndex < preloadIndex);
   assert.ok(overrideIndex < appIndex);
 

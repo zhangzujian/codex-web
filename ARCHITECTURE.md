@@ -28,9 +28,9 @@ the renderer realm through `contextBridge.exposeInMainWorld`. the preload script
 has access to [`ipcRenderer`].
 
 codex-web hooks the preload script by providing [shim.ts](./src/browser/shim.ts)
-as a stand-in for electron in the renderer process and then setting up preload
-to run in the renderer realm (see
-[vite.browser.config.ts](./vite.browser.config.ts)).
+as a stand-in for electron in the renderer process, building that preload
+bundle with [vite.browser.config.ts](./vite.browser.config.ts), then injecting
+it from [main.ts](./src/server/main.ts) when serving the webview shell.
 
 next, we apply a series of patches to both code running in the main process and
 the renderer process. these are applied at postinstall time through the
@@ -38,8 +38,8 @@ the renderer process. these are applied at postinstall time through the
 in [./patches](./patches) and applied ontop of the prettified code extracted
 from the upstream app. care was taken here to patch at installation time to
 avoid redistributing the original code.
-the [./patches/webview-preload.patch](patches/webview-preload.patch) connects
-the shimmed preload script to the index.html entrypoint.
+the server also strips the upstream Electron CSP meta tag before sending the
+webview shell, so runtime bootstrap scripts can run without a static HTML patch.
 
 we aim for the patches to be as small as possible as they're the most annoying
 part to change. most behavior overrides live in the browser shim or server IPC
@@ -54,8 +54,6 @@ prettified.
 | patch                                    | purpose                                                                                                           |
 | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `webview-initial-route.patch`            | starts the memory router from the browser URL or shim-provided route and initializes sidebar state from the shim. |
-| `webview-preload.patch`                  | adds `<base href="/">` and loads the codex-web preload bundle before the upstream renderer starts.                |
-| `webview-remove-csp.patch`               | removes the upstream Electron CSP meta tag so the hosted browser app can load its patched runtime assets.         |
 | `webview-use-atfs-for-local-files.patch` | maps upstream `app://fs` media URLs to codex-web's `/@fs` HTTP route.                                             |
 
 dynamic patchers in [./scripts](./scripts) handle bundle shapes that are too
@@ -63,9 +61,12 @@ fragile for a fixed diff. [patch_webview_assets.mjs](./scripts/patch_webview_ass
 runs them during `prepare_asar`; [patch_browser_build_assets.mjs](./scripts/patch_browser_build_assets.mjs)
 reuses the same set after `vite build` when upstream assets are present.
 
-| patcher                          | purpose                                                                                                                                                          |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `patch_browser_panel_iframe.mjs` | replaces Electron `<webview>` browser panel hosts with iframe-compatible hosts and URL sync helpers.                                                             |
+| patcher                             | purpose                                                                                                                                                          |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `patch_browser_panel_iframe.mjs`    | replaces Electron `<webview>` browser panel hosts with iframe-compatible hosts and URL sync helpers.                                                             |
+| `patch_terminal_side_panel.mjs`     | keeps Terminal entries wired to the upstream native terminal opener and hides desktop-only sidebar navigation controls.                                           |
+| `patch_webview_thread_delete*.mjs`  | adds the local thread delete menu item and its zh-CN strings.                                                                                                    |
+| `patch_webview_assets.mjs`          | runs the dynamic patchers, disables Statsig network traffic at initialization, and fixes one invalid CSS `@property` initial value.                              |
 
 to connect the ipc from the renderer process to the main process, we use a
 websocket for most messages intercepting and handing a small handful of messages
@@ -96,11 +97,11 @@ visible and controllable in codex-web. native Electron-only actions such as
 real page screenshots, cross-origin find matching, devtools, printing and
 cross-origin annotation capture remain best-effort or unavailable.
 
-Terminal panel entry points are handled by a runtime bootstrap injected from
-[main.ts](./src/server/main.ts). it intercepts the sidebar Terminal action,
-the bottom panel Terminal shortcut, and Ctrl+Backquote, then reuses the browser
-panel UI to navigate to `/__terminal`; it does not patch the desktop app assets
-for Terminal.
+Terminal Ctrl+W handling is handled by a runtime bootstrap injected from
+[main.ts](./src/server/main.ts). Terminal entry wiring still uses
+[`patch_terminal_side_panel.mjs`](./scripts/patch_terminal_side_panel.mjs)
+because the upstream sidebar menu does not expose an extension point for
+replacing those actions.
 
 [preload script]: https://www.electronjs.org/docs/latest/tutorial/tutorial-preload
 [`ipcRenderer`]: https://www.electronjs.org/docs/latest/api/ipc-renderer
