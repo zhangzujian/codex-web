@@ -5,7 +5,9 @@ import {
 import {
   handleLocalFilePickerMessage,
   isLocalFilePickerMessage,
+  uploadFiles,
 } from "./files";
+import { installBrowserFileDropUploadBridge } from "./drop-upload.mts";
 import {
   installWorkspaceRootDialog,
   openSelectWorkspaceRootDialog,
@@ -521,6 +523,7 @@ function installCryptoRandomUuidFallback(): void {
 }
 
 installCryptoRandomUuidFallback();
+installBrowserFileDropUploadBridge({ getPathForFile, uploadFiles });
 
 export const ipcRenderer = {
   invoke(channel: string, ...args: unknown[]): Promise<unknown> {

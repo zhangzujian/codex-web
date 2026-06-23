@@ -3,6 +3,15 @@ import test from "node:test";
 
 import { getPathForFile } from "../src/browser/web-utils.mts";
 import {
+  createSyntheticUploadedFile,
+  dataTransferHasDirectory,
+  filesNeedingBrowserDropUpload,
+  hasUploadedFileForEachCandidate,
+  installBrowserFileDropUploadBridge,
+  showBrowserDropUploadError,
+  uploadBrowserDropFiles,
+} from "../src/browser/drop-upload.mts";
+import {
   handleSyncIpc,
   isReadConfigForHostFetchMessage,
   normalizeReadConfigForHostFetchResponse,
@@ -34,6 +43,291 @@ test("getPathForFile returns null for ordinary browser File-like objects", () =>
     null,
   );
   assert.equal(getPathForFile({ path: "" }), null);
+});
+
+test("browser drop upload only targets non-image files without a local path", () => {
+  const txt = new File(["hello"], "notes.txt", { type: "text/plain" });
+  const image = new File(["png"], "photo.png", { type: "image/png" });
+  const empty = new File([], "empty.txt", { type: "text/plain" });
+  const local = new File(["local"], "local.txt", { type: "text/plain" });
+  Object.defineProperty(local, "path", { value: "/tmp/local.txt" });
+
+  assert.deepEqual(
+    filesNeedingBrowserDropUpload([txt, image, empty, local], getPathForFile),
+    [txt, empty],
+  );
+});
+
+test("browser drop upload reports upload failures", async () => {
+  const errors = [];
+  const uploadedFiles = await uploadBrowserDropFiles(
+    [new File(["hello"], "notes.txt", { type: "text/plain" })],
+    async () => {
+      throw new Error("upload failed");
+    },
+    (error) => {
+      errors.push(error);
+    },
+  );
+
+  assert.deepEqual(uploadedFiles, []);
+  assert.equal(errors.length, 1);
+  assert.match(String(errors[0]), /upload failed/);
+});
+
+test("browser drop upload returns no files for malformed upload responses", async () => {
+  const uploadedFiles = await uploadBrowserDropFiles(
+    [new File(["hello"], "notes.txt", { type: "text/plain" })],
+    async () => [{ label: "notes.txt" }],
+  );
+
+  assert.deepEqual(uploadedFiles, []);
+});
+
+test("browser drop upload requires one uploaded file per upload candidate", () => {
+  assert.equal(
+    hasUploadedFileForEachCandidate(
+      [new File(["a"], "a.txt"), new File(["b"], "b.txt")],
+      [new File([], "a.txt")],
+    ),
+    false,
+  );
+});
+
+test("browser drop upload error creates an accessible alert", () => {
+  const appended = [];
+  const doc = {
+    body: {
+      append(element) {
+        appended.push(element);
+      },
+    },
+    createElement() {
+      return {
+        attributes: {},
+        style: {},
+        remove() {},
+        setAttribute(name, value) {
+          this.attributes[name] = value;
+        },
+      };
+    },
+    getElementById() {
+      return null;
+    },
+  };
+
+  showBrowserDropUploadError(doc);
+
+  assert.equal(appended.length, 1);
+  assert.equal(appended[0].attributes.role, "alert");
+  assert.equal(appended[0].textContent, "Unable to attach file");
+});
+
+test("browser drop upload error timer does not keep node alive", () => {
+  let unrefCalled = false;
+  const doc = {
+    body: {
+      append() {},
+    },
+    createElement() {
+      return {
+        style: {},
+        remove() {},
+        setAttribute() {},
+      };
+    },
+    getElementById() {
+      return null;
+    },
+  };
+
+  showBrowserDropUploadError(doc, () => ({
+    unref() {
+      unrefCalled = true;
+    },
+  }));
+
+  assert.equal(unrefCalled, true);
+});
+
+test("browser drop upload lets directory drops fall through", () => {
+  assert.equal(
+    dataTransferHasDirectory({
+      items: [
+        {
+          webkitGetAsEntry: () => ({ isDirectory: true }),
+        },
+      ],
+    }),
+    true,
+  );
+});
+
+test("uploaded browser drop files expose Electron-style paths", () => {
+  const file = createSyntheticUploadedFile({
+    label: "notes.txt",
+    fsPath: "/tmp/codex-web-uploads/abc",
+  });
+
+  assert.equal(file?.name, "notes.txt");
+  assert.ok((file?.size ?? 0) > 0);
+  assert.equal(getPathForFile(file), "/tmp/codex-web-uploads/abc");
+});
+
+test("browser drop upload failure shows one alert", async () => {
+  const previousDocument = globalThis.document;
+  const previousConsoleError = console.error;
+  const listeners = [];
+  const appended = [];
+  globalThis.document = {
+    body: {
+      append(element) {
+        appended.push(element);
+      },
+    },
+    addEventListener(type, listener) {
+      if (type === "drop") {
+        listeners.push(listener);
+      }
+    },
+    createElement() {
+      return {
+        style: {},
+        remove() {},
+        setAttribute() {},
+      };
+    },
+    getElementById() {
+      return null;
+    },
+    removeEventListener() {},
+  };
+  console.error = () => {};
+
+  try {
+    const uninstall = installBrowserFileDropUploadBridge({
+      getPathForFile,
+      uploadFiles: async () => {
+        throw new Error("upload failed");
+      },
+    });
+
+    listeners[0]({
+      dataTransfer: {
+        files: [new File(["hello"], "notes.txt", { type: "text/plain" })],
+        items: [],
+      },
+      preventDefault() {},
+      stopImmediatePropagation() {},
+      target: new EventTarget(),
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    uninstall();
+  } finally {
+    console.error = previousConsoleError;
+    if (previousDocument === undefined) {
+      delete globalThis.document;
+    } else {
+      globalThis.document = previousDocument;
+    }
+  }
+
+  assert.equal(appended.length, 1);
+});
+
+test("browser drop upload redispatches uploaded files with local paths", async () => {
+  const previousDocument = globalThis.document;
+  const previousDataTransfer = globalThis.DataTransfer;
+  const previousDragEvent = globalThis.DragEvent;
+  const listeners = [];
+  const target = new EventTarget();
+  const dispatched = [];
+  let prevented = false;
+  let stopped = false;
+  let uploaded = null;
+
+  class FakeDataTransfer {
+    files = [];
+    items = {
+      add: (file) => {
+        this.files.push(file);
+      },
+    };
+  }
+
+  globalThis.DataTransfer = FakeDataTransfer;
+  globalThis.DragEvent = class FakeDragEvent extends Event {
+    constructor(type, init) {
+      super(type, init);
+      this.dataTransfer = init.dataTransfer;
+    }
+  };
+  globalThis.document = {
+    addEventListener(type, listener) {
+      if (type === "drop") {
+        listeners.push(listener);
+      }
+    },
+    removeEventListener() {},
+  };
+  target.addEventListener("drop", (event) => {
+    dispatched.push(event);
+  });
+
+  try {
+    const uninstall = installBrowserFileDropUploadBridge({
+      getPathForFile,
+      uploadFiles: async (files) => {
+        uploaded = files;
+        return [{ label: "notes.txt", fsPath: "/tmp/codex-web-uploads/abc" }];
+      },
+    });
+
+    const file = new File(["hello"], "notes.txt", { type: "text/plain" });
+    listeners[0]({
+      dataTransfer: {
+        files: [file],
+        items: [],
+      },
+      preventDefault() {
+        prevented = true;
+      },
+      stopImmediatePropagation() {
+        stopped = true;
+      },
+      target,
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    uninstall();
+  } finally {
+    if (previousDocument === undefined) {
+      delete globalThis.document;
+    } else {
+      globalThis.document = previousDocument;
+    }
+    if (previousDataTransfer === undefined) {
+      delete globalThis.DataTransfer;
+    } else {
+      globalThis.DataTransfer = previousDataTransfer;
+    }
+    if (previousDragEvent === undefined) {
+      delete globalThis.DragEvent;
+    } else {
+      globalThis.DragEvent = previousDragEvent;
+    }
+  }
+
+  assert.equal(prevented, true);
+  assert.equal(stopped, true);
+  assert.equal(uploaded?.[0]?.name, "notes.txt");
+  assert.equal(dispatched.length, 1);
+  assert.equal(dispatched[0].type, "drop");
+  assert.equal(dispatched[0].dataTransfer.files.length, 1);
+  assert.equal(
+    getPathForFile(dispatched[0].dataTransfer.files[0]),
+    "/tmp/codex-web-uploads/abc",
+  );
 });
 
 test("handleSyncIpc serves the synchronous preload channels used by Codex", () => {
