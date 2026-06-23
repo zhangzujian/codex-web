@@ -5,6 +5,8 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { patchBrowserPanelIframeAsset } from "./patch_browser_panel_iframe.mjs";
 import { patchTerminalSidePanelSupport } from "./patch_terminal_side_panel.mjs";
+import { patchWebviewThreadDeleteAssets } from "./patch_webview_thread_delete.mjs";
+import { patchWebviewThreadDeleteI18nAssets } from "./patch_webview_thread_delete_i18n.mjs";
 
 const STATSIG_OPTIONS_PATTERN =
   /(\b[$A-Za-z_][\w$]*\s*=\s*)\{\s*networkConfig\s*:\s*\{\s*api\s*:\s*([^,}]+?)\s*,\s*logEventUrl\s*:\s*([^,}]+?)\s*,\s*sdkExceptionUrl\s*:\s*([^,}]+?)\s*,\s*networkOverrideFunc\s*:\s*([^,}]+?)\s*,?\s*\}\s*,?\s*\}/s;
@@ -15,7 +17,8 @@ const PARTIAL_PATCHED_STATSIG_OPTIONS_PATTERN =
 
 export function patchWebviewAssets(assetsDir) {
   const patchedFiles = [
-    // ponytail: keep only browser access plumbing; no desktop UI/UX asset rewrites.
+    ...patchWebviewThreadDeleteAssets(assetsDir),
+    ...patchWebviewThreadDeleteI18nAssets(assetsDir),
     ...patchTerminalSidePanelSupport(assetsDir),
     patchBrowserPanelIframeAsset(assetsDir),
     patchStatsigTelemetryDisableAsset(assetsDir),
