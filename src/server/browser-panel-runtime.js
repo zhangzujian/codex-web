@@ -351,27 +351,11 @@ function titleFromUrl(url) {
     }
     try {
         const parsed = new URL(url);
-        if (parsed.pathname === "/__terminal") {
-            return terminalTitleFromUrl(parsed);
-        }
         return parsed.hostname || parsed.href;
     }
     catch {
         return url;
     }
-}
-function terminalTitleFromUrl(url) {
-    const cwd = url.searchParams.get("cwd")?.trim();
-    if (!cwd) {
-        return terminalFallbackTitle(url);
-    }
-    const normalized = cwd.replace(/[\\/]+$/, "");
-    const basename = normalized.split(/[\\/]/).filter(Boolean).at(-1);
-    return basename || terminalFallbackTitle(url);
-}
-function terminalFallbackTitle(url) {
-    const locale = url.searchParams.get("locale")?.trim().toLowerCase();
-    return locale === "zh" || locale?.startsWith("zh-") ? "终端" : "Terminal";
 }
 function resolveBrowserTabRef(conversationId, browserTabId) {
     if (typeof conversationId !== "string") {

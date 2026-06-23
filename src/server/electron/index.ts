@@ -802,10 +802,13 @@ const crashReporter = {
 const net = {
   async fetch(input: string | URL, init?: RequestInit): Promise<Response> {
     // log("net.fetch", [input, init]);
+    if (String(input).startsWith("sentry-ipc:")) {
+      return new Response(null, { status: 204 });
+    }
     if (typeof globalThis.fetch === "function") {
       return globalThis.fetch(input as URL | RequestInfo, init);
     }
-    return new Response("", { status: 204 });
+    return new Response(null, { status: 204 });
   },
   request(...args: unknown[]): {
     getHeader: (name: string) => string | undefined;

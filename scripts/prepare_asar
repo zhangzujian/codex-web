@@ -3,6 +3,7 @@ set -euxo pipefail
 
 HOSTED_CODEX_APP_ZIP="${HOSTED_CODEX_APP_ZIP:-"$("$BASH" ./scripts/resolve_codex_app_zip)"}"
 
+rm -rf scratch/Codex.app scratch/asar
 unzip -o "$HOSTED_CODEX_APP_ZIP" -d scratch/
 asar extract "scratch/Codex.app/Contents/Resources/app.asar" "scratch/asar"
 if [[ -n "${DEV:-}" ]]; then
@@ -21,4 +22,4 @@ patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-pre
 patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-initial-route.patch
 patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-use-atfs-for-local-files.patch
 node scripts/patch_webview_assets.mjs scratch/asar/webview/assets
-rm -rf scratch/asar/node_modules/better-sqlite3
+rm -rf scratch/asar/node_modules/better-sqlite3 scratch/asar/node_modules/node-pty

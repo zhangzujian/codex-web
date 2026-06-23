@@ -617,10 +617,13 @@ exports.crashReporter = crashReporter;
 const net = {
     async fetch(input, init) {
         // log("net.fetch", [input, init]);
+        if (String(input).startsWith("sentry-ipc:")) {
+            return new Response(null, { status: 204 });
+        }
         if (typeof globalThis.fetch === "function") {
             return globalThis.fetch(input, init);
         }
-        return new Response("", { status: 204 });
+        return new Response(null, { status: 204 });
     },
     request(...args) {
         // log("net.request", args);

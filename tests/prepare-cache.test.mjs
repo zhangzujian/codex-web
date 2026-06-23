@@ -221,6 +221,13 @@ test("prepare_asar resolves the cached Codex zip when HOSTED_CODEX_APP_ZIP is un
 
   await mkdir(cacheDir, { recursive: true });
   await writeFile(zipPath, "cached zip");
+  await mkdir(join(fixtureDir, "scratch/asar/webview/assets"), {
+    recursive: true,
+  });
+  await writeFile(
+    join(fixtureDir, "scratch/asar/webview/assets/terminal-page.js"),
+    "stale terminal",
+  );
 
   const stubBin = await createStubBin({
     curlSource: `#!/usr/bin/env sh
@@ -244,7 +251,10 @@ exit 0
     `#!/usr/bin/env sh
 printf 'asar %s\\n' "$*" >> "$PREPARE_ASAR_STUB_LOG"
 mkdir -p "$3/webview/assets"
+mkdir -p "$3/node_modules/better-sqlite3" "$3/node_modules/node-pty"
 printf 'icon' > "$3/webview/assets/app-D0g8sCle.png"
+printf 'native' > "$3/node_modules/better-sqlite3/native.node"
+printf 'native' > "$3/node_modules/node-pty/pty.node"
 `,
   );
   for (const command of ["sharp", "prettier", "patch", "node"]) {
@@ -277,6 +287,13 @@ exit 0
     prepareLog,
     /node scripts\/patch_webview_assets\.mjs scratch\/asar\/webview\/assets/,
   );
+  await assert.rejects(stat(join(fixtureDir, "scratch/asar/node_modules/node-pty")));
+  await assert.rejects(
+    stat(join(fixtureDir, "scratch/asar/node_modules/better-sqlite3")),
+  );
+  await assert.rejects(
+    stat(join(fixtureDir, "scratch/asar/webview/assets/terminal-page.js")),
+  );
 });
 
 test("build:browser uses the browser build asset patch wrapper", async () => {
@@ -293,7 +310,7 @@ test("build:browser uses the browser build asset patch wrapper", async () => {
 test("browser build asset patch skips incomplete upstream webview assets", async () => {
   const assetsDir = await mkdtemp(join(tmpdir(), "codex-web-browser-assets-"));
 
-  await writeFile(join(assetsDir, "terminal-page.js"), "export{};");
+  await writeFile(join(assetsDir, "placeholder.js"), "export{};");
 
   assert.equal(hasUpstreamWebviewAssets(assetsDir), false);
   assert.deepEqual(patchBrowserBuildAssets(assetsDir), []);

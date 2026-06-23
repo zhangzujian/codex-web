@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { app, BrowserWindow, ipcMain } from "../src/server/electron/index.js";
+import { app, BrowserWindow, ipcMain, net } from "../src/server/electron/index.js";
 
 function captureRendererMessages() {
   const messages = [];
@@ -134,4 +134,10 @@ test("ipcMain worker handlers can send responses back to renderer listeners", as
       args: [response],
     },
   ]);
+});
+
+test("net.fetch ignores Sentry IPC transport URLs", async () => {
+  const response = await net.fetch("sentry-ipc://scope/sentry_key");
+
+  assert.equal(response.status, 204);
 });

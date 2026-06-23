@@ -103,6 +103,4 @@ export declare function createTerminalSocketHandler(factory: TerminalSessionFact
 export declare function createNodePtyTerminalSessionFactory(): TerminalSessionFactory;
 export declare function createRemoteTerminalSessionFactory(connection: RemoteProcessConnection): TerminalSessionFactory;
 export declare function createCommandExecRemoteProcessConnection(client: AppServerRpcClient): RemoteProcessConnection;
-export declare function defaultTerminalCwd(): string;
-export declare function terminalStylesheetHrefs(assetFiles: string[]): string[];
 //# sourceMappingURL=terminal.d.ts.map

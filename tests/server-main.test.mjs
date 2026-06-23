@@ -5,7 +5,6 @@ import { runInNewContext } from "node:vm";
 import {
   createAuthCookie,
   createAuthLoginHtml,
-  createTerminalHtml,
   createFastifyOptions,
   isAllowedBackendWebSocketRequest,
   isAuthenticatedCookie,
@@ -318,7 +317,7 @@ test("createFastifyOptions loads tls certificate and key", async () => {
   });
 });
 
-test("webview shell installs Statsig overrides before module scripts run", () => {
+test("webview shell installs Statsig overrides before module scripts run", async () => {
   assert.equal(typeof serverMain.injectWebviewRuntimeScripts, "function");
 
   const html = `<!doctype html>
@@ -347,7 +346,8 @@ test("webview shell installs Statsig overrides before module scripts run", () =>
   const [bootstrapScript] = [
     ...injected.matchAll(/<script>([\s\S]*?)<\/script>/g),
   ].map((match) => match[1]);
-  const context = { window: {} };
+  const nativeFetch = () => Promise.resolve(new Response("native"));
+  const context = { window: { fetch: nativeFetch }, Response, URL };
   runInNewContext(bootstrapScript, context);
 
   const adapter = context.window.__ELECTRON_SHIM__.overrideAdapter;
@@ -369,6 +369,12 @@ test("webview shell installs Statsig overrides before module scripts run", () =>
   assert.equal(remoteConnectionsGateOverride.value, true);
   assert.equal(remoteSshConnectionsGateOverride.name, "1042620455");
   assert.equal(remoteSshConnectionsGateOverride.value, true);
+  const sentryIpcResponse = await context.window.fetch(
+    "sentry-ipc://scope/sentry_key",
+  );
+  assert.equal(sentryIpcResponse.status, 204);
+  const nativeResponse = await context.window.fetch("https://example.test");
+  assert.equal(await nativeResponse.text(), "native");
 });
 
 test("webview shell fetches the manifest with auth credentials", () => {
@@ -383,18 +389,4 @@ test("webview shell fetches the manifest with auth credentials", () => {
     serverMain.injectWebviewRuntimeScripts(html, "secret"),
     /<link rel="manifest" href="\/manifest\.json" crossorigin="use-credentials" \/>/,
   );
-});
-
-test("terminal html carries the requested locale for terminal i18n", () => {
-  const html = createTerminalHtml({
-    backendWebSocketToken: "secret",
-    cwd: "/tmp/work",
-    locale: "zh-CN",
-    stylesheetHrefs: ["/assets/terminal-page.css"],
-  });
-
-  assert.match(html, /<html lang="zh-CN"/);
-  assert.match(html, /<title>终端<\/title>/);
-  assert.match(html, /data-terminal-locale="zh-CN"/);
-  assert.match(html, /data-backend-websocket-token="secret"/);
 });

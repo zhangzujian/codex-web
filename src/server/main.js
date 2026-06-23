@@ -14,7 +14,6 @@ exports.shouldServeWebviewShellPath = shouldServeWebviewShellPath;
 exports.createAuthCookie = createAuthCookie;
 exports.isAuthenticatedCookie = isAuthenticatedCookie;
 exports.createAuthLoginHtml = createAuthLoginHtml;
-exports.createTerminalHtml = createTerminalHtml;
 exports.injectWebviewRuntimeScripts = injectWebviewRuntimeScripts;
 const node_crypto_1 = require("node:crypto");
 const node_fs_1 = __importDefault(require("node:fs"));
@@ -420,14 +419,6 @@ async function startIpcBridgeServer(options) {
     });
     app.get("/", async (_request, reply) => {
         return sendWebviewIndex(reply, webviewRoot, backendWebSocketToken);
-    });
-    app.get("/__terminal", async (request, reply) => {
-        return reply.type("text/html").send(createTerminalHtml({
-            backendWebSocketToken,
-            cwd: getTerminalCwdFromQuery(request.query),
-            locale: getTerminalLocaleFromQuery(request.query),
-            stylesheetHrefs: getTerminalStylesheetHrefs(webviewRoot),
-        }));
     });
     app.setNotFoundHandler((request, reply) => {
         if (request.url.startsWith("/@fs/")) {
@@ -914,35 +905,6 @@ async function main(args) {
 if (require.main === module) {
     void main(process.argv.slice(2));
 }
-function createTerminalHtml({ backendWebSocketToken, cwd: requestedCwd, locale: requestedLocale, stylesheetHrefs, }) {
-    const cwd = escapeHtml(requestedCwd ?? (0, terminal_1.defaultTerminalCwd)());
-    const locale = terminalHtmlLocale(requestedLocale);
-    const title = terminalHtmlTitle(locale);
-    const token = escapeHtml(backendWebSocketToken);
-    const stylesheetLinks = stylesheetHrefs
-        .map((href) => `    <link rel="stylesheet" href="${escapeHtml(href)}" />`)
-        .join("\n");
-    return `<!doctype html>
-<html lang="${locale}" data-codex-window-type="browser">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>${title}</title>
-${stylesheetLinks}
-    <script type="module" src="/assets/terminal-page.js"></script>
-  </head>
-  <body data-terminal-cwd="${cwd}" data-terminal-locale="${locale}" data-backend-websocket-token="${token}">
-    <div id="terminal-root"></div>
-  </body>
-</html>`;
-}
-function terminalHtmlLocale(locale) {
-    const normalized = locale?.trim().replaceAll("_", "-").toLowerCase();
-    return normalized === "zh" || normalized?.startsWith("zh-") ? "zh-CN" : "en";
-}
-function terminalHtmlTitle(locale) {
-    return locale === "zh-CN" ? "终端" : "Terminal";
-}
 async function sendWebviewIndex(reply, webviewRoot, backendWebSocketToken) {
     const indexHtml = await promises_1.default.readFile(node_path_1.default.join(webviewRoot, "index.html"), "utf8");
     return reply
@@ -959,6 +921,15 @@ function injectWebviewRuntimeScripts(html, backendWebSocketToken) {
 function statsigOverrideBootstrapScript() {
     return `(() => {
   const shim = (window.__ELECTRON_SHIM__ ??= {});
+  const originalFetch = window.fetch?.bind(window);
+  if (typeof originalFetch === "function" && typeof Response === "function") {
+    window.fetch = (input, init) => {
+      const url = typeof input === "string" || input instanceof URL ? String(input) : input?.url ?? "";
+      return url.startsWith("sentry-ipc:")
+        ? Promise.resolve(new Response(null, { status: 204 }))
+        : originalFetch(input, init);
+    };
+  }
   shim.overrideAdapter = {
     getGateOverride(evaluation) {
       if (evaluation?.name === "3075919032") {
@@ -1014,41 +985,5 @@ function statsigOverrideBootstrapScript() {
     },
   };
 })();`;
-}
-function getTerminalStylesheetHrefs(webviewRoot) {
-    const assetsRoot = node_path_1.default.join(webviewRoot, "assets");
-    try {
-        return (0, terminal_1.terminalStylesheetHrefs)(node_fs_1.default.readdirSync(assetsRoot));
-    }
-    catch {
-        return (0, terminal_1.terminalStylesheetHrefs)([]);
-    }
-}
-function getTerminalCwdFromQuery(query) {
-    if (typeof query === "object" &&
-        query !== null &&
-        "cwd" in query &&
-        typeof query.cwd === "string" &&
-        query.cwd.trim()) {
-        return query.cwd;
-    }
-    return undefined;
-}
-function getTerminalLocaleFromQuery(query) {
-    if (typeof query === "object" &&
-        query !== null &&
-        "locale" in query &&
-        typeof query.locale === "string" &&
-        query.locale.trim()) {
-        return query.locale;
-    }
-    return undefined;
-}
-function escapeHtml(value) {
-    return value
-        .replaceAll("&", "&amp;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;");
 }
 //# sourceMappingURL=main.js.map

@@ -58,12 +58,6 @@ export declare function isAuthenticatedCookie({ cookieHeader, now, token, }: {
     token: string;
 }): boolean;
 export declare function createAuthLoginHtml(requestPath: string): string;
-export declare function createTerminalHtml({ backendWebSocketToken, cwd: requestedCwd, locale: requestedLocale, stylesheetHrefs, }: {
-    backendWebSocketToken: string;
-    cwd: string | undefined;
-    locale?: string | undefined;
-    stylesheetHrefs: string[];
-}): string;
 export declare function injectWebviewRuntimeScripts(html: string, backendWebSocketToken: string): string;
 export {};
 //# sourceMappingURL=main.d.ts.map

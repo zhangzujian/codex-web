@@ -9,7 +9,6 @@ import {
   createTerminalSocketHandler,
   parseTerminalClientMessage,
   resolveTerminalCwd,
-  terminalStylesheetHrefs,
 } from "../src/server/terminal.js";
 
 test("parseTerminalClientMessage accepts create, input, resize, and close messages", () => {
@@ -76,23 +75,6 @@ test("parseTerminalClientMessage rejects malformed messages", () => {
 test("resolveTerminalCwd returns requested directories and falls back to process cwd", () => {
   assert.equal(resolveTerminalCwd("/tmp"), "/tmp");
   assert.equal(resolveTerminalCwd(""), process.cwd());
-});
-
-test("terminalStylesheetHrefs loads app styles first and terminal styles last", () => {
-  const hrefs = terminalStylesheetHrefs([
-    "terminal-page.css",
-    "app-shell-DJDX7Pvr.css",
-    "random.css",
-    "app-main-C8zHCT66.css",
-    "app-CAcOAj6U.css",
-  ]);
-
-  assert.deepEqual(hrefs, [
-    "/assets/app-CAcOAj6U.css",
-    "/assets/app-main-C8zHCT66.css",
-    "/assets/app-shell-DJDX7Pvr.css",
-    "/assets/terminal-page.css",
-  ]);
 });
 
 test(

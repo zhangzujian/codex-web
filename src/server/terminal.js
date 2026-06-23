@@ -42,11 +42,8 @@ exports.createTerminalSocketHandler = createTerminalSocketHandler;
 exports.createNodePtyTerminalSessionFactory = createNodePtyTerminalSessionFactory;
 exports.createRemoteTerminalSessionFactory = createRemoteTerminalSessionFactory;
 exports.createCommandExecRemoteProcessConnection = createCommandExecRemoteProcessConnection;
-exports.defaultTerminalCwd = defaultTerminalCwd;
-exports.terminalStylesheetHrefs = terminalStylesheetHrefs;
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
-const node_os_1 = __importDefault(require("node:os"));
 const node_crypto_1 = require("node:crypto");
 const node_string_decoder_1 = require("node:string_decoder");
 const pty = __importStar(require("node-pty"));
@@ -472,35 +469,6 @@ function commandExecExitCode(result) {
         return null;
     }
     return result.exitCode;
-}
-function defaultTerminalCwd() {
-    return node_os_1.default.homedir();
-}
-function terminalStylesheetHrefs(assetFiles) {
-    const terminalStylesheet = "terminal-page.css";
-    const appStylesheets = assetFiles
-        .filter((file) => /^app(?:-[A-Za-z0-9_]+|-main-[A-Za-z0-9_]+|-shell-[A-Za-z0-9_]+)\.css$/.test(file))
-        .sort(compareAppStylesheets);
-    const terminalStylesheets = assetFiles.includes(terminalStylesheet)
-        ? [terminalStylesheet]
-        : [];
-    return [...appStylesheets, ...terminalStylesheets].map((file) => `/assets/${file}`);
-}
-function compareAppStylesheets(left, right) {
-    return (appStylesheetRank(left) - appStylesheetRank(right) ||
-        left.localeCompare(right));
-}
-function appStylesheetRank(file) {
-    if (/^app-[A-Za-z0-9_]+\.css$/.test(file)) {
-        return 0;
-    }
-    if (/^app-main-[A-Za-z0-9_]+\.css$/.test(file)) {
-        return 1;
-    }
-    if (/^app-shell-[A-Za-z0-9_]+\.css$/.test(file)) {
-        return 2;
-    }
-    return 3;
 }
 function isRecord(value) {
     return typeof value === "object" && value !== null;

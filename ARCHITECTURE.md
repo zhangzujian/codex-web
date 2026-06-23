@@ -66,7 +66,6 @@ reuses the same set after `vite build` when upstream assets are present.
 | patcher                          | purpose                                                                                                                                                          |
 | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `patch_browser_panel_iframe.mjs` | replaces Electron `<webview>` browser panel hosts with iframe-compatible hosts and URL sync helpers.                                                             |
-| `patch_terminal_side_panel.mjs`  | wires Terminal into the browser side panel, marks terminal tabs, hides browser chrome for them, closes terminal tabs on exit, and disables the desktop menu bar. |
 
 to connect the ipc from the renderer process to the main process, we use a
 websocket for most messages intercepting and handing a small handful of messages
@@ -96,6 +95,12 @@ annotation toolbar state and find UI state. this keeps browser panel pages
 visible and controllable in codex-web. native Electron-only actions such as
 real page screenshots, cross-origin find matching, devtools, printing and
 cross-origin annotation capture remain best-effort or unavailable.
+
+Terminal panel entry points are handled by a runtime bootstrap injected from
+[main.ts](./src/server/main.ts). it intercepts the sidebar Terminal action,
+the bottom panel Terminal shortcut, and Ctrl+Backquote, then reuses the browser
+panel UI to navigate to `/__terminal`; it does not patch the desktop app assets
+for Terminal.
 
 [preload script]: https://www.electronjs.org/docs/latest/tutorial/tutorial-preload
 [`ipcRenderer`]: https://www.electronjs.org/docs/latest/api/ipc-renderer

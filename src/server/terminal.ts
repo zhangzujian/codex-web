@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import os from "node:os";
 import { randomUUID } from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
 import type { RawData, WebSocket } from "ws";
@@ -644,47 +643,6 @@ function commandExecExitCode(result: unknown): number | null {
     return null;
   }
   return result.exitCode;
-}
-
-export function defaultTerminalCwd(): string {
-  return os.homedir();
-}
-
-export function terminalStylesheetHrefs(assetFiles: string[]): string[] {
-  const terminalStylesheet = "terminal-page.css";
-  const appStylesheets = assetFiles
-    .filter((file) =>
-      /^app(?:-[A-Za-z0-9_]+|-main-[A-Za-z0-9_]+|-shell-[A-Za-z0-9_]+)\.css$/.test(
-        file,
-      ),
-    )
-    .sort(compareAppStylesheets);
-  const terminalStylesheets = assetFiles.includes(terminalStylesheet)
-    ? [terminalStylesheet]
-    : [];
-  return [...appStylesheets, ...terminalStylesheets].map(
-    (file) => `/assets/${file}`,
-  );
-}
-
-function compareAppStylesheets(left: string, right: string): number {
-  return (
-    appStylesheetRank(left) - appStylesheetRank(right) ||
-    left.localeCompare(right)
-  );
-}
-
-function appStylesheetRank(file: string): number {
-  if (/^app-[A-Za-z0-9_]+\.css$/.test(file)) {
-    return 0;
-  }
-  if (/^app-main-[A-Za-z0-9_]+\.css$/.test(file)) {
-    return 1;
-  }
-  if (/^app-shell-[A-Za-z0-9_]+\.css$/.test(file)) {
-    return 2;
-  }
-  return 3;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
