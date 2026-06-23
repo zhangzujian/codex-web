@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   findTerminalActionAsset,
   findTerminalSidePanelAsset,
+  patchNativeTerminalCtrlWSource,
   patchSidebarNavigationButtonsAsset,
   patchTerminalActionSource,
   patchTerminalNewTabMenuSource,
@@ -62,6 +63,16 @@ const newTabMenuChunk = [
 ].join("");
 
 const sidePanelActionWithNewTabMenuChunk = `${sidePanelActionWithTerminalCommandChunk}${newTabMenuChunk}`;
+
+const nativeTerminalChunk = [
+  "function oe({clipboard:e,event:t,onNewTerminalTab:n,pasteOnCtrlV:r=!1,sendText:i,term:a}){",
+  "if(t.type!==`keydown`)return!0;",
+  "if(n!=null&&le(t,[`t`]))return J(t),n(),!1;",
+  "let o=ce(t);return o==null?!0:(J(t),i(o),!1)}",
+  "function J(e){e.preventDefault(),e.stopPropagation()}",
+  "function Z(e,t){return e.ctrlKey&&!e.shiftKey&&!e.altKey&&!e.metaKey&&e.key.toLowerCase()===t}",
+  "function terminal(){f.attachCustomKeyEventHandler(e=>oe({event:e,sendText:e=>write(e)}));return {\"data-codex-terminal\":!0}}",
+].join("");
 
 const legacyTerminalNativeShortcutFunction =
   "function codexWebInstallNativeTerminalShortcut(e){let t=globalThis;if(t.codexWebNativeTerminalShortcutHandler)document.removeEventListener(`keydown`,t.codexWebNativeTerminalShortcutHandler,!0);let n=t.codexWebNativeTerminalShortcutHandler=t=>{let n=t.target instanceof Element?t.target:null,r=document.activeElement instanceof Element?document.activeElement:null,i=n?.closest(`[role=\"tabpanel\"]`)??r?.closest(`[role=\"tabpanel\"]`);if((t.ctrlKey||t.metaKey)&&!t.altKey&&!t.shiftKey&&t.code===`KeyW`&&i!=null){t.preventDefault();return}if(t.defaultPrevented)return;if(t.ctrlKey&&!t.metaKey&&!t.altKey&&!t.shiftKey&&t.code===`Backquote`){t.preventDefault();e()}};document.addEventListener(`keydown`,n,!0)}";
@@ -186,6 +197,16 @@ test("patchTerminalActionSource replaces legacy native shortcut patches", () => 
   );
 });
 
+test("patchNativeTerminalCtrlWSource keeps Ctrl+W inside the terminal", () => {
+  const patched = patchNativeTerminalCtrlWSource(nativeTerminalChunk);
+
+  assert.match(
+    patched,
+    /if\(Z\(t,`w`\)\)return J\(t\),i\(`\\x17`\),!1;/,
+  );
+  assert.equal(patchNativeTerminalCtrlWSource(patched), patched);
+});
+
 test("findTerminalActionAsset finds the side panel Terminal action importer", () => {
   const assetsDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "codex-web-terminal-action-assets-"),
@@ -272,15 +293,24 @@ test("patchTerminalSidePanelSupport keeps sidebar Terminal native", () => {
   fs.writeFileSync(sourcePath, sourceChunk);
   const actionPath = path.join(assetsDir, "thread-app-shell-chrome.js");
   fs.writeFileSync(actionPath, sidePanelActionWithNewTabMenuChunk);
+  const nativeTerminalPath = path.join(
+    assetsDir,
+    "thread-page-bottom-panel-state.js",
+  );
+  fs.writeFileSync(nativeTerminalPath, nativeTerminalChunk);
   const appShellPath = path.join(assetsDir, "app-shell.js");
   fs.writeFileSync(appShellPath, appShellNavigationChunk);
   const patchedPaths = patchTerminalSidePanelSupport(assetsDir);
 
-  assert.deepEqual(patchedPaths, [actionPath, appShellPath]);
+  assert.deepEqual(patchedPaths, [actionPath, nativeTerminalPath, appShellPath]);
   assert.equal(fs.readFileSync(sourcePath, "utf8"), sourceChunk);
   assert.doesNotMatch(
     fs.readFileSync(actionPath, "utf8"),
     /codexWebInstallTerminalBrowserShortcut/,
+  );
+  assert.match(
+    fs.readFileSync(nativeTerminalPath, "utf8"),
+    /i\(`\\x17`\)/,
   );
   assert.match(
     fs.readFileSync(actionPath, "utf8"),

@@ -11,6 +11,7 @@ const TERMINAL_NATIVE_SHORTCUT_FUNCTION_PATTERN =
   /function codexWebInstallNativeTerminalShortcut\(e\)\{let t=globalThis;if\(t\.codexWebNativeTerminalShortcutHandler\)document\.removeEventListener\(`keydown`,t\.codexWebNativeTerminalShortcutHandler,!0\);let n=t\.codexWebNativeTerminalShortcutHandler=t=>\{[^]*?\};document\.addEventListener\(`keydown`,n,!0\)\}/g;
 const TERMINAL_BROWSER_SHORTCUT_FUNCTION =
   "function codexWebInstallTerminalBrowserShortcut(e){let t=globalThis;if(t.codexWebTerminalBrowserShortcutHandler)document.removeEventListener(`keydown`,t.codexWebTerminalBrowserShortcutHandler,!0);let n=t.codexWebTerminalBrowserShortcutHandler=t=>{if(t.ctrlKey&&!t.metaKey&&!t.altKey&&!t.shiftKey&&t.code===`Backquote`){t.preventDefault();e()}};document.addEventListener(`keydown`,n,!0)}";
+const TERMINAL_CTRL_W_PATCH = "if(Z(t,`w`))return J(t),i(`\\x17`),!1;";
 const SIDEBAR_NAVIGATION_BUTTONS_PATTERN =
   /let J;t\[\d+\]!==H\|\|t\[\d+\]!==q\?\(J=\(0,Q\.jsx\)\(_t,\{electron:!0,extension:!0,children:\(0,Q\.jsxs\)\(Q\.Fragment,\{children:\[H,q\]\}\)\}\),t\[\d+\]=H,t\[\d+\]=q,t\[\d+\]=J\):J=t\[\d+\];/;
 const PATCHED_SIDEBAR_NAVIGATION_BUTTONS_PATTERN =
@@ -86,6 +87,25 @@ export function findSidebarNavigationButtonsAsset(assetsDir) {
   throw new Error(
     `Unable to find sidebar navigation buttons asset in ${assetsDir}`,
   );
+}
+
+function findNativeTerminalAsset(assetsDir) {
+  const candidates = fs
+    .readdirSync(assetsDir)
+    .filter((name) => name.endsWith(".js"))
+    .map((name) => path.join(assetsDir, name));
+
+  for (const assetPath of candidates) {
+    const source = fs.readFileSync(assetPath, "utf8");
+    if (
+      source.includes("attachCustomKeyEventHandler") &&
+      source.includes("data-codex-terminal")
+    ) {
+      return assetPath;
+    }
+  }
+
+  throw new Error(`Unable to find native terminal asset in ${assetsDir}`);
 }
 
 export function patchTerminalActionSource(
@@ -210,6 +230,19 @@ export function patchTerminalNewTabMenuSource(source) {
   return patched;
 }
 
+export function patchNativeTerminalCtrlWSource(source) {
+  if (source.includes(TERMINAL_CTRL_W_PATCH)) {
+    return source;
+  }
+
+  return replaceOnce(
+    source,
+    "if(t.type!==`keydown`)return!0;",
+    `if(t.type!==\`keydown\`)return!0;${TERMINAL_CTRL_W_PATCH}`,
+    "Native terminal key handler target not found",
+  );
+}
+
 export function patchSidebarNavigationButtonsSource(source) {
   const patched = source.replace(
     SIDEBAR_NAVIGATION_BUTTONS_PATTERN,
@@ -252,10 +285,21 @@ export function patchSidebarNavigationButtonsAsset(assetsDir) {
   return assetPath;
 }
 
+export function patchNativeTerminalCtrlWAsset(assetsDir) {
+  const assetPath = findNativeTerminalAsset(assetsDir);
+  const source = fs.readFileSync(assetPath, "utf8");
+  const patched = patchNativeTerminalCtrlWSource(source);
+  if (patched !== source) {
+    fs.writeFileSync(assetPath, patched);
+  }
+  return assetPath;
+}
+
 export function patchTerminalSidePanelSupport(assetsDir) {
   const terminalPatchTarget = findTerminalSidePanelAsset(assetsDir);
   return [
     patchTerminalActionAsset(assetsDir, terminalPatchTarget),
+    patchNativeTerminalCtrlWAsset(assetsDir),
     patchSidebarNavigationButtonsAsset(assetsDir),
   ];
 }
