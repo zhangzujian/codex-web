@@ -1,13 +1,15 @@
---- a/webview/assets/local-conversation-thread-CGdGhhp8.js
-+++ b/webview/assets/local-conversation-thread-CGdGhhp8.js
-@@ -13463,6 +13463,10 @@
+--- a/webview/assets/local-conversation-thread-vozTKQGq.js
++++ b/webview/assets/local-conversation-thread-vozTKQGq.js
+@@ -13470,6 +13470,11 @@
+     ce = J?.automationId != null && se != null && se.trim().length > 0;
    (0, Q.useEffect)(() => {
      J?.id == null || J.readAt != null || q(J.id);
    }, [J?.id, J?.readAt, q]);
++  let title = a(Rn, e);
 +  (0, Q.useEffect)(() => {
-+    let e = typeof x === `string` ? x.trim() : ``;
++    let e = typeof title === `string` ? title.trim() : ``;
 +    e && (document.title = `${e} | Codex`);
-+  }, [x]);
-   let le = $e(),
-     { agentMode: de } = Tn({ conversationId: e, hostId: C }),
++  }, [title]);
+   let ue = $e(),
+     { agentMode: de } = Tn({ conversationId: e, hostId: w }),
      fe = S ? ze(S) : null,

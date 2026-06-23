@@ -1,5 +1,5 @@
---- a/webview/assets/error-boundary-B0U_9Djt.js
-+++ b/webview/assets/error-boundary-B0U_9Djt.js
+--- a/webview/assets/error-boundary-DOI-M2iu.js
++++ b/webview/assets/error-boundary-DOI-M2iu.js
 @@ -7593,6 +7593,7 @@
      n = f(e.appVersion),
      r = e.buildFlavor !== `prod`;

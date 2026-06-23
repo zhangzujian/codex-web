@@ -1,6 +1,6 @@
---- a/webview/assets/app-main-Cykt_nvm.js
-+++ b/webview/assets/app-main-Cykt_nvm.js
-@@ -19898,6 +19898,8 @@
+--- a/webview/assets/app-main-C-_HjS2P.js
++++ b/webview/assets/app-main-C-_HjS2P.js
+@@ -19902,6 +19902,8 @@
  }
  function Oj({ announcementStorybookOverride: e, routeProjectId: t }) {
    let n = f(tc),
@@ -9,7 +9,7 @@
      r = Si(),
      i = m(_d),
      a = m(gd),
-@@ -20224,6 +20226,10 @@
+@@ -20231,6 +20233,10 @@
                                        })
                                    : void 0,
                                  canStartRealtimeConversation: !0,
@@ -17,21 +17,21 @@
 +                                  __codexSearchParamsPrompt ?? void 0,
 +                                initialPrompt:
 +                                  __codexSearchParamsPrompt ?? void 0,
-                                 onLocalConversationCreated: U,
+                                 onLocalConversationCreated: W,
                                  externalFooterVariant: `home`,
-                                 homeRunLocationRemoteProject: null,
-@@ -20257,6 +20263,8 @@
-                         browserConversationId: V,
+                                 homeRunLocationRemoteProject: L,
+@@ -20264,6 +20270,8 @@
+                         browserConversationId: H,
                          canStartRealtimeConversation: !0,
                          composerLayoutMode: `auto-single-line`,
 +                        defaultText: __codexSearchParamsPrompt ?? void 0,
 +                        initialPrompt: __codexSearchParamsPrompt ?? void 0,
-                         homeRunLocationRemoteProject: null,
-                         onLocalConversationCreated: U,
+                         homeRunLocationRemoteProject: L,
+                         onLocalConversationCreated: W,
                          showWorkspaceDropdownInFooter: !1,
---- a/webview/assets/composer-DdM3sB3u.js
-+++ b/webview/assets/composer-DdM3sB3u.js
-@@ -24515,7 +24515,7 @@
+--- a/webview/assets/composer-CCuv6v-2.js
++++ b/webview/assets/composer-CCuv6v-2.js
+@@ -24542,7 +24542,7 @@
    );
  }
  function Ob(e) {
@@ -40,7 +40,7 @@
      {
        browserConversationId: n,
        className: r,
-@@ -24538,6 +24538,8 @@
+@@ -24565,6 +24565,8 @@
        hideRunLocationDropdownOverride: w,
        composerModeAvailability: T,
        placeholderText: E,
@@ -49,48 +49,48 @@
        composerLayoutMode: D,
        hotkeyWindowHomeFooterControls: O,
        homeRunLocationRemoteProject: k,
-@@ -24759,7 +24761,7 @@
+@@ -24786,7 +24788,7 @@
        (t[49] = ze),
        (t[50] = Be));
    let Ve = Db,
--    He = Kr(W) ? `prompt` : `plain`,
-+    He = Kr(defaultText ?? W) ? `prompt` : `plain`,
+-    He = Kr(K) ? `prompt` : `plain`,
++    He = Kr(defaultText ?? K) ? `prompt` : `plain`,
      Ue;
    t[51] !== i || t[52] !== N || t[53] !== O
      ? ((Ue =
-@@ -24887,33 +24889,39 @@
+@@ -24914,33 +24916,39 @@
    let Je;
    t[89] !== Ve ||
-   t[90] !== U ||
--  t[91] !== W ||
+   t[90] !== G ||
+-  t[91] !== K ||
 -  t[92] !== He ||
 -  t[93] !== Ue ||
 -  t[94] !== qe
 +  t[91] !== defaultText ||
-+  t[92] !== W ||
++  t[92] !== K ||
 +  t[93] !== He ||
 +  t[94] !== Ue ||
 +  t[95] !== qe
      ? ((Je = (0, Q.jsxs)(
          Ve,
--        { defaultText: W, defaultTextKind: He, children: [Ue, qe] },
+-        { defaultText: K, defaultTextKind: He, children: [Ue, qe] },
 +        {
-+          defaultText: defaultText ?? W,
++          defaultText: defaultText ?? K,
 +          defaultTextKind: He,
 +          children: [Ue, qe],
 +        },
-         U,
+         G,
        )),
        (t[89] = Ve),
-       (t[90] = U),
--      (t[91] = W),
+       (t[90] = G),
+-      (t[91] = K),
 -      (t[92] = He),
 -      (t[93] = Ue),
 -      (t[94] = qe),
 -      (t[95] = Je))
 -    : (Je = t[95]);
 +      (t[91] = defaultText),
-+      (t[92] = W),
++      (t[92] = K),
 +      (t[93] = He),
 +      (t[94] = Ue),
 +      (t[95] = qe),

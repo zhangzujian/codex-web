@@ -3,6 +3,13 @@
 instructions for upgrading codex-web to point at a new version of upstream
 Codex Desktop.
 
+if `npm install` needs to download Electron, using a mirror is usually faster
+and avoids upstream download failures:
+
+```bash
+ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/" npm install
+```
+
 ## backing up
 
 we will start by generating a scratch directory and backing it up. first, let's

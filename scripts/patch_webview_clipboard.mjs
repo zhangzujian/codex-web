@@ -4,8 +4,16 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const USER_MESSAGE_CLIPBOARD_PATTERN = "navigator.clipboard.writeText(p(V))";
-const PATCHED_USER_MESSAGE_CLIPBOARD = "codexWebWriteTextToClipboard(p(V))";
+const USER_MESSAGE_CLIPBOARD_REPLACEMENTS = [
+  [
+    "navigator.clipboard.writeText(p(V))",
+    "codexWebWriteTextToClipboard(p(V))",
+  ],
+  [
+    "navigator.clipboard.writeText(d(V))",
+    "codexWebWriteTextToClipboard(d(V))",
+  ],
+];
 const COPY_TO_CLIPBOARD_PATTERN =
   "function e(e,t){let{navigator:n}=t?.target?.ownerDocument?.defaultView??window;return new Promise((t,r)=>{if(!n?.clipboard){r(Error(`Clipboard API unavailable`));return}try{if(typeof e!=`string`&&`write`in n.clipboard&&typeof ClipboardItem<`u`&&`supports`in ClipboardItem){let i=new ClipboardItem(Object.fromEntries(Object.entries(e).map(([e,t])=>[e,typeof t==`string`?new Blob([t],{type:e}):t])));n.clipboard.write([i]).then(()=>t(!0),()=>{r(Error(`Failed to copy to clipboard`))})}else{let i=typeof e==`string`?e:e[`text/plain`]??``;n.clipboard.writeText(i).then(()=>t(!0),()=>{r(Error(`Failed to copy to clipboard`))})}}catch{r(Error(`Failed to copy to clipboard`))}})}";
 const LEGACY_CLIPBOARD_HELPER =
@@ -41,16 +49,19 @@ export function patchUserMessageClipboardAssetSource(source) {
     return source.replace(LEGACY_CLIPBOARD_HELPER, CLIPBOARD_HELPER);
   }
 
-  if (!source.includes(USER_MESSAGE_CLIPBOARD_PATTERN)) {
+  const replacement = USER_MESSAGE_CLIPBOARD_REPLACEMENTS.find(([pattern]) =>
+    source.includes(pattern),
+  );
+
+  if (replacement == null) {
     throw new Error("Unable to patch user message clipboard copy");
   }
 
+  const [pattern, patchedPattern] = replacement;
+
   return (
     CLIPBOARD_HELPER +
-    source.replace(
-      USER_MESSAGE_CLIPBOARD_PATTERN,
-      PATCHED_USER_MESSAGE_CLIPBOARD,
-    )
+    source.replace(pattern, patchedPattern)
   );
 }
 

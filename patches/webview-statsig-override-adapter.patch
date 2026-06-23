@@ -1,5 +1,5 @@
---- a/webview/assets/app-main-Cykt_nvm.js
-+++ b/webview/assets/app-main-Cykt_nvm.js
+--- a/webview/assets/app-main-C-_HjS2P.js
++++ b/webview/assets/app-main-C-_HjS2P.js
 @@ -25234,6 +25234,6 @@
  function dP({ appVersion: e, client: t, deviceId: n, enabled: r }) {
    let { data: i, status: a } = Oc(),
@@ -38,8 +38,8 @@
    let t = (0, Q.c)(27),
      {
        auth: n,
---- a/webview/assets/composer-DdM3sB3u.js
-+++ b/webview/assets/composer-DdM3sB3u.js
+--- a/webview/assets/composer-CCuv6v-2.js
++++ b/webview/assets/composer-CCuv6v-2.js
 @@ -3127,6 +3127,7 @@
    isReferralCta: r,
    referralCtaText: i,

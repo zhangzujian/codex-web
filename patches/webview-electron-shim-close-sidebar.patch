@@ -1,5 +1,5 @@
---- a/webview/assets/settings-back-route-CQBFwRyA.js
-+++ b/webview/assets/settings-back-route-CQBFwRyA.js
+--- a/webview/assets/settings-back-route-C2zq3U3-.js
++++ b/webview/assets/settings-back-route-C2zq3U3-.js
 @@ -9,7 +9,8 @@
  import { t as p } from "./badge-DN8gIpAW.js";
  import { t as m } from "./use-register-command-DNKwDbDr.js";

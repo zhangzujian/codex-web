@@ -519,12 +519,27 @@ export function patchTerminalBrowserTabMarkerSource(source) {
   }
 
   if (!patched.includes("n.codexWebIsTerminal===!0||u.isTerminal===!0")) {
-    patched = replaceOnce(
-      patched,
-      "),d=Mr(c),f=s?.tab??e.get(d.tabById$,o),p=u.preserveExistingTitle&&f?.title!=null?f.title:u.title,m=n.browserHostDisplayName??e.get(kr).display_name,g=n.cwd??e.get(Or);return",
-      "),y=n.codexWebIsTerminal===!0||u.isTerminal===!0,d=Mr(c),f=s?.tab??e.get(d.tabById$,o),p=y?(n.cwd?.split(/[\\\\/]/).filter(Boolean).at(-1)??e.get(Rr).formatMessage({id:`codexWeb.terminal.title`,defaultMessage:`Terminal`})):u.preserveExistingTitle&&f?.title!=null?f.title:u.title,m=n.browserHostDisplayName??e.get(kr).display_name,g=n.cwd??e.get(Or);return",
-      "Browser tab terminal initial metadata target not found",
-    );
+    const oldMetadataTarget =
+      "),d=Mr(c),f=s?.tab??e.get(d.tabById$,o),p=u.preserveExistingTitle&&f?.title!=null?f.title:u.title,m=n.browserHostDisplayName??e.get(kr).display_name,g=n.cwd??e.get(Or);return";
+    const oldMetadataReplacement =
+      "),y=n.codexWebIsTerminal===!0||u.isTerminal===!0,d=Mr(c),f=s?.tab??e.get(d.tabById$,o),p=y?(n.cwd?.split(/[\\\\/]/).filter(Boolean).at(-1)??e.get(Rr).formatMessage({id:`codexWeb.terminal.title`,defaultMessage:`Terminal`})):u.preserveExistingTitle&&f?.title!=null?f.title:u.title,m=n.browserHostDisplayName??e.get(kr).display_name,g=n.cwd??e.get(Or);return";
+    const newMetadataTarget =
+      "),d=Mr(c),f=s?.tab??e.get(d.tabById$,o),p=u.preserveExistingTitle&&f?.title!=null?f.title:u.title,h=n.browserHostDisplayName??e.get(kr).display_name,g=n.cwd??e.get(Or);return";
+    const newMetadataReplacement =
+      "),y=n.codexWebIsTerminal===!0||u.isTerminal===!0,d=Mr(c),f=s?.tab??e.get(d.tabById$,o),p=y?(n.cwd?.split(/[\\\\/]/).filter(Boolean).at(-1)??e.get(Rr).formatMessage({id:`codexWeb.terminal.title`,defaultMessage:`Terminal`})):u.preserveExistingTitle&&f?.title!=null?f.title:u.title,h=n.browserHostDisplayName??e.get(kr).display_name,g=n.cwd??e.get(Or);return";
+    patched = patched.includes(newMetadataTarget)
+      ? replaceOnce(
+          patched,
+          newMetadataTarget,
+          newMetadataReplacement,
+          "Browser tab terminal initial metadata target not found",
+        )
+      : replaceOnce(
+          patched,
+          oldMetadataTarget,
+          oldMetadataReplacement,
+          "Browser tab terminal initial metadata target not found",
+        );
   }
   patched = replaceIfPresent(
     patched,
@@ -542,24 +557,50 @@ export function patchTerminalBrowserTabMarkerSource(source) {
   if (
     !patched.includes(
       "props:{browserConversationId:a,browserHostDisplayName:m,browserTabId:o,cwd:g,target:c,codexWebIsTerminal:y",
+    ) &&
+    !patched.includes(
+      "props:{browserConversationId:a,browserHostDisplayName:h,browserTabId:o,cwd:g,target:c,codexWebIsTerminal:y",
     )
   ) {
-    patched = replaceOnce(
-      patched,
-      "props:{browserConversationId:a,browserHostDisplayName:m,browserTabId:o,cwd:g,target:c},id:o,",
-      "props:{browserConversationId:a,browserHostDisplayName:m,browserTabId:o,cwd:g,target:c,codexWebIsTerminal:y},codexWebIsTerminal:y,id:o,",
-      "Browser tab props target not found",
-    );
+    const oldPropsTarget =
+      "props:{browserConversationId:a,browserHostDisplayName:m,browserTabId:o,cwd:g,target:c},id:o,";
+    const oldPropsReplacement =
+      "props:{browserConversationId:a,browserHostDisplayName:m,browserTabId:o,cwd:g,target:c,codexWebIsTerminal:y},codexWebIsTerminal:y,id:o,";
+    const newPropsTarget =
+      "props:{browserConversationId:a,browserHostDisplayName:h,browserTabId:o,cwd:g,target:c},id:o,";
+    const newPropsReplacement =
+      "props:{browserConversationId:a,browserHostDisplayName:h,browserTabId:o,cwd:g,target:c,codexWebIsTerminal:y},codexWebIsTerminal:y,id:o,";
+    patched = patched.includes(newPropsTarget)
+      ? replaceOnce(
+          patched,
+          newPropsTarget,
+          newPropsReplacement,
+          "Browser tab props target not found",
+        )
+      : replaceOnce(
+          patched,
+          oldPropsTarget,
+          oldPropsReplacement,
+          "Browser tab props target not found",
+        );
   }
   if (
     !patched.includes(
       "props:{browserConversationId:a,browserHostDisplayName:m,browserTabId:o,cwd:g,target:t.panelId,codexWebIsTerminal:y}",
+    ) &&
+    !patched.includes(
+      "props:{browserConversationId:a,browserHostDisplayName:h,browserTabId:o,cwd:g,target:t.panelId,codexWebIsTerminal:y}",
     )
   ) {
     patched = replaceIfPresent(
       patched,
       "props:{browserConversationId:a,browserHostDisplayName:m,browserTabId:o,cwd:g,target:t.panelId}})",
       "props:{browserConversationId:a,browserHostDisplayName:m,browserTabId:o,cwd:g,target:t.panelId,codexWebIsTerminal:y}})",
+    );
+    patched = replaceIfPresent(
+      patched,
+      "props:{browserConversationId:a,browserHostDisplayName:h,browserTabId:o,cwd:g,target:t.panelId}})",
+      "props:{browserConversationId:a,browserHostDisplayName:h,browserTabId:o,cwd:g,target:t.panelId,codexWebIsTerminal:y}})",
     );
   }
 

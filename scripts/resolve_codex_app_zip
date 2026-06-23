@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_VERSION="26.616.32156"
+APP_VERSION="26.616.51431"
 APP_ZIP_NAME="Codex-darwin-arm64-$APP_VERSION.zip"
 APP_ZIP_URL="https://persistent.oaistatic.com/codex-app-prod/$APP_ZIP_NAME"
 CODEX_APP_CACHE_DIR="${CODEX_APP_CACHE_DIR:-"$PWD/.cache/codex-app"}"

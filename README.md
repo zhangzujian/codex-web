@@ -40,6 +40,12 @@ nix run github:0xcaff/codex-web
 
 then open <http://127.0.0.1:8214> in a browser.
 
+to access it from another device on the LAN, listen on all interfaces:
+
+```bash
+CODEX_WEB_AUTH_TOKEN=your-token codex-web --host 0.0.0.0
+```
+
 ### https on a lan
 
 Generate a local self-signed certificate for the address you will open in the

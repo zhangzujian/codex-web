@@ -9,6 +9,8 @@ const patchPath = new URL(
   "../patches/webview-statsig-override-adapter.patch",
   import.meta.url,
 );
+const appMainAssetName = "app-main-C-_HjS2P.js";
+const composerAssetName = "composer-CCuv6v-2.js";
 
 const appMainFixture = `function dP({ appVersion: e, client: t, deviceId: n, enabled: r }) {
   let { data: i, status: a } = Oc(),
@@ -81,12 +83,14 @@ test("webview Statsig patch disables analytics and network telemetry", async () 
   );
   assert.match(
     patch,
-    /--- a\/webview\/assets\/composer-DdM3sB3u\.js/,
+    new RegExp(`--- a/webview/assets/${composerAssetName}`),
     "Composer usage limit analytics should be patched too",
   );
   assert.match(
     patch,
-    /--- a\/webview\/assets\/composer-DdM3sB3u\.js[\s\S]*?\}\) \{\n\+\s+return false;/,
+    new RegExp(
+      `--- a/webview/assets/${composerAssetName}[\\s\\S]*?\\}\\) \\{\\n\\+\\s+return false;`,
+    ),
     "Composer usage limit analytics should return before POSTing",
   );
 });
@@ -98,8 +102,8 @@ test("webview telemetry patch disables direct analytics helpers when applied", a
   try {
     const assetsPath = join(fixtureRoot, "webview/assets");
     await mkdir(assetsPath, { recursive: true });
-    await writeFile(join(assetsPath, "app-main-Cykt_nvm.js"), appMainFixture);
-    await writeFile(join(assetsPath, "composer-DdM3sB3u.js"), composerFixture);
+    await writeFile(join(assetsPath, appMainAssetName), appMainFixture);
+    await writeFile(join(assetsPath, composerAssetName), composerFixture);
 
     const patch = await readFile(patchPath, "utf8");
     const result = spawnSync(
@@ -115,11 +119,11 @@ test("webview telemetry patch disables direct analytics helpers when applied", a
     assert.equal(result.status, 0, result.stderr || result.stdout);
 
     const patchedAppMain = await readFile(
-      join(assetsPath, "app-main-Cykt_nvm.js"),
+      join(assetsPath, appMainAssetName),
       "utf8",
     );
     const patchedComposer = await readFile(
-      join(assetsPath, "composer-DdM3sB3u.js"),
+      join(assetsPath, composerAssetName),
       "utf8",
     );
 

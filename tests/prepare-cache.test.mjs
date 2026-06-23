@@ -18,7 +18,7 @@ import {
   patchBrowserBuildAssets,
 } from "../scripts/patch_browser_build_assets.mjs";
 
-const appVersion = "26.616.32156";
+const appVersion = "26.616.51431";
 const archiveName = `Codex-darwin-arm64-${appVersion}.zip`;
 const appZipPath = `Codex.app/Contents/Resources/app.asar`;
 const appZipDir = `Codex.app/Contents/Resources`;

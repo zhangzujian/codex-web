@@ -4,8 +4,8 @@ import test from "node:test";
 import { patchWebviewTurnStreamingSource } from "../scripts/patch_webview_turn_streaming.mjs";
 
 const turnSource = [
-  "ne=A===void 0?!1:A,re;t[0]!==L||t[1]!==a||t[2]!==I||t[3]!==c||t[4]!==s?(re=s??U(a,c??Iy,{isBackgroundSubagentsEnabled:L,preserveServerUserMessages:I}),t[0]=L,t[1]=a,t[2]=I,t[3]=c,t[4]=s,t[5]=re):re=t[5];let ie=re,",
-  "let z=a.status===`in_progress`,B=a.status===`cancelled`,V=r??n,H=V==null?void 0:Yy(e,V),U=o(Hu,H),te=dt(`3194650870`),re=tn(),ie=u??re,ce=re===nn,le=g&&ie===`STEPS_PROSE`,W=C&&!0,ue=W?(0,Y.jsx)(wv,{conversationId:e,hostId:t,items:a.items,resolvedApps:S}):null,de=In(),fe=(0,X.useMemo)(()=>{let e=a.items;return A?My(e):e},[!1,A,a.items]),{userItems:he,assistantItem:ge,toolOutputItems:_e,systemEventItem:ve,agentItems:ye,automationUpdateItems:be,unifiedDiffItem:G,todoListItem:xe,proposedPlanItem:Se,approvalItem:Ce,userInputItem:we,mcpServerElicitationItems:Te,permissionRequestItems:Ee,postAssistantItems:De,remoteTaskCreatedItems:Oe,personalityChangedItems:ke,forkedFromConversationItems:Ae,modelChangedItems:je,modelReroutedItems:Me}=(0,X.useMemo)(()=>Qa(fe,a.status),[fe,a.status]),Ne=(0,X.useMemo)(()=>{let e=new Map;return fe.forEach((t,n)=>{if(t.type===`user-message`){e.set(t,`${n}:user`);return}t.type===`assistant-message`&&e.set(t,`${n}:assistant`)}),e},[fe]),Pe=(0,X.useMemo)(()=>wy({item:G,projectlessOutputDirectory:_}),[_,G])",
+  "ne;t[0]!==R||t[1]!==a||t[2]!==L||t[3]!==c||t[4]!==s?(ne=s??A(a,c??Iy,{isBackgroundSubagentsEnabled:R,preserveServerUserMessages:L}),t[0]=R,t[1]=a,t[2]=L,t[3]=c,t[4]=s,t[5]=ne):ne=t[5];let re=ne,",
+  "let B=a.status===`in_progress`,V=a.status===`cancelled`,ee=r??n,W=ee==null?void 0:Yy(e,ee),ne=o(Hu,W),re=dt(`3194650870`),ie=tn(),ae=u??ie,se=ie===nn,ce=g&&ae===`STEPS_PROSE`,le=C&&!0,ue=le?(0,Y.jsx)(wv,{conversationId:e,hostId:t,items:a.items,resolvedApps:S}):null,de=In(),fe=(0,X.useMemo)(()=>{let e=a.items;return j?My(e):e},[!1,j,a.items]),{userItems:he,assistantItem:ge,toolOutputItems:_e,systemEventItem:ve,agentItems:ye,automationUpdateItems:be,unifiedDiffItem:G,todoListItem:xe,proposedPlanItem:Se,approvalItem:Ce,userInputItem:we,mcpServerElicitationItems:Te,permissionRequestItems:Ee,postAssistantItems:De,remoteTaskCreatedItems:Oe,personalityChangedItems:ke,forkedFromConversationItems:Ae,modelChangedItems:je,modelReroutedItems:Me}=(0,X.useMemo)(()=>Qa(fe,a.status),[fe,a.status]),Ne=(0,X.useMemo)(()=>{let e=new Map;return fe.forEach((t,n)=>{if(t.type===`user-message`){e.set(t,`${n}:user`);return}t.type===`assistant-message`&&e.set(t,`${n}:assistant`)}),e},[fe]),Pe=(0,X.useMemo)(()=>wy({item:G,projectlessOutputDirectory:_}),[_,G])",
 ].join("");
 
 const turnComponentSource =
@@ -37,9 +37,9 @@ test("turn streaming patch avoids memoizing mutable turn items", () => {
     "local-conversation-turn-DmxvNsqR.js",
   );
 
-  assert.match(patched, /fe=A\?My\(a\.items\):a\.items/);
+  assert.match(patched, /fe=j\?My\(a\.items\):a\.items/);
   assert.match(patched, /\}=Qa\(fe,a\.status\),Ne=\(\(\)=>\{let e=new Map/);
-  assert.match(patched, /ne=A===void 0\?!1:A,re=s\?\?U\(a,c\?\?Iy,\{isBackgroundSubagentsEnabled:L,preserveServerUserMessages:I\}\);let ie=re/);
+  assert.match(patched, /ne=s\?\?A\(a,c\?\?Iy,\{isBackgroundSubagentsEnabled:R,preserveServerUserMessages:L\}\);let re=ne/);
   assert.doesNotMatch(patched, /useMemo\)\(\(\)=>\{let e=a\.items/);
   assert.doesNotMatch(patched, /\[fe,a\.status\]/);
   assert.doesNotMatch(patched, /t\[1\]!==a\|\|t\[2\]!==I/);

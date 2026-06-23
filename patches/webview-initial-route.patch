@@ -16,8 +16,8 @@
    let c = s.current,
      [l, u] = r.useState({ action: c.action, location: c.location }),
      d = r.useCallback(
---- a/webview/assets/app-shell-state-CGqmfzBu.js
-+++ b/webview/assets/app-shell-state-CGqmfzBu.js
+--- a/webview/assets/app-shell-state-Dq2x034T.js
++++ b/webview/assets/app-shell-state-Dq2x034T.js
 @@ -562,7 +562,7 @@
  }
  var Et = `app-shell-bottom-panel-launcher-visible`,

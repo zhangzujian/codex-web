@@ -14,6 +14,8 @@ const copyToClipboardSource =
   "function e(e,t){let{navigator:n}=t?.target?.ownerDocument?.defaultView??window;return new Promise((t,r)=>{if(!n?.clipboard){r(Error(`Clipboard API unavailable`));return}try{if(typeof e!=`string`&&`write`in n.clipboard&&typeof ClipboardItem<`u`&&`supports`in ClipboardItem){let i=new ClipboardItem(Object.fromEntries(Object.entries(e).map(([e,t])=>[e,typeof t==`string`?new Blob([t],{type:e}):t])));n.clipboard.write([i]).then(()=>t(!0),()=>{r(Error(`Failed to copy to clipboard`))})}else{let i=typeof e==`string`?e:e[`text/plain`]??``;n.clipboard.writeText(i).then(()=>t(!0),()=>{r(Error(`Failed to copy to clipboard`))})}}catch{r(Error(`Failed to copy to clipboard`))}})}export{e as t};";
 const userMessageAttachmentsSource =
   "de=()=>{S!=null&&w!=null&&oe.submitCodexAnalyticsEvent?.({action:`copy`,eventKind:`action`,metadata:{surface:`user_message`},threadId:S,turnId:w}),navigator.clipboard.writeText(p(V)).then(()=>{ae(!0),setTimeout(()=>ae(!1),1500)})}";
+const userMessageAttachmentsSourceWithFormattedText =
+  "de=()=>{S!=null&&w!=null&&oe.submitCodexAnalyticsEvent?.({action:`copy`,eventKind:`action`,metadata:{surface:`user_message`},threadId:S,turnId:w}),navigator.clipboard.writeText(d(V)).then(()=>{ae(!0),setTimeout(()=>ae(!1),1500)})}";
 const legacyClipboardHelper =
   "function codexWebWriteTextToClipboard(e){if(globalThis.navigator?.clipboard?.writeText)return globalThis.navigator.clipboard.writeText(e);let t=document.createElement(`textarea`);t.value=e,t.setAttribute(`readonly`,``),t.style.position=`fixed`,t.style.top=`0`,t.style.left=`0`,t.style.opacity=`0`,document.body.appendChild(t),t.focus(),t.select();try{return document.execCommand(`copy`)?Promise.resolve():Promise.reject(new Error(`Unable to copy text`))}finally{t.remove()}}";
 
@@ -37,6 +39,16 @@ test("user message clipboard patch falls back when the Clipboard API rejects", (
     patched,
     /globalThis\.navigator\.clipboard\.writeText\(e\)\.catch\(\(\)=>codexWebExecCommandCopy\(e\)\)/,
   );
+});
+
+test("user message clipboard patch handles formatted text helper calls", () => {
+  const patched = patchUserMessageClipboardAssetSource(
+    userMessageAttachmentsSourceWithFormattedText,
+  );
+
+  assert.doesNotMatch(patched, /navigator\.clipboard\.writeText\(d\(V\)\)/);
+  assert.match(patched, /codexWebWriteTextToClipboard\(d\(V\)\)/);
+  assert.match(patched, /function codexWebWriteTextToClipboard/);
 });
 
 test("copy-to-clipboard patch falls back to execCommand for code blocks", () => {

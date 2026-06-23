@@ -1,7 +1,7 @@
---- a/webview/assets/filesystem-media-src-C3dDcsrU.js
-+++ b/webview/assets/filesystem-media-src-C3dDcsrU.js
+--- a/webview/assets/filesystem-media-src-qdmJgRpq.js
++++ b/webview/assets/filesystem-media-src-qdmJgRpq.js
 @@ -1,5 +1,5 @@
- import { Fr as e, Ir as t } from "./src-DE8g9pdX.js";
+ import { Fr as e, Ir as t } from "./src-C7fSIbpz.js";
 -var n = `app://fs`,
 +var n = `http://localhost:8214/@fs`,
    r = `/@fs`;
