@@ -19,6 +19,14 @@ import {
 } from "../src/browser/sync-ipc.mts";
 import { createStatsigOverrideAdapter } from "../src/browser/statsig-overrides.mts";
 
+test("browser shim installs the Sentry IPC fetch no-op", async () => {
+  const shimSource = await import("node:fs/promises").then((fs) =>
+    fs.readFile(new URL("../src/browser/shim.ts", import.meta.url), "utf8"),
+  );
+
+  assert.match(shimSource, /installSentryIpcFetchNoop\(window\)/);
+});
+
 test("getPathForFile returns Electron-provided absolute file paths", () => {
   assert.equal(getPathForFile({ path: "/tmp/upload.txt" }), "/tmp/upload.txt");
 });

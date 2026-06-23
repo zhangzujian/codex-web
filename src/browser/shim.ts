@@ -8,6 +8,7 @@ import {
   uploadFiles,
 } from "./files";
 import { installBrowserFileDropUploadBridge } from "./drop-upload.mts";
+import { installSentryIpcFetchNoop } from "./sentry-ipc-fetch.mts";
 import {
   installWorkspaceRootDialog,
   openSelectWorkspaceRootDialog,
@@ -523,6 +524,7 @@ function installCryptoRandomUuidFallback(): void {
 }
 
 installCryptoRandomUuidFallback();
+installSentryIpcFetchNoop(window);
 installBrowserFileDropUploadBridge({ getPathForFile, uploadFiles });
 
 export const ipcRenderer = {
