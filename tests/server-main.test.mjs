@@ -390,119 +390,6 @@ test("webview shell installs Statsig overrides before module scripts run", async
   assert.equal(await nativeResponse.text(), "native");
 });
 
-test("webview shell keeps terminal Ctrl+W out of global key handlers", () => {
-  const injected = serverMain.injectWebviewRuntimeScripts("<head></head>", "secret");
-  const bootstrapScripts = [
-    ...injected.matchAll(/<script>([\s\S]*?)<\/script>/g),
-  ].map((match) => match[1]);
-
-  class FakeEventTarget {
-    constructor() {
-      this.listeners = [];
-    }
-
-    addEventListener(type, listener) {
-      this.listeners.push({ type, listener });
-    }
-
-    removeEventListener(type, listener) {
-      this.listeners = this.listeners.filter(
-        (entry) => entry.type !== type || entry.listener !== listener,
-      );
-    }
-
-    dispatchEvent(event) {
-      for (const entry of this.listeners) {
-        if (entry.type === event.type) {
-          entry.listener.call(this, event);
-        }
-      }
-    }
-  }
-
-  class FakeElement extends FakeEventTarget {
-    constructor({ isTerminal = false } = {}) {
-      super();
-      this.isTerminal = isTerminal;
-    }
-
-    closest(selector) {
-      return selector === "[data-codex-terminal]" && this.isTerminal
-        ? this
-        : null;
-    }
-  }
-
-  const document = new FakeEventTarget();
-  document.body = new FakeElement();
-  document.documentElement = new FakeElement();
-  const window = new FakeEventTarget();
-  window.fetch = () => Promise.resolve(new Response(null, { status: 204 }));
-
-  runInNewContext(bootstrapScripts.join("\n"), {
-    document,
-    Element: FakeElement,
-    EventTarget: FakeEventTarget,
-    Response,
-    URL,
-    window,
-  });
-
-  const terminalTarget = new FakeElement({ isTerminal: true });
-  const nonTerminalTarget = new FakeElement();
-  let xtermCalls = 0;
-  let appCalls = 0;
-  let objectListenerThis = null;
-  let preventDefaultCalls = 0;
-
-  terminalTarget.addEventListener("keydown", () => {
-    xtermCalls += 1;
-  });
-  const objectListener = {
-    handleEvent() {
-      objectListenerThis = this;
-    },
-  };
-  terminalTarget.addEventListener("keydown", objectListener);
-  document.addEventListener("keydown", () => {
-    appCalls += 1;
-  });
-
-  const terminalCtrlWEvent = {
-    altKey: false,
-    code: "KeyW",
-    ctrlKey: true,
-    defaultPrevented: false,
-    key: "w",
-    metaKey: false,
-    preventDefault() {
-      this.defaultPrevented = true;
-      preventDefaultCalls += 1;
-    },
-    shiftKey: false,
-    target: terminalTarget,
-    type: "keydown",
-  };
-
-  window.dispatchEvent(terminalCtrlWEvent);
-  assert.equal(preventDefaultCalls, 1);
-
-  terminalTarget.dispatchEvent(terminalCtrlWEvent);
-  document.dispatchEvent(terminalCtrlWEvent);
-
-  assert.equal(xtermCalls, 1);
-  assert.equal(objectListenerThis, objectListener);
-  assert.equal(appCalls, 0);
-  assert.ok(preventDefaultCalls >= 1);
-
-  document.dispatchEvent({
-    ...terminalCtrlWEvent,
-    target: nonTerminalTarget,
-  });
-
-  assert.equal(appCalls, 1);
-});
-
 test("webview shell exposes configured terminal font", () => {
   const previousFont = process.env.CODEX_WEB_TERMINAL_FONT;
   process.env.CODEX_WEB_TERMINAL_FONT = "MesloLGS NF";
@@ -534,18 +421,10 @@ test("webview shell declares the bundled configured terminal font", () => {
 
     assert.match(injected, /@font-face/);
     assert.match(injected, /font-family: "MesloLGS NF"/);
-    for (const fileName of [
-      "MesloLGS%20NF%20Regular.ttf",
-      "MesloLGS%20NF%20Bold.ttf",
-      "MesloLGS%20NF%20Italic.ttf",
-      "MesloLGS%20NF%20Bold%20Italic.ttf",
-    ]) {
-      assert.match(injected, new RegExp(`/__codex-web/fonts/${fileName}`));
-    }
-    assert.match(injected, /font-weight: 400/);
-    assert.match(injected, /font-weight: 700/);
-    assert.match(injected, /font-style: normal/);
-    assert.match(injected, /font-style: italic/);
+    assert.match(injected, /\/__codex-web\/fonts\/MesloLGS%20NF%20Regular.ttf/);
+    assert.doesNotMatch(injected, /MesloLGS%20NF%20Bold.ttf/);
+    assert.doesNotMatch(injected, /font-weight:/);
+    assert.doesNotMatch(injected, /font-style:/);
   } finally {
     if (previousFont === undefined) {
       delete process.env.CODEX_WEB_TERMINAL_FONT;

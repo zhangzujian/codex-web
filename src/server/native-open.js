@@ -11,13 +11,14 @@ const node_child_process_1 = require("node:child_process");
 const promises_1 = __importDefault(require("node:fs/promises"));
 const node_path_1 = __importDefault(require("node:path"));
 const node_util_1 = require("node:util");
+const remote_default_config_1 = require("./remote-default-config");
 const MESSAGE_FOR_VIEW_CHANNEL = "codex_desktop:message-for-view";
 const execFileAsync = (0, node_util_1.promisify)(node_child_process_1.execFile);
 async function createOpenInTargetsPayload(environment = {}, request = {}) {
     const { commandExists = defaultCommandExists, platform = process.platform } = environment;
     const targets = [];
     const availableTargets = [];
-    const codeCommand = await resolveCodeCommand(commandExists);
+    const codeCommand = await resolveCodeCommand(commandExists, environment.codeCommand);
     const xftpCommand = await resolveXftpCommand(commandExists);
     const gitWebRemote = await resolveGitWebRemote(request, environment);
     const systemOpenAvailable = await hasSystemOpenCommand(platform, commandExists);
@@ -30,6 +31,14 @@ async function createOpenInTargetsPayload(environment = {}, request = {}) {
             kind: "editor",
         });
         availableTargets.push("workspace");
+    }
+    if (remoteSshAuthority(request) != null) {
+        return {
+            availableTargets,
+            mode: "editor",
+            preferredTarget: codeCommand != null ? "workspace" : (availableTargets[0] ?? null),
+            targets,
+        };
     }
     if (xftpCommand != null) {
         targets.push({
@@ -94,9 +103,24 @@ async function createOpenFileCommand(request, environment = {}) {
     const targetPath = resolveRequestPath(request);
     const target = stringValue(request.target) ?? "systemDefault";
     if (target === "workspace") {
-        const command = await resolveCodeCommand(commandExists);
+        const command = await resolveCodeCommand(commandExists, environment.codeCommand);
         if (command == null) {
             throw new Error("Open target is not available: workspace");
+        }
+        const remoteEditor = remoteEditorTarget(request);
+        if (stringValue(request.openMode) === "workspace") {
+            return {
+                command,
+                args: remoteEditor == null
+                    ? [targetPath]
+                    : ["--folder-uri", remoteEditor.pathUri],
+            };
+        }
+        if (remoteEditor != null) {
+            return {
+                command,
+                args: remoteEditorArgs(remoteEditor, request),
+            };
         }
         return {
             command,
@@ -462,7 +486,90 @@ function formatEditorPath(targetPath, request) {
         ? `${targetPath}:${line}`
         : `${targetPath}:${line}:${column}`;
 }
-async function resolveCodeCommand(commandExists) {
+function remoteEditorTarget(request) {
+    const authority = remoteSshAuthority(request);
+    if (authority == null) {
+        return null;
+    }
+    const path = resolveRemoteRequestPath(request);
+    const workspaceRoot = resolveRemoteWorkspaceRoot(request);
+    return {
+        authority,
+        path,
+        pathUri: remoteEditorUri(authority, path),
+        workspaceRoot,
+        workspaceRootUri: workspaceRoot == null ? null : remoteEditorUri(authority, workspaceRoot),
+    };
+}
+function remoteEditorArgs(target, request) {
+    const location = remoteLocation(request);
+    const args = [];
+    if (target.workspaceRootUri != null) {
+        args.push("--folder-uri", target.workspaceRootUri);
+    }
+    if (location != null) {
+        args.push("--remote", target.authority, "--goto", `${target.path}:${location.line}:${location.column}`);
+    }
+    else {
+        args.push("--file-uri", target.pathUri);
+    }
+    return args;
+}
+function remoteLocation(request) {
+    const line = positiveIntegerValue(request.line);
+    if (line == null) {
+        return null;
+    }
+    return {
+        line,
+        column: positiveIntegerValue(request.column) ?? 1,
+    };
+}
+function remoteEditorUri(authority, remotePath) {
+    return `vscode-remote://${authority}${encodePathSegments(remotePath)}`;
+}
+function resolveRemoteRequestPath(request) {
+    const rawPath = normalizeRemotePathSeparators(stringValue(request.path) ?? "");
+    if (node_path_1.default.posix.isAbsolute(rawPath)) {
+        return node_path_1.default.posix.normalize(rawPath);
+    }
+    const cwd = normalizeRemotePathSeparators(stringValue(request.cwd) ?? "/");
+    return node_path_1.default.posix.resolve(cwd, rawPath);
+}
+function resolveRemoteWorkspaceRoot(request) {
+    const rawCwd = normalizeRemotePathSeparators(stringValue(request.cwd)?.trim() ?? "");
+    if (rawCwd.length === 0) {
+        return null;
+    }
+    return node_path_1.default.posix.isAbsolute(rawCwd)
+        ? node_path_1.default.posix.normalize(rawCwd)
+        : node_path_1.default.posix.resolve("/", rawCwd);
+}
+function normalizeRemotePathSeparators(value) {
+    return value.replaceAll("\\", "/");
+}
+function remoteSshAuthority(request) {
+    const remoteAuthority = stringValue(request.remoteAuthority);
+    if (remoteAuthority != null && remoteAuthority.length > 0) {
+        return remoteAuthority.startsWith("ssh-remote+")
+            ? remoteAuthority
+            : `ssh-remote+${encodeURIComponent(remoteAuthority)}`;
+    }
+    const sshHost = stringValue(request.sshHost);
+    if (sshHost != null && sshHost.length > 0) {
+        return `ssh-remote+${encodeURIComponent(sshHost)}`;
+    }
+    return stringValue(request.hostId) === "remote:default"
+        ? `ssh-remote+${encodeURIComponent((0, remote_default_config_1.remoteDefaultSshHost)())}`
+        : null;
+}
+async function resolveCodeCommand(commandExists, configuredCommand = process.env.CODEX_WEB_VSCODE_CLI) {
+    const configured = configuredCommand?.trim();
+    if (configured != null && configured.length > 0) {
+        if (await configuredCodeCommandExists(configured, commandExists)) {
+            return configured;
+        }
+    }
     if (await commandExists("code")) {
         return "code";
     }
@@ -470,6 +577,18 @@ async function resolveCodeCommand(commandExists) {
         return "code-insiders";
     }
     return null;
+}
+async function configuredCodeCommandExists(command, commandExists) {
+    if (!command.includes("/") && !command.includes("\\")) {
+        return commandExists(command);
+    }
+    try {
+        await promises_1.default.access(command);
+        return true;
+    }
+    catch {
+        return false;
+    }
 }
 async function resolveXftpCommand(commandExists) {
     if (await commandExists("xsftp")) {

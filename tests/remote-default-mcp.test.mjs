@@ -6,7 +6,7 @@ import {
   handleRemoteDefaultMcpMessage,
 } from "../src/server/remote-default-mcp.js";
 
-test("remote default mcp override exposes remote connection feature config", async () => {
+test("remote default mcp override no-ops config reads", async () => {
   const messages = [];
   const request = {
     jsonrpc: "2.0",
@@ -24,11 +24,8 @@ test("remote default mcp override exposes remote connection feature config", asy
     { respond: (message) => messages.push(message) },
   );
 
-  assert.equal(handled, true);
-  assert.deepEqual(messages[0].args[0].message.result.config.features, {
-    remote_connections: true,
-    remote_ssh_connections: true,
-  });
+  assert.equal(handled, false);
+  assert.deepEqual(messages, []);
 });
 
 test("remote default mcp override ignores non-default hosts", () => {

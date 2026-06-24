@@ -28,9 +28,13 @@ type OpenFileRequest = {
     appPath?: unknown;
     column?: unknown;
     cwd?: unknown;
+    hostId?: unknown;
     line?: unknown;
     locale?: unknown;
+    openMode?: unknown;
     path?: unknown;
+    remoteAuthority?: unknown;
+    sshHost?: unknown;
     target?: unknown;
 };
 type OpenFileCommand = {
@@ -38,6 +42,7 @@ type OpenFileCommand = {
     args: string[];
 };
 type NativeOpenEnvironment = {
+    codeCommand?: string;
     commandExists?: (command: string) => Promise<boolean>;
     gitBranch?: (request: OpenFileRequest) => Promise<string | null>;
     gitLabHosts?: string[];

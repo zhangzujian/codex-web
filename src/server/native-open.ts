@@ -2,6 +2,7 @@ import { execFile, spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
+import { remoteDefaultSshHost } from "./remote-default-config";
 
 const MESSAGE_FOR_VIEW_CHANNEL = "codex_desktop:message-for-view";
 const execFileAsync = promisify(execFile);
@@ -40,9 +41,13 @@ type OpenFileRequest = {
   appPath?: unknown;
   column?: unknown;
   cwd?: unknown;
+  hostId?: unknown;
   line?: unknown;
   locale?: unknown;
+  openMode?: unknown;
   path?: unknown;
+  remoteAuthority?: unknown;
+  sshHost?: unknown;
   target?: unknown;
 };
 
@@ -52,6 +57,7 @@ type OpenFileCommand = {
 };
 
 type NativeOpenEnvironment = {
+  codeCommand?: string;
   commandExists?: (command: string) => Promise<boolean>;
   gitBranch?: (request: OpenFileRequest) => Promise<string | null>;
   gitLabHosts?: string[];
@@ -78,7 +84,10 @@ export async function createOpenInTargetsPayload(
     environment;
   const targets: OpenTarget[] = [];
   const availableTargets: string[] = [];
-  const codeCommand = await resolveCodeCommand(commandExists);
+  const codeCommand = await resolveCodeCommand(
+    commandExists,
+    environment.codeCommand,
+  );
   const xftpCommand = await resolveXftpCommand(commandExists);
   const gitWebRemote = await resolveGitWebRemote(request, environment);
   const systemOpenAvailable = await hasSystemOpenCommand(
@@ -95,6 +104,16 @@ export async function createOpenInTargetsPayload(
       kind: "editor",
     });
     availableTargets.push("workspace");
+  }
+
+  if (remoteSshAuthority(request) != null) {
+    return {
+      availableTargets,
+      mode: "editor",
+      preferredTarget:
+        codeCommand != null ? "workspace" : (availableTargets[0] ?? null),
+      targets,
+    };
   }
 
   if (xftpCommand != null) {
@@ -182,9 +201,28 @@ export async function createOpenFileCommand(
   const target = stringValue(request.target) ?? "systemDefault";
 
   if (target === "workspace") {
-    const command = await resolveCodeCommand(commandExists);
+    const command = await resolveCodeCommand(
+      commandExists,
+      environment.codeCommand,
+    );
     if (command == null) {
       throw new Error("Open target is not available: workspace");
+    }
+    const remoteEditor = remoteEditorTarget(request);
+    if (stringValue(request.openMode) === "workspace") {
+      return {
+        command,
+        args:
+          remoteEditor == null
+            ? [targetPath]
+            : ["--folder-uri", remoteEditor.pathUri],
+      };
+    }
+    if (remoteEditor != null) {
+      return {
+        command,
+        args: remoteEditorArgs(remoteEditor, request),
+      };
     }
     return {
       command,
@@ -684,9 +722,119 @@ function formatEditorPath(
     : `${targetPath}:${line}:${column}`;
 }
 
+function remoteEditorTarget(request: OpenFileRequest): {
+  authority: string;
+  path: string;
+  pathUri: string;
+  workspaceRoot: string | null;
+  workspaceRootUri: string | null;
+} | null {
+  const authority = remoteSshAuthority(request);
+  if (authority == null) {
+    return null;
+  }
+  const path = resolveRemoteRequestPath(request);
+  const workspaceRoot = resolveRemoteWorkspaceRoot(request);
+  return {
+    authority,
+    path,
+    pathUri: remoteEditorUri(authority, path),
+    workspaceRoot,
+    workspaceRootUri:
+      workspaceRoot == null ? null : remoteEditorUri(authority, workspaceRoot),
+  };
+}
+
+function remoteEditorArgs(
+  target: NonNullable<ReturnType<typeof remoteEditorTarget>>,
+  request: OpenFileRequest,
+): string[] {
+  const location = remoteLocation(request);
+  const args: string[] = [];
+  if (target.workspaceRootUri != null) {
+    args.push("--folder-uri", target.workspaceRootUri);
+  }
+  if (location != null) {
+    args.push(
+      "--remote",
+      target.authority,
+      "--goto",
+      `${target.path}:${location.line}:${location.column}`,
+    );
+  } else {
+    args.push("--file-uri", target.pathUri);
+  }
+  return args;
+}
+
+function remoteLocation(
+  request: OpenFileRequest,
+): { line: number; column: number } | null {
+  const line = positiveIntegerValue(request.line);
+  if (line == null) {
+    return null;
+  }
+  return {
+    line,
+    column: positiveIntegerValue(request.column) ?? 1,
+  };
+}
+
+function remoteEditorUri(authority: string, remotePath: string): string {
+  return `vscode-remote://${authority}${encodePathSegments(remotePath)}`;
+}
+
+function resolveRemoteRequestPath(request: OpenFileRequest): string {
+  const rawPath = normalizeRemotePathSeparators(stringValue(request.path) ?? "");
+  if (path.posix.isAbsolute(rawPath)) {
+    return path.posix.normalize(rawPath);
+  }
+  const cwd = normalizeRemotePathSeparators(stringValue(request.cwd) ?? "/");
+  return path.posix.resolve(cwd, rawPath);
+}
+
+function resolveRemoteWorkspaceRoot(request: OpenFileRequest): string | null {
+  const rawCwd = normalizeRemotePathSeparators(
+    stringValue(request.cwd)?.trim() ?? "",
+  );
+  if (rawCwd.length === 0) {
+    return null;
+  }
+  return path.posix.isAbsolute(rawCwd)
+    ? path.posix.normalize(rawCwd)
+    : path.posix.resolve("/", rawCwd);
+}
+
+function normalizeRemotePathSeparators(value: string): string {
+  return value.replaceAll("\\", "/");
+}
+
+function remoteSshAuthority(request: OpenFileRequest): string | null {
+  const remoteAuthority = stringValue(request.remoteAuthority);
+  if (remoteAuthority != null && remoteAuthority.length > 0) {
+    return remoteAuthority.startsWith("ssh-remote+")
+      ? remoteAuthority
+      : `ssh-remote+${encodeURIComponent(remoteAuthority)}`;
+  }
+  const sshHost = stringValue(request.sshHost);
+  if (sshHost != null && sshHost.length > 0) {
+    return `ssh-remote+${encodeURIComponent(sshHost)}`;
+  }
+  return stringValue(request.hostId) === "remote:default"
+    ? `ssh-remote+${encodeURIComponent(remoteDefaultSshHost())}`
+    : null;
+}
+
 async function resolveCodeCommand(
   commandExists: (command: string) => Promise<boolean>,
+  configuredCommand = process.env.CODEX_WEB_VSCODE_CLI,
 ): Promise<string | null> {
+  const configured = configuredCommand?.trim();
+  if (configured != null && configured.length > 0) {
+    if (await configuredCodeCommandExists(configured, commandExists)) {
+      return configured;
+    }
+  }
   if (await commandExists("code")) {
     return "code";
   }
@@ -694,6 +842,21 @@ async function resolveCodeCommand(
     return "code-insiders";
   }
   return null;
+}
+
+async function configuredCodeCommandExists(
+  command: string,
+  commandExists: (command: string) => Promise<boolean>,
+): Promise<boolean> {
+  if (!command.includes("/") && !command.includes("\\")) {
+    return commandExists(command);
+  }
+  try {
+    await fs.access(command);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function resolveXftpCommand(

@@ -7,6 +7,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.parseServerArgs = parseServerArgs;
 exports.createFastifyOptions = createFastifyOptions;
 exports.getWorkspaceDirectoryEntries = getWorkspaceDirectoryEntries;
+exports.canHandleWorkspaceDirectoryEntriesFetchMessage = canHandleWorkspaceDirectoryEntriesFetchMessage;
+exports.handleWorkspaceDirectoryEntriesFetchMessage = handleWorkspaceDirectoryEntriesFetchMessage;
+exports.canHandleReadConfigForHostFetchMessage = canHandleReadConfigForHostFetchMessage;
+exports.handleReadConfigForHostFetchMessage = handleReadConfigForHostFetchMessage;
 exports.createDefaultTerminalSessionFactory = createDefaultTerminalSessionFactory;
 exports.isAllowedBackendWebSocketRequest = isAllowedBackendWebSocketRequest;
 exports.shouldBlockFsRequestPath = shouldBlockFsRequestPath;
@@ -33,6 +37,7 @@ const browser_panel_runtime_1 = require("./browser-panel-runtime");
 const native_open_1 = require("./native-open");
 const remote_default_fetch_1 = require("./remote-default-fetch");
 const remote_default_mcp_1 = require("./remote-default-mcp");
+const remote_default_config_1 = require("./remote-default-config");
 function workspaceDirectoryEntryTypeRank(entry) {
     return entry.type === "directory" ? 0 : 1;
 }
@@ -47,31 +52,7 @@ function compareWorkspaceDirectoryEntries(left, right) {
         left.name.localeCompare(right.name));
 }
 const BUNDLED_TERMINAL_FONTS = new Map([
-    [
-        "MesloLGS NF",
-        [
-            {
-                fileName: "MesloLGS NF Regular.ttf",
-                fontStyle: "normal",
-                fontWeight: 400,
-            },
-            {
-                fileName: "MesloLGS NF Bold.ttf",
-                fontStyle: "normal",
-                fontWeight: 700,
-            },
-            {
-                fileName: "MesloLGS NF Italic.ttf",
-                fontStyle: "italic",
-                fontWeight: 400,
-            },
-            {
-                fileName: "MesloLGS NF Bold Italic.ttf",
-                fontStyle: "italic",
-                fontWeight: 700,
-            },
-        ],
-    ],
+    ["MesloLGS NF", "MesloLGS NF Regular.ttf"],
 ]);
 function printUsage() {
     console.log([
@@ -180,6 +161,11 @@ function errorMessage(error) {
 }
 function isRecord(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function isFetchMessage(value) {
+    return (isRecord(value) &&
+        value.type === "fetch" &&
+        typeof value.requestId === "string");
 }
 function sendSocketMessage(socket, message) {
     if (socket.readyState === ws_1.WebSocket.OPEN) {
@@ -312,6 +298,123 @@ function remoteFsReadDirectoryEntries(response) {
                 isDirectory: entry.isDirectory === true,
             },
         ];
+    });
+}
+function canHandleWorkspaceDirectoryEntriesFetchMessage(message) {
+    if (!isFetchMessage(message)) {
+        return false;
+    }
+    try {
+        const url = new URL(String(message.url));
+        if (url.protocol !== "vscode:" ||
+            url.hostname !== "codex" ||
+            url.pathname !== "/remote-workspace-directory-entries") {
+            return false;
+        }
+    }
+    catch {
+        return false;
+    }
+    const params = parseFetchBodyRecord(message.body);
+    return (params.hostId == null ||
+        params.hostId === "local" ||
+        params.hostId === "remote:default");
+}
+async function handleWorkspaceDirectoryEntriesFetchMessage(message, appServerClient, respond) {
+    if (!canHandleWorkspaceDirectoryEntriesFetchMessage(message)) {
+        return false;
+    }
+    try {
+        const params = parseFetchBodyRecord(message.body);
+        const result = await getWorkspaceDirectoryEntries({
+            directoriesOnly: params.directoriesOnly !== false,
+            directoryPath: typeof params.directoryPath === "string"
+                ? params.directoryPath
+                : null,
+        }, appServerClient);
+        sendFetchResponse(respond, message.requestId, 200, result);
+    }
+    catch (error) {
+        sendFetchError(respond, message.requestId, errorMessage(error));
+    }
+    return true;
+}
+function canHandleReadConfigForHostFetchMessage(message) {
+    if (!isFetchMessage(message)) {
+        return false;
+    }
+    try {
+        const url = new URL(String(message.url));
+        return (url.protocol === "vscode:" &&
+            url.hostname === "codex" &&
+            url.pathname === "/read-config-for-host");
+    }
+    catch {
+        return false;
+    }
+}
+async function handleReadConfigForHostFetchMessage(message, appServerClient, respond) {
+    if (!canHandleReadConfigForHostFetchMessage(message)) {
+        return false;
+    }
+    try {
+        const body = parseFetchBodyRecord(message.body);
+        const params = isRecord(body.params) ? body.params : body;
+        const result = await appServerClient.rpc("config/read", {
+            cwd: typeof params.cwd === "string" ? params.cwd : null,
+            includeLayers: params.includeLayers === true,
+        });
+        sendFetchResponse(respond, message.requestId, 200, {
+            ...(isRecord(result) ? result : {}),
+            hostId: remote_default_config_1.REMOTE_DEFAULT_HOST_ID,
+        });
+    }
+    catch (error) {
+        sendFetchError(respond, message.requestId, errorMessage(error));
+    }
+    return true;
+}
+function parseFetchBodyRecord(body) {
+    if (typeof body !== "string") {
+        return {};
+    }
+    try {
+        const parsed = JSON.parse(body);
+        return isRecord(parsed) ? parsed : {};
+    }
+    catch {
+        return {};
+    }
+}
+function sendFetchResponse(respond, requestId, status, body) {
+    respond({
+        type: "ipc-main-event",
+        channel: "codex_desktop:message-for-view",
+        args: [
+            {
+                type: "fetch-response",
+                requestId,
+                responseType: "success",
+                status,
+                headers: {},
+                bodyJsonString: JSON.stringify(body),
+            },
+        ],
+    });
+}
+function sendFetchError(respond, requestId, error) {
+    respond({
+        type: "ipc-main-event",
+        channel: "codex_desktop:message-for-view",
+        args: [
+            {
+                type: "fetch-response",
+                requestId,
+                responseType: "error",
+                status: 500,
+                error,
+            },
+        ],
     });
 }
 function ensureElectronLikeProcessContext() {
@@ -558,10 +661,20 @@ async function startIpcBridgeServer(options) {
             if (message.type === "ipc-renderer-send") {
                 const ports = message.portIds?.map(getVirtualPort) ?? [];
                 if (message.channel === "codex_desktop:message-from-view" &&
+                    canHandleWorkspaceDirectoryEntriesFetchMessage(message.args[0])) {
+                    void handleWorkspaceDirectoryEntriesFetchMessage(message.args[0], appServerClient, (payload) => bridgeState.broadcastToRenderer?.(payload));
+                    return;
+                }
+                if (message.channel === "codex_desktop:message-from-view" &&
                     (0, native_open_1.canHandleNativeOpenFetchMessage)(message.args[0])) {
                     void (0, native_open_1.handleNativeOpenFetchMessage)(message.args[0], {
                         respond: (payload) => bridgeState.broadcastToRenderer?.(payload),
                     });
+                    return;
+                }
+                if (message.channel === "codex_desktop:message-from-view" &&
+                    canHandleReadConfigForHostFetchMessage(message.args[0])) {
+                    void handleReadConfigForHostFetchMessage(message.args[0], appServerClient, (payload) => bridgeState.broadcastToRenderer?.(payload));
                     return;
                 }
                 if (message.channel === "codex_desktop:message-from-view" &&
@@ -615,10 +728,32 @@ async function startIpcBridgeServer(options) {
             if (message.type === "ipc-renderer-invoke") {
                 const { channel, requestId, args, sourceUrl } = message;
                 if (channel === "codex_desktop:message-from-view" &&
+                    canHandleWorkspaceDirectoryEntriesFetchMessage(args[0])) {
+                    void handleWorkspaceDirectoryEntriesFetchMessage(args[0], appServerClient, (payload) => bridgeState.broadcastToRenderer?.(payload));
+                    sendSocketMessage(socket, {
+                        type: "ipc-renderer-invoke-result",
+                        requestId,
+                        ok: true,
+                        result: undefined,
+                    });
+                    return;
+                }
+                if (channel === "codex_desktop:message-from-view" &&
                     (0, native_open_1.canHandleNativeOpenFetchMessage)(args[0])) {
                     void (0, native_open_1.handleNativeOpenFetchMessage)(args[0], {
                         respond: (payload) => bridgeState.broadcastToRenderer?.(payload),
                     });
+                    sendSocketMessage(socket, {
+                        type: "ipc-renderer-invoke-result",
+                        requestId,
+                        ok: true,
+                        result: undefined,
+                    });
+                    return;
+                }
+                if (channel === "codex_desktop:message-from-view" &&
+                    canHandleReadConfigForHostFetchMessage(args[0])) {
+                    void handleReadConfigForHostFetchMessage(args[0], appServerClient, (payload) => bridgeState.broadcastToRenderer?.(payload));
                     sendSocketMessage(socket, {
                         type: "ipc-renderer-invoke-result",
                         requestId,
@@ -949,7 +1084,7 @@ async function sendWebviewIndex(reply, webviewRoot, backendWebSocketToken) {
 function injectWebviewRuntimeScripts(html, backendWebSocketToken) {
     const terminalFont = process.env.CODEX_WEB_TERMINAL_FONT?.trim() || null;
     const fontFace = terminalFontFaceStyle(terminalFont);
-    const scripts = `<script>${terminalCtrlWBootstrapScript()}</script><script>${statsigOverrideBootstrapScript()}</script><script>window.__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__=${JSON.stringify(backendWebSocketToken)};window.__CODEX_WEB_TERMINAL_FONT__=${JSON.stringify(terminalFont)};</script>`;
+    const scripts = `<script>${statsigOverrideBootstrapScript()}</script><script>window.__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__=${JSON.stringify(backendWebSocketToken)};window.__CODEX_WEB_REMOTE_SSH_HOST__=${JSON.stringify((0, remote_default_config_1.remoteDefaultSshHost)())};window.__CODEX_WEB_TERMINAL_FONT__=${JSON.stringify(terminalFont)};</script>`;
     const preload = '<base href="/" /><script type="module" src="./assets/preload.js"></script>';
     const shellHtml = removeContentSecurityPolicyMeta(html)
         .replace('<link rel="manifest" href="/manifest.json" />', '<link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />')
@@ -960,98 +1095,14 @@ function injectWebviewRuntimeScripts(html, backendWebSocketToken) {
         : `${fontFace}${scripts}${preload}${shellHtml}`;
 }
 function terminalFontFaceStyle(fontName) {
-    const faces = fontName ? BUNDLED_TERMINAL_FONTS.get(fontName) : null;
-    if (!fontName || !faces) {
+    const fileName = fontName ? BUNDLED_TERMINAL_FONTS.get(fontName) : null;
+    if (!fontName || !fileName) {
         return "";
     }
-    return `<style>${faces
-        .map(({ fileName, fontStyle, fontWeight }) => `@font-face{font-family: ${JSON.stringify(fontName)};src: local(${JSON.stringify(fontName)}), url("/__codex-web/fonts/${encodeURIComponent(fileName)}") format("truetype");font-weight: ${fontWeight};font-style: ${fontStyle};font-display: swap;}`)
-        .join("")}</style>`;
+    return `<style>@font-face{font-family: ${JSON.stringify(fontName)};src: local(${JSON.stringify(fontName)}), url("/__codex-web/fonts/${encodeURIComponent(fileName)}") format("truetype");font-display: swap;}</style>`;
 }
 function removeContentSecurityPolicyMeta(html) {
     return html.replace(/<meta\b(?=[^>]*http-equiv=["']?Content-Security-Policy["']?)[^>]*>\s*/gi, "");
-}
-function terminalCtrlWBootstrapScript() {
-    return `(() => {
-  if (window.__CODEX_WEB_TERMINAL_CTRL_W_SHIM__ || typeof EventTarget !== "function") {
-    return;
-  }
-  window.__CODEX_WEB_TERMINAL_CTRL_W_SHIM__ = true;
-  const originalAddEventListener = EventTarget.prototype.addEventListener;
-  const originalRemoveEventListener = EventTarget.prototype.removeEventListener;
-  const keydownListenerWrappers = new WeakMap();
-  const isGlobalKeyTarget = (target) =>
-    target === window ||
-    target === document ||
-    target === document.body ||
-    target === document.documentElement;
-  const isTerminalCtrlW = (event) => {
-    const target = event?.target instanceof Element ? event.target : null;
-    const key = typeof event?.key === "string" ? event.key.toLowerCase() : "";
-    return (
-      event?.ctrlKey === true &&
-      event.metaKey !== true &&
-      event.altKey !== true &&
-      event.shiftKey !== true &&
-      (key === "w" || event.code === "KeyW") &&
-      target?.closest?.("[data-codex-terminal]") != null
-    );
-  };
-  const invokeListener = (listener, thisArg, event) =>
-    typeof listener === "function"
-      ? listener.call(thisArg, event)
-      : listener.handleEvent.call(listener, event);
-  const preventTerminalCtrlWBrowserDefault = (event) => {
-    if (isTerminalCtrlW(event)) {
-      event.preventDefault?.();
-    }
-  };
-  originalAddEventListener.call(
-    window,
-    "keydown",
-    preventTerminalCtrlWBrowserDefault,
-    true,
-  );
-  originalAddEventListener.call(
-    document,
-    "keydown",
-    preventTerminalCtrlWBrowserDefault,
-    true,
-  );
-  EventTarget.prototype.addEventListener = function (type, listener, options) {
-    if (
-      type !== "keydown" ||
-      (typeof listener !== "function" &&
-        typeof listener?.handleEvent !== "function")
-    ) {
-      return originalAddEventListener.call(this, type, listener, options);
-    }
-    let wrapped = keydownListenerWrappers.get(listener);
-    if (wrapped == null) {
-      wrapped = function (event) {
-        if (isTerminalCtrlW(event) && isGlobalKeyTarget(this)) {
-          event.preventDefault?.();
-          return;
-        }
-        return invokeListener(listener, this, event);
-      };
-      keydownListenerWrappers.set(listener, wrapped);
-    }
-    return originalAddEventListener.call(this, type, wrapped, options);
-  };
-  EventTarget.prototype.removeEventListener = function (type, listener, options) {
-    const wrapped =
-      type === "keydown" && listener != null
-        ? keydownListenerWrappers.get(listener)
-        : null;
-    return originalRemoveEventListener.call(
-      this,
-      type,
-      wrapped ?? listener,
-      options,
-    );
-  };
-})();`;
 }
 function statsigOverrideBootstrapScript() {
     return `(() => {

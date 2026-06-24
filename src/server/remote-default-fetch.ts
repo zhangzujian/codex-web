@@ -1,15 +1,9 @@
+import {
+  REMOTE_DEFAULT_HOST_ID,
+  remoteDefaultConnection,
+} from "./remote-default-config";
+
 const MESSAGE_FOR_VIEW_CHANNEL = "codex_desktop:message-for-view";
-const REMOTE_DEFAULT_HOST_ID = "remote:default";
-const REMOTE_DEFAULT_CONNECTION = {
-  hostId: REMOTE_DEFAULT_HOST_ID,
-  displayName: "Remote",
-  source: "codex-web",
-  sshHost: "remote",
-  sshPort: null,
-  sshAlias: null,
-  identity: null,
-  autoConnect: true,
-};
 
 type FetchMessage = {
   type: "fetch";
@@ -30,9 +24,9 @@ type RemoteDefaultFetchEnvironment = {
 };
 
 type RemoteDefaultRoute =
+  | "app-server-connection-state"
   | "discover-remote-ssh-connections"
   | "install-remote-codex"
-  | "read-config-for-host"
   | "refresh-remote-connections"
   | "refresh-remote-control-connections"
   | "save-codex-managed-remote-ssh-connections"
@@ -47,12 +41,11 @@ export async function handleRemoteDefaultFetchMessage(
   }
 
   try {
-    sendFetchResponse(
-      environment,
-      message.requestId,
-      200,
-      responseForRoute(routeFromFetchUrl(message.url)!),
-    );
+    const route = routeFromFetchUrl(message.url)!;
+    sendFetchResponse(environment, message.requestId, 200, responseForRoute(route));
+    if (route === "refresh-remote-connections") {
+      sendRemoteDefaultConnectedEvent(environment);
+    }
     return true;
   } catch (error) {
     sendFetchError(environment, message.requestId, errorMessage(error));
@@ -73,23 +66,15 @@ export function canHandleRemoteDefaultFetchMessage(
 
 function responseForRoute(route: RemoteDefaultRoute): unknown {
   switch (route) {
-    case "read-config-for-host":
+    case "app-server-connection-state":
       return {
-        config: {
-          features: {
-            remote_connections: true,
-            remote_ssh_connections: true,
-          },
-          "features.remote_connections": true,
-          "features.remote_ssh_connections": true,
-        },
-        origins: {},
-        layers: [],
+        state: "connected",
+        error: null,
       };
     case "refresh-remote-connections":
     case "save-codex-managed-remote-ssh-connections":
       return {
-        remoteConnections: [{ ...REMOTE_DEFAULT_CONNECTION }],
+        remoteConnections: [remoteDefaultConnection()],
       };
     case "discover-remote-ssh-connections":
       return {
@@ -97,7 +82,7 @@ function responseForRoute(route: RemoteDefaultRoute): unknown {
       };
     case "set-remote-connection-auto-connect":
       return {
-        remoteConnections: [{ ...REMOTE_DEFAULT_CONNECTION }],
+        remoteConnections: [remoteDefaultConnection()],
         state: "connected",
         error: null,
       };
@@ -158,7 +143,7 @@ function routeFromFetchUrl(value: unknown): RemoteDefaultRoute | null {
 
 function isRemoteDefaultRoute(value: string): value is RemoteDefaultRoute {
   return (
-    value === "read-config-for-host" ||
+    value === "app-server-connection-state" ||
     value === "refresh-remote-connections" ||
     value === "discover-remote-ssh-connections" ||
     value === "refresh-remote-control-connections" ||
@@ -205,6 +190,23 @@ function sendFetchError(
         responseType: "error",
         status: 500,
         error,
+      },
+    ],
+  });
+}
+
+function sendRemoteDefaultConnectedEvent({
+  respond,
+}: RemoteDefaultFetchEnvironment): void {
+  respond?.({
+    type: "ipc-main-event",
+    channel: MESSAGE_FOR_VIEW_CHANNEL,
+    args: [
+      {
+        type: "codex-app-server-connection-changed",
+        hostId: REMOTE_DEFAULT_HOST_ID,
+        state: "connected",
+        error: null,
       },
     ],
   });
