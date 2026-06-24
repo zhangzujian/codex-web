@@ -4,6 +4,9 @@ import {
   remoteDefaultHostConfig,
 } from "../remote-default-config";
 
+const AUTOMATION_DEVELOPER_INSTRUCTION =
+  "Codex Automations are app-level automations. If the user asks to create, update, or run a Codex automation, use the Automations UI/API when available, or explain that the automation tool is unavailable. Do not implement Codex Automations by editing OS crontab, systemd timers, launchd jobs, or other system schedulers.";
+
 type StubFunction = (...args: unknown[]) => unknown;
 type StubListener = (...args: unknown[]) => void;
 type StubWebContents = {
@@ -190,6 +193,7 @@ const mcpRequests = new Map<
   { hostId: string; method: string; params: unknown }
 >();
 const proxiedMcpHosts = new Map<string, string>();
+const localThreadIds = new Set<string>();
 const fetchRequests = new Map<
   string,
   { route: string; method: string | null; params: unknown }
@@ -249,7 +253,8 @@ function recordRendererMcpRequest(channel: string, args: unknown[]): void {
   const message = args[0];
   if (
     !isRecord(message) ||
-    message.type !== "mcp-request" ||
+    (message.type !== "mcp-request" &&
+      message.type !== "thread-prewarm-start") ||
     typeof message.hostId !== "string" ||
     !isRecord(message.request) ||
     typeof message.request.method !== "string"
@@ -337,7 +342,8 @@ function normalizeRendererToMainIpcMessage(message: unknown): unknown {
   }
 
   if (
-    message.type === "mcp-request" &&
+    (message.type === "mcp-request" ||
+      message.type === "thread-prewarm-start") &&
     message.hostId === REMOTE_DEFAULT_HOST_ID &&
     isRecord(message.request)
   ) {
@@ -352,6 +358,13 @@ function normalizeRendererToMainIpcMessage(message: unknown): unknown {
         ...message.request,
         params: localizeRemoteDefaultHostParam(message.request.params),
       },
+    };
+  }
+
+  if (message.type === "mcp-response" && message.hostId === REMOTE_DEFAULT_HOST_ID) {
+    return {
+      ...message,
+      hostId: "local",
     };
   }
 
@@ -436,6 +449,13 @@ function localizeRemoteDefaultFetchBody(
     route === "start-conversation"
       ? localizeRemoteDefaultMainPayload(next)
       : next;
+  if (
+    route === "start-conversation" &&
+    isRecord(localized) &&
+    localized.preparePrimaryRuntimeForFirstTurn === true
+  ) {
+    return { ...localized, preparePrimaryRuntimeForFirstTurn: false };
+  }
   return changed || localized !== next ? localized : body;
 }
 
@@ -490,15 +510,24 @@ function normalizeRemoteDefaultMcpResponse(message: Record<string, unknown>) {
   }
   mcpRequests.delete(key);
 
-  const result = normalizeRemoteDefaultMcpResult(
-    request,
-    message.message.result,
-  );
+  const keepLocalThreadStart =
+    request.hostId === "local" && request.method === "thread/start";
+  const result = keepLocalThreadStart
+    ? message.message.result
+    : normalizeRemoteDefaultMcpResult(request, message.message.result);
+  if (keepLocalThreadStart) {
+    const threadId = threadResultId(result);
+    if (threadId != null) {
+      localThreadIds.add(threadId);
+    }
+  }
   return {
     ...message,
     hostId:
       proxiedHostId ??
-      (message.hostId === "local" && containsThreadResult(result)
+      (message.hostId === "local" &&
+      !keepLocalThreadStart &&
+      containsThreadResult(result)
         ? REMOTE_DEFAULT_HOST_ID
         : message.hostId),
     message: {
@@ -506,6 +535,14 @@ function normalizeRemoteDefaultMcpResponse(message: Record<string, unknown>) {
       result,
     },
   };
+}
+
+function threadResultId(result: unknown): string | null {
+  return isRecord(result) &&
+    isRecord(result.thread) &&
+    typeof result.thread.id === "string"
+    ? result.thread.id
+    : null;
 }
 
 function normalizeRemoteDefaultFetchResponse(
@@ -550,6 +587,9 @@ function normalizeRemoteDefaultFetchResult(
     }
     return normalizeRemoteDefaultPayload(result);
   }
+  if (request.route === "developer-instructions") {
+    return normalizeDeveloperInstructionsResult(result);
+  }
   if (request.route === "send-cli-request-for-host" && request.method != null) {
     return normalizeRemoteDefaultMcpResult(
       { hostId: "local", method: request.method, params: request.params },
@@ -581,6 +621,10 @@ function normalizeRemoteDefaultPayload(value: unknown): unknown {
 
   if (!isRecord(value)) {
     return value;
+  }
+
+  if (typeof value.instructions === "string") {
+    return normalizeDeveloperInstructionsResult(value);
   }
 
   if (looksLikeThread(value)) {
@@ -648,6 +692,10 @@ function normalizeRemoteDefaultMcpResult(
     return normalizeRemoteDefaultPayload(result);
   }
 
+  if (request.method === "developer-instructions") {
+    return normalizeDeveloperInstructionsResult(result);
+  }
+
   if (request.method === "get-global-state" && isRecord(result)) {
     const key = isRecord(request.params) ? request.params.key : null;
     if (key === "REMOTE_PROJECTS") {
@@ -676,6 +724,39 @@ function normalizeRemoteDefaultMcpResult(
   }
 
   return normalizeRemoteDefaultPayload(result);
+}
+
+function normalizeDeveloperInstructionsResult(result: unknown): unknown {
+  if (!isRecord(result) || typeof result.instructions !== "string") {
+    return normalizeRemoteDefaultPayload(result);
+  }
+  if (result.instructions.includes(AUTOMATION_DEVELOPER_INSTRUCTION)) {
+    return normalizeRemoteDefaultPayloadWithoutInstructionGuard(result);
+  }
+  const instructions = result.instructions.trim()
+    ? `${result.instructions.trim()}\n\n${AUTOMATION_DEVELOPER_INSTRUCTION}`
+    : AUTOMATION_DEVELOPER_INSTRUCTION;
+  return normalizeRemoteDefaultPayloadWithoutInstructionGuard({
+    ...result,
+    instructions,
+  });
+}
+
+function normalizeRemoteDefaultPayloadWithoutInstructionGuard(
+  value: Record<string, unknown>,
+): unknown {
+  let changed = false;
+  const next: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (key === "instructions") {
+      next[key] = item;
+      continue;
+    }
+    const normalized = normalizeRemoteDefaultPayload(item);
+    changed ||= normalized !== item;
+    next[key] = normalized;
+  }
+  return changed ? next : value;
 }
 
 function cacheRemoteDefaultGlobalStateWrite(params: unknown): void {
@@ -972,6 +1053,16 @@ function normalizeRendererIpcMessage(
   message: unknown,
 ): unknown {
   if (
+    channel === "codex_desktop:message-for-view" &&
+    isRecord(message) &&
+    message.type === "mcp-notification" &&
+    message.hostId === "local" &&
+    localThreadIds.has(notificationThreadId(message) ?? "")
+  ) {
+    return message;
+  }
+
+  if (
     channel !== "codex_desktop:message-for-view" ||
     !isRecord(message) ||
     message.type !== "shared-object-updated" ||
@@ -1001,6 +1092,20 @@ function normalizeRendererIpcMessage(
     ...message,
     value: remoteDefaultSharedObjectValue(message.key, message.value),
   };
+}
+
+function notificationThreadId(message: Record<string, unknown>): string | null {
+  if (!isRecord(message.params)) {
+    return null;
+  }
+  const params = message.params;
+  if (typeof params.threadId === "string") {
+    return params.threadId;
+  }
+  if (isRecord(params.thread) && typeof params.thread.id === "string") {
+    return params.thread.id;
+  }
+  return null;
 }
 
 function normalizeRendererIpcArgs(channel: string, args: unknown[]): unknown[] {
@@ -1338,6 +1443,13 @@ class BrowserWindow {
       return BrowserWindow.focusedWindow;
     }
     return BrowserWindow.getAllWindows()[0] ?? null;
+  }
+
+  static fromId(id: number): BrowserWindow | null {
+    log("BrowserWindow.fromId", [id]);
+    return (
+      BrowserWindow.getAllWindows().find((window) => window.id === id) ?? null
+    );
   }
 
   static fromWebContents(webContents: unknown): BrowserWindow | null {

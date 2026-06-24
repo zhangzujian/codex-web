@@ -35,6 +35,7 @@ const terminal_1 = require("./terminal");
 const app_server_client_1 = require("./app-server-client");
 const browser_panel_runtime_1 = require("./browser-panel-runtime");
 const native_open_1 = require("./native-open");
+const automation_fetch_1 = require("./automation-fetch");
 const remote_default_fetch_1 = require("./remote-default-fetch");
 const remote_default_mcp_1 = require("./remote-default-mcp");
 const remote_default_config_1 = require("./remote-default-config");
@@ -166,6 +167,9 @@ function isFetchMessage(value) {
     return (isRecord(value) &&
         value.type === "fetch" &&
         typeof value.requestId === "string");
+}
+function isDynamicToolCallParams(value) {
+    return isRecord(value);
 }
 function sendSocketMessage(socket, message) {
     if (socket.readyState === ws_1.WebSocket.OPEN) {
@@ -331,7 +335,7 @@ async function handleWorkspaceDirectoryEntriesFetchMessage(message, appServerCli
             directoryPath: typeof params.directoryPath === "string"
                 ? params.directoryPath
                 : null,
-        }, appServerClient);
+        }, params.hostId === "local" ? undefined : appServerClient);
         sendFetchResponse(respond, message.requestId, 200, result);
     }
     catch (error) {
@@ -467,10 +471,22 @@ async function startIpcBridgeServer(options) {
     const terminalWebsocketServer = new ws_1.WebSocketServer({ noServer: true });
     const sockets = new Set();
     const backendWebSocketToken = (0, node_crypto_1.randomUUID)();
-    const appServerClient = (0, app_server_client_1.createCodexAppServerClient)();
+    let appServerClient;
+    appServerClient = (0, app_server_client_1.createCodexAppServerClient)(process.env, (request) => {
+        if (request.method === "item/tool/call" &&
+            isDynamicToolCallParams(request.params) &&
+            request.params.tool === "automation_update") {
+            return (0, automation_fetch_1.handleAutomationDynamicToolCall)(request.params, {
+                appServerClient,
+            });
+        }
+        throw new Error(`Unhandled app-server request: ${request.method}`);
+    });
+    const automationScheduler = (0, automation_fetch_1.startAutomationScheduler)(appServerClient);
     const terminalSessionFactory = createDefaultTerminalSessionFactory(appServerClient);
     const handleTerminalSocket = (0, terminal_1.createTerminalSocketHandler)(terminalSessionFactory, { resolveCwd: resolveRemoteTerminalCwd });
     app.addHook("onClose", async () => {
+        automationScheduler.dispose();
         appServerClient.dispose();
     });
     await app.register(multipart_1.default, {
@@ -678,6 +694,21 @@ async function startIpcBridgeServer(options) {
                     return;
                 }
                 if (message.channel === "codex_desktop:message-from-view" &&
+                    (0, automation_fetch_1.canHandleAutomationDispatchMessage)(message.args[0])) {
+                    void (0, automation_fetch_1.handleAutomationDispatchMessage)(message.args[0]).catch((error) => {
+                        console.error("[automation] dispatch failed", error);
+                    });
+                    return;
+                }
+                if (message.channel === "codex_desktop:message-from-view" &&
+                    (0, automation_fetch_1.canHandleAutomationFetchMessage)(message.args[0])) {
+                    void (0, automation_fetch_1.handleAutomationFetchMessage)(message.args[0], {
+                        appServerClient,
+                        respond: (payload) => bridgeState.broadcastToRenderer?.(payload),
+                    });
+                    return;
+                }
+                if (message.channel === "codex_desktop:message-from-view" &&
                     (0, remote_default_fetch_1.canHandleRemoteDefaultFetchMessage)(message.args[0])) {
                     void (0, remote_default_fetch_1.handleRemoteDefaultFetchMessage)(message.args[0], {
                         respond: (payload) => bridgeState.broadcastToRenderer?.(payload),
@@ -754,6 +785,20 @@ async function startIpcBridgeServer(options) {
                 if (channel === "codex_desktop:message-from-view" &&
                     canHandleReadConfigForHostFetchMessage(args[0])) {
                     void handleReadConfigForHostFetchMessage(args[0], appServerClient, (payload) => bridgeState.broadcastToRenderer?.(payload));
+                    sendSocketMessage(socket, {
+                        type: "ipc-renderer-invoke-result",
+                        requestId,
+                        ok: true,
+                        result: undefined,
+                    });
+                    return;
+                }
+                if (channel === "codex_desktop:message-from-view" &&
+                    (0, automation_fetch_1.canHandleAutomationFetchMessage)(args[0])) {
+                    void (0, automation_fetch_1.handleAutomationFetchMessage)(args[0], {
+                        appServerClient,
+                        respond: (payload) => bridgeState.broadcastToRenderer?.(payload),
+                    });
                     sendSocketMessage(socket, {
                         type: "ipc-renderer-invoke-result",
                         requestId,
@@ -941,6 +986,9 @@ function shouldServeWebviewShellPath(requestPath) {
     if (pathname === "/share/receive") {
         return search.length > 0;
     }
+    if (pathname === "/automations") {
+        return true;
+    }
     if (pathname === "/settings" || pathname.startsWith("/settings/")) {
         return true;
     }
@@ -1084,7 +1132,7 @@ async function sendWebviewIndex(reply, webviewRoot, backendWebSocketToken) {
 function injectWebviewRuntimeScripts(html, backendWebSocketToken) {
     const terminalFont = process.env.CODEX_WEB_TERMINAL_FONT?.trim() || null;
     const fontFace = terminalFontFaceStyle(terminalFont);
-    const scripts = `<script>${statsigOverrideBootstrapScript()}</script><script>window.__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__=${JSON.stringify(backendWebSocketToken)};window.__CODEX_WEB_REMOTE_SSH_HOST__=${JSON.stringify((0, remote_default_config_1.remoteDefaultSshHost)())};window.__CODEX_WEB_TERMINAL_FONT__=${JSON.stringify(terminalFont)};</script>`;
+    const scripts = `<script>${terminalCtrlWBootstrapScript()}</script><script>${statsigOverrideBootstrapScript()}</script><script>window.__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__=${JSON.stringify(backendWebSocketToken)};window.__CODEX_WEB_REMOTE_SSH_HOST__=${JSON.stringify((0, remote_default_config_1.remoteDefaultSshHost)())};window.__CODEX_WEB_TERMINAL_FONT__=${JSON.stringify(terminalFont)};</script>`;
     const preload = '<base href="/" /><script type="module" src="./assets/preload.js"></script>';
     const shellHtml = removeContentSecurityPolicyMeta(html)
         .replace('<link rel="manifest" href="/manifest.json" />', '<link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />')
@@ -1104,6 +1152,88 @@ function terminalFontFaceStyle(fontName) {
 function removeContentSecurityPolicyMeta(html) {
     return html.replace(/<meta\b(?=[^>]*http-equiv=["']?Content-Security-Policy["']?)[^>]*>\s*/gi, "");
 }
+function terminalCtrlWBootstrapScript() {
+    return `(() => {
+  if (window.__CODEX_WEB_TERMINAL_CTRL_W_SHIM__ || typeof EventTarget !== "function") {
+    return;
+  }
+  window.__CODEX_WEB_TERMINAL_CTRL_W_SHIM__ = true;
+  const originalAddEventListener = EventTarget.prototype.addEventListener;
+  const originalRemoveEventListener = EventTarget.prototype.removeEventListener;
+  const keydownListenerWrappers = new WeakMap();
+  const isGlobalKeyTarget = (target) =>
+    target === window ||
+    target === document ||
+    target === document.body ||
+    target === document.documentElement;
+  const isTerminalCtrlW = (event) => {
+    const target = event?.target instanceof Element ? event.target : null;
+    const key = typeof event?.key === "string" ? event.key.toLowerCase() : "";
+    return (
+      event?.ctrlKey === true &&
+      event.metaKey !== true &&
+      event.altKey !== true &&
+      event.shiftKey !== true &&
+      (key === "w" || event.code === "KeyW") &&
+      target?.closest?.("[data-codex-terminal]") != null
+    );
+  };
+  const invokeListener = (listener, thisArg, event) =>
+    typeof listener === "function"
+      ? listener.call(thisArg, event)
+      : listener.handleEvent.call(listener, event);
+  const preventTerminalCtrlWBrowserDefault = (event) => {
+    if (isTerminalCtrlW(event)) {
+      event.preventDefault?.();
+    }
+  };
+  originalAddEventListener.call(
+    window,
+    "keydown",
+    preventTerminalCtrlWBrowserDefault,
+    true,
+  );
+  originalAddEventListener.call(
+    document,
+    "keydown",
+    preventTerminalCtrlWBrowserDefault,
+    true,
+  );
+  EventTarget.prototype.addEventListener = function (type, listener, options) {
+    if (
+      type !== "keydown" ||
+      (typeof listener !== "function" &&
+        typeof listener?.handleEvent !== "function")
+    ) {
+      return originalAddEventListener.call(this, type, listener, options);
+    }
+    let wrapped = keydownListenerWrappers.get(listener);
+    if (wrapped == null) {
+      wrapped = function (event) {
+        if (isTerminalCtrlW(event) && isGlobalKeyTarget(this)) {
+          event.preventDefault?.();
+          return;
+        }
+        return invokeListener(listener, this, event);
+      };
+      keydownListenerWrappers.set(listener, wrapped);
+    }
+    return originalAddEventListener.call(this, type, wrapped, options);
+  };
+  EventTarget.prototype.removeEventListener = function (type, listener, options) {
+    const wrapped =
+      type === "keydown" && listener != null
+        ? keydownListenerWrappers.get(listener)
+        : null;
+    return originalRemoveEventListener.call(
+      this,
+      type,
+      wrapped ?? listener,
+      options,
+    );
+  };
+})();`;
+}
 function statsigOverrideBootstrapScript() {
     return `(() => {
   const shim = (window.__ELECTRON_SHIM__ ??= {});
@@ -1118,10 +1248,7 @@ function statsigOverrideBootstrapScript() {
   }
   shim.overrideAdapter = {
     getGateOverride(evaluation) {
-      if (evaluation?.name === "3075919032") {
-        return { ...evaluation, value: true };
-      }
-      if (evaluation?.name === "4114442250" || evaluation?.name === "1042620455") {
+      if (evaluation?.name === "3075919032" || evaluation?.name === "4114442250" || evaluation?.name === "1042620455") {
         return { ...evaluation, value: true };
       }
       if (evaluation?.name === "2929582856") {

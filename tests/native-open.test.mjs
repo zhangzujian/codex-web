@@ -434,6 +434,28 @@ test("createOpenFileCommand opens VS Code at a file line and column", async () =
   });
 });
 
+test("createOpenFileCommand opens remote workspace mode at the workspace root", async () => {
+  const command = await createOpenFileCommand(
+    {
+      cwd: "/repo",
+      hostId: "remote:default",
+      openMode: "workspace",
+      path: "/repo/src/index.ts",
+      sshHost: "remote",
+      target: "workspace",
+    },
+    {
+      codeCommand: "code",
+      commandExists: async (command) => command === "code",
+    },
+  );
+
+  assert.deepEqual(command, {
+    command: "code",
+    args: ["--folder-uri", "vscode-remote://ssh-remote+remote/repo"],
+  });
+});
+
 test("createOpenFileCommand reveals a file in its containing folder on Linux", async () => {
   const command = await createOpenFileCommand(
     {

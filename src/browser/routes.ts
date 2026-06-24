@@ -23,6 +23,10 @@ export function mapBrowserPathToInitialRoute(pathname: string, search: string) {
 }
 
 function mapBrowserPathToRoute(pathname: string): string {
+  if (pathname === "/automations") {
+    return pathname;
+  }
+
   if (pathname === "/settings" || pathname.startsWith("/settings/")) {
     return pathname;
   }
@@ -45,6 +49,10 @@ export function mapMemoryPathToBrowserPath(pathname: string) {
   }
 
   if (pathname === "/settings" || pathname.startsWith("/settings/")) {
+    return { path: pathname };
+  }
+
+  if (pathname === "/automations") {
     return { path: pathname };
   }
 

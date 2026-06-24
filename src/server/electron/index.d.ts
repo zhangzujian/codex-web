@@ -45,6 +45,7 @@ declare class BrowserWindow {
     constructor(...args: unknown[]);
     static getAllWindows(): BrowserWindow[];
     static getFocusedWindow(): BrowserWindow | null;
+    static fromId(id: number): BrowserWindow | null;
     static fromWebContents(webContents: unknown): BrowserWindow | null;
     on(event: string, listener: StubListener): unknown;
     once(event: string, listener: StubListener): unknown;

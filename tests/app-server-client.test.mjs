@@ -131,3 +131,82 @@ test("app server json rpc client drains stderr and disposes pending requests", a
   client.dispose();
   await assert.rejects(pending, /stopped|exited/);
 });
+
+test("app server json rpc client answers server requests", async () => {
+  const script = `
+    const readline = require("node:readline");
+    const rl = readline.createInterface({ input: process.stdin });
+    let pendingAfterToolCallId = null;
+    let toolResult = null;
+    function maybeReply() {
+      if (pendingAfterToolCallId == null || toolResult == null) {
+        return;
+      }
+      process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: pendingAfterToolCallId, result: toolResult }) + "\\n");
+      pendingAfterToolCallId = null;
+    }
+    rl.on("line", (line) => {
+      const message = JSON.parse(line);
+      if (message.method === "initialize") {
+        process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { ok: true } }) + "\\n");
+        return;
+      }
+      if (message.method === "initialized") {
+        process.stdout.write(JSON.stringify({
+          jsonrpc: "2.0",
+          id: 99,
+          method: "item/tool/call",
+          params: {
+            arguments: { mode: "create" },
+            callId: "call-1",
+            threadId: "thread-1",
+            tool: "automation_update",
+            turnId: "turn-1"
+          }
+        }) + "\\n");
+        return;
+      }
+      if (message.id === 99) {
+        toolResult = message.result;
+        maybeReply();
+        return;
+      }
+      if (message.method === "after/tool-call") {
+        pendingAfterToolCallId = message.id;
+        maybeReply();
+      }
+    });
+  `;
+  const client = createAppServerJsonRpcClient({
+    args: ["-e", script],
+    command: process.execPath,
+    requestHandler(request) {
+      assert.equal(request.method, "item/tool/call");
+      return {
+        contentItems: [
+          { type: "inputText", text: JSON.stringify(request.params) },
+        ],
+        success: true,
+      };
+    },
+  });
+
+  const result = await client.rpc("after/tool-call", {});
+  client.dispose();
+
+  assert.deepEqual(result, {
+    contentItems: [
+      {
+        type: "inputText",
+        text: JSON.stringify({
+          arguments: { mode: "create" },
+          callId: "call-1",
+          threadId: "thread-1",
+          tool: "automation_update",
+          turnId: "turn-1",
+        }),
+      },
+    ],
+    success: true,
+  });
+});

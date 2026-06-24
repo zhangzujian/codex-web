@@ -4,14 +4,15 @@ exports.createCodexAppServerClient = createCodexAppServerClient;
 exports.createAppServerJsonRpcClient = createAppServerJsonRpcClient;
 const node_child_process_1 = require("node:child_process");
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
-function createCodexAppServerClient(env = process.env) {
+function createCodexAppServerClient(env = process.env, requestHandler) {
     return createAppServerJsonRpcClient({
         args: ["app-server"],
         command: env.CODEX_CLI_PATH?.trim() || "codex",
         env,
+        requestHandler,
     });
 }
-function createAppServerJsonRpcClient({ args, command, env = process.env, requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS, }) {
+function createAppServerJsonRpcClient({ args, command, env = process.env, requestHandler, requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS, }) {
     let initialized = false;
     let initializing = null;
     let nextId = 1;
@@ -136,10 +137,49 @@ function createAppServerJsonRpcClient({ args, command, env = process.env, reques
             }
             return;
         }
+        if ((typeof message.id === "number" || typeof message.id === "string") &&
+            typeof message.method === "string") {
+            void handleServerRequest({
+                id: message.id,
+                method: message.method,
+                params: message.params,
+            });
+            return;
+        }
         if (typeof message.method === "string" && !("id" in message)) {
             for (const listener of listeners) {
                 listener({ method: message.method, params: message.params });
             }
+        }
+    };
+    const handleServerRequest = async (request) => {
+        if (requestHandler == null) {
+            sendLine({
+                jsonrpc: "2.0",
+                id: request.id,
+                error: {
+                    code: -32601,
+                    message: `Unhandled app-server request: ${request.method}`,
+                },
+            });
+            return;
+        }
+        try {
+            sendLine({
+                jsonrpc: "2.0",
+                id: request.id,
+                result: await requestHandler(request),
+            });
+        }
+        catch (error) {
+            sendLine({
+                jsonrpc: "2.0",
+                id: request.id,
+                error: {
+                    code: -32603,
+                    message: error instanceof Error ? error.message : String(error),
+                },
+            });
         }
     };
     return {

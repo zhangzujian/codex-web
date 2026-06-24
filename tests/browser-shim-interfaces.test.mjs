@@ -538,10 +538,10 @@ test("Statsig overrides enable localized application text", () => {
 test("Statsig overrides keep browser-only navigation gates enabled", () => {
   const adapter = createStatsigOverrideAdapter();
 
-  assert.deepEqual(
-    adapter.getGateOverride({ name: "3075919032", value: false }),
-    { name: "3075919032", value: true },
-  );
+  assert.deepEqual(adapter.getGateOverride({ name: "3075919032", value: false }), {
+    name: "3075919032",
+    value: true,
+  });
   assert.deepEqual(
     adapter.getGateOverride({ name: "4114442250", value: false }),
     { name: "4114442250", value: true },

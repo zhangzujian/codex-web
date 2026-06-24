@@ -34,6 +34,15 @@ import {
   handleNativeOpenFetchMessage,
 } from "./native-open";
 import {
+  canHandleAutomationDispatchMessage,
+  canHandleAutomationFetchMessage,
+  type DynamicToolCallParams,
+  handleAutomationDynamicToolCall,
+  handleAutomationDispatchMessage,
+  handleAutomationFetchMessage,
+  startAutomationScheduler,
+} from "./automation-fetch";
+import {
   canHandleRemoteDefaultFetchMessage,
   handleRemoteDefaultFetchMessage,
 } from "./remote-default-fetch";
@@ -340,6 +349,12 @@ function isFetchMessage(value: unknown): value is FetchMessage {
   );
 }
 
+function isDynamicToolCallParams(
+  value: unknown,
+): value is DynamicToolCallParams {
+  return isRecord(value);
+}
+
 function sendSocketMessage(
   socket: WebSocket,
   message: MainToRendererMessage,
@@ -572,7 +587,7 @@ export async function handleWorkspaceDirectoryEntriesFetchMessage(
             ? params.directoryPath
             : null,
       },
-      appServerClient,
+      params.hostId === "local" ? undefined : appServerClient,
     );
     sendFetchResponse(respond, message.requestId, 200, result);
   } catch (error) {
@@ -759,7 +774,20 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
   const terminalWebsocketServer = new WebSocketServer({ noServer: true });
   const sockets = new Set<WebSocket>();
   const backendWebSocketToken = randomUUID();
-  const appServerClient = createCodexAppServerClient();
+  let appServerClient: ReturnType<typeof createCodexAppServerClient>;
+  appServerClient = createCodexAppServerClient(process.env, (request) => {
+    if (
+      request.method === "item/tool/call" &&
+      isDynamicToolCallParams(request.params) &&
+      request.params.tool === "automation_update"
+    ) {
+      return handleAutomationDynamicToolCall(request.params, {
+        appServerClient,
+      });
+    }
+    throw new Error(`Unhandled app-server request: ${request.method}`);
+  });
+  const automationScheduler = startAutomationScheduler(appServerClient);
   const terminalSessionFactory =
     createDefaultTerminalSessionFactory(appServerClient);
   const handleTerminalSocket = createTerminalSocketHandler(
@@ -768,6 +796,7 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
   );
 
   app.addHook("onClose", async () => {
+    automationScheduler.dispose();
     appServerClient.dispose();
   });
 
@@ -1046,6 +1075,27 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
         }
         if (
           message.channel === "codex_desktop:message-from-view" &&
+          canHandleAutomationDispatchMessage(message.args[0])
+        ) {
+          void handleAutomationDispatchMessage(message.args[0]).catch(
+            (error) => {
+              console.error("[automation] dispatch failed", error);
+            },
+          );
+          return;
+        }
+        if (
+          message.channel === "codex_desktop:message-from-view" &&
+          canHandleAutomationFetchMessage(message.args[0])
+        ) {
+          void handleAutomationFetchMessage(message.args[0], {
+            appServerClient,
+            respond: (payload) => bridgeState.broadcastToRenderer?.(payload),
+          });
+          return;
+        }
+        if (
+          message.channel === "codex_desktop:message-from-view" &&
           canHandleRemoteDefaultFetchMessage(message.args[0])
         ) {
           void handleRemoteDefaultFetchMessage(message.args[0], {
@@ -1151,6 +1201,22 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
             appServerClient,
             (payload) => bridgeState.broadcastToRenderer?.(payload),
           );
+          sendSocketMessage(socket, {
+            type: "ipc-renderer-invoke-result",
+            requestId,
+            ok: true,
+            result: undefined,
+          });
+          return;
+        }
+        if (
+          channel === "codex_desktop:message-from-view" &&
+          canHandleAutomationFetchMessage(args[0])
+        ) {
+          void handleAutomationFetchMessage(args[0], {
+            appServerClient,
+            respond: (payload) => bridgeState.broadcastToRenderer?.(payload),
+          });
           sendSocketMessage(socket, {
             type: "ipc-renderer-invoke-result",
             requestId,
@@ -1384,6 +1450,9 @@ export function shouldServeWebviewShellPath(requestPath: string): boolean {
   if (pathname === "/share/receive") {
     return search.length > 0;
   }
+  if (pathname === "/automations") {
+    return true;
+  }
   if (pathname === "/settings" || pathname.startsWith("/settings/")) {
     return true;
   }
@@ -1579,7 +1648,7 @@ export function injectWebviewRuntimeScripts(
 ): string {
   const terminalFont = process.env.CODEX_WEB_TERMINAL_FONT?.trim() || null;
   const fontFace = terminalFontFaceStyle(terminalFont);
-  const scripts = `<script>${statsigOverrideBootstrapScript()}</script><script>window.__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__=${JSON.stringify(backendWebSocketToken)};window.__CODEX_WEB_REMOTE_SSH_HOST__=${JSON.stringify(remoteDefaultSshHost())};window.__CODEX_WEB_TERMINAL_FONT__=${JSON.stringify(terminalFont)};</script>`;
+  const scripts = `<script>${terminalCtrlWBootstrapScript()}</script><script>${statsigOverrideBootstrapScript()}</script><script>window.__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__=${JSON.stringify(backendWebSocketToken)};window.__CODEX_WEB_REMOTE_SSH_HOST__=${JSON.stringify(remoteDefaultSshHost())};window.__CODEX_WEB_TERMINAL_FONT__=${JSON.stringify(terminalFont)};</script>`;
   const preload =
     '<base href="/" /><script type="module" src="./assets/preload.js"></script>';
   const shellHtml = removeContentSecurityPolicyMeta(html)
@@ -1612,6 +1681,89 @@ function removeContentSecurityPolicyMeta(html: string): string {
   );
 }
 
+function terminalCtrlWBootstrapScript(): string {
+  return `(() => {
+  if (window.__CODEX_WEB_TERMINAL_CTRL_W_SHIM__ || typeof EventTarget !== "function") {
+    return;
+  }
+  window.__CODEX_WEB_TERMINAL_CTRL_W_SHIM__ = true;
+  const originalAddEventListener = EventTarget.prototype.addEventListener;
+  const originalRemoveEventListener = EventTarget.prototype.removeEventListener;
+  const keydownListenerWrappers = new WeakMap();
+  const isGlobalKeyTarget = (target) =>
+    target === window ||
+    target === document ||
+    target === document.body ||
+    target === document.documentElement;
+  const isTerminalCtrlW = (event) => {
+    const target = event?.target instanceof Element ? event.target : null;
+    const key = typeof event?.key === "string" ? event.key.toLowerCase() : "";
+    return (
+      event?.ctrlKey === true &&
+      event.metaKey !== true &&
+      event.altKey !== true &&
+      event.shiftKey !== true &&
+      (key === "w" || event.code === "KeyW") &&
+      target?.closest?.("[data-codex-terminal]") != null
+    );
+  };
+  const invokeListener = (listener, thisArg, event) =>
+    typeof listener === "function"
+      ? listener.call(thisArg, event)
+      : listener.handleEvent.call(listener, event);
+  const preventTerminalCtrlWBrowserDefault = (event) => {
+    if (isTerminalCtrlW(event)) {
+      event.preventDefault?.();
+    }
+  };
+  originalAddEventListener.call(
+    window,
+    "keydown",
+    preventTerminalCtrlWBrowserDefault,
+    true,
+  );
+  originalAddEventListener.call(
+    document,
+    "keydown",
+    preventTerminalCtrlWBrowserDefault,
+    true,
+  );
+  EventTarget.prototype.addEventListener = function (type, listener, options) {
+    if (
+      type !== "keydown" ||
+      (typeof listener !== "function" &&
+        typeof listener?.handleEvent !== "function")
+    ) {
+      return originalAddEventListener.call(this, type, listener, options);
+    }
+    let wrapped = keydownListenerWrappers.get(listener);
+    if (wrapped == null) {
+      wrapped = function (event) {
+        if (isTerminalCtrlW(event) && isGlobalKeyTarget(this)) {
+          event.preventDefault?.();
+          return;
+        }
+        return invokeListener(listener, this, event);
+      };
+      keydownListenerWrappers.set(listener, wrapped);
+    }
+    return originalAddEventListener.call(this, type, wrapped, options);
+  };
+  EventTarget.prototype.removeEventListener = function (type, listener, options) {
+    const wrapped =
+      type === "keydown" && listener != null
+        ? keydownListenerWrappers.get(listener)
+        : null;
+    return originalRemoveEventListener.call(
+      this,
+      type,
+      wrapped ?? listener,
+      options,
+    );
+  };
+})();`;
+}
+
 function statsigOverrideBootstrapScript(): string {
   return `(() => {
   const shim = (window.__ELECTRON_SHIM__ ??= {});
@@ -1626,10 +1778,7 @@ function statsigOverrideBootstrapScript(): string {
   }
   shim.overrideAdapter = {
     getGateOverride(evaluation) {
-      if (evaluation?.name === "3075919032") {
-        return { ...evaluation, value: true };
-      }
-      if (evaluation?.name === "4114442250" || evaluation?.name === "1042620455") {
+      if (evaluation?.name === "3075919032" || evaluation?.name === "4114442250" || evaluation?.name === "1042620455") {
         return { ...evaluation, value: true };
       }
       if (evaluation?.name === "2929582856") {

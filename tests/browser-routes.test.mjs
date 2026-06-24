@@ -15,11 +15,23 @@ test("settings browser paths initialize the matching memory route", () => {
   });
 });
 
+test("automations browser path initializes the automations memory route", () => {
+  assert.deepEqual(mapBrowserPathToInitialRoute("/automations", ""), {
+    memoryPath: "/automations",
+  });
+});
+
 test("settings memory paths are reflected in the browser URL", () => {
   assert.deepEqual(mapMemoryPathToBrowserPath("/settings"), {
     path: "/settings",
   });
   assert.deepEqual(mapMemoryPathToBrowserPath("/settings/connections"), {
     path: "/settings/connections",
+  });
+});
+
+test("automations memory path is reflected in the browser URL", () => {
+  assert.deepEqual(mapMemoryPathToBrowserPath("/automations"), {
+    path: "/automations",
   });
 });

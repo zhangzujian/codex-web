@@ -26,6 +26,15 @@ test("app.whenReady does not synchronously mark the app ready", async () => {
   assert.equal(app.isReady(), true);
 });
 
+test("BrowserWindow.fromId returns the live window for an id", () => {
+  const window = new BrowserWindow();
+
+  assert.equal(BrowserWindow.fromId(window.id)?.id, window.id);
+
+  window.destroy();
+  assert.equal(BrowserWindow.fromId(window.id), null);
+});
+
 test("webContents.postMessage forwards transferred virtual port IDs", () => {
   const messages = captureRendererMessages();
 
@@ -695,6 +704,181 @@ test("default remote mcp requests are served through the local app server", () =
   });
 });
 
+test("default remote mcp responses are returned through the local app server", () => {
+  captureRendererMessages();
+  const bridge = globalThis.__codexElectronIpcBridge;
+  const seen = [];
+  const listener = (_event, message) => {
+    seen.push(message);
+  };
+
+  ipcMain.on("codex_desktop:message-from-view", listener);
+  try {
+    bridge.handleRendererSend("codex_desktop:message-from-view", [
+      {
+        type: "mcp-response",
+        hostId: "remote:default",
+        response: {
+          id: 0,
+          result: {
+            contentItems: [
+              { type: "inputText", text: '{"automationId":"a1"}' },
+            ],
+            success: true,
+          },
+        },
+      },
+    ]);
+  } finally {
+    ipcMain.off("codex_desktop:message-from-view", listener);
+  }
+
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].hostId, "local");
+  assert.equal(seen[0].response.result.success, true);
+});
+
+test("default remote thread prewarm requests are served through the local app server", () => {
+  const messages = captureRendererMessages();
+  const bridge = globalThis.__codexElectronIpcBridge;
+  const listener = (event, message) => {
+    assert.equal(message.type, "thread-prewarm-start");
+    assert.equal(message.hostId, "local");
+    assert.equal(message.request.method, "thread/start");
+    assert.equal(message.request.params.hostId, "local");
+    event.reply("codex_desktop:message-for-view", {
+      type: "mcp-response",
+      hostId: "local",
+      message: {
+        jsonrpc: "2.0",
+        id: message.request.id,
+        result: {
+          thread: {
+            id: "prewarmed-thread",
+            hostId: "local",
+            cwd: "/repo/alpha",
+            title: "Prewarmed thread",
+          },
+        },
+      },
+    });
+  };
+
+  ipcMain.on("codex_desktop:message-from-view", listener);
+  try {
+    bridge.handleRendererSend("codex_desktop:message-from-view", [
+      {
+        type: "thread-prewarm-start",
+        hostId: "remote:default",
+        request: {
+          jsonrpc: "2.0",
+          id: "prewarm-thread-start",
+          method: "thread/start",
+          params: { hostId: "remote:default", cwd: "/repo/alpha" },
+        },
+      },
+    ]);
+  } finally {
+    ipcMain.off("codex_desktop:message-from-view", listener);
+  }
+
+  assert.equal(messages[0].args[0].hostId, "remote:default");
+  assert.deepEqual(messages[0].args[0].message.result.thread, {
+    id: "prewarmed-thread",
+    hostId: "remote:default",
+    cwd: "/repo/alpha",
+    title: "Prewarmed thread",
+  });
+});
+
+test("local thread start responses stay on the local host", () => {
+  const messages = captureRendererMessages();
+  const window = new BrowserWindow();
+  const bridge = globalThis.__codexElectronIpcBridge;
+
+  bridge.handleRendererSend("codex_desktop:message-from-view", [
+    {
+      type: "thread-prewarm-start",
+      hostId: "local",
+      request: {
+        jsonrpc: "2.0",
+        id: "local-thread-start",
+        method: "thread/start",
+        params: { hostId: "local", cwd: "/repo/local" },
+      },
+    },
+  ]);
+  window.webContents.send("codex_desktop:message-for-view", {
+    type: "mcp-response",
+    hostId: "local",
+    message: {
+      jsonrpc: "2.0",
+      id: "local-thread-start",
+      result: {
+        thread: {
+          id: "local-thread",
+          hostId: "local",
+          cwd: "/repo/local",
+          title: "Local thread",
+        },
+      },
+    },
+  });
+
+  assert.equal(messages[0].args[0].hostId, "local");
+  assert.equal(messages[0].args[0].message.result.thread.hostId, "local");
+});
+
+test("local thread notifications stay on the local host", () => {
+  const messages = captureRendererMessages();
+  const window = new BrowserWindow();
+  const bridge = globalThis.__codexElectronIpcBridge;
+
+  bridge.handleRendererSend("codex_desktop:message-from-view", [
+    {
+      type: "thread-prewarm-start",
+      hostId: "local",
+      request: {
+        jsonrpc: "2.0",
+        id: "local-notification-thread-start",
+        method: "thread/start",
+        params: { hostId: "local", cwd: "/tmp/projectless" },
+      },
+    },
+  ]);
+  window.webContents.send("codex_desktop:message-for-view", {
+    type: "mcp-response",
+    hostId: "local",
+    message: {
+      jsonrpc: "2.0",
+      id: "local-notification-thread-start",
+      result: {
+        thread: {
+          id: "local-notification-thread",
+          hostId: "local",
+          cwd: "/tmp/projectless",
+          title: "Local notification thread",
+        },
+      },
+    },
+  });
+  window.webContents.send("codex_desktop:message-for-view", {
+    type: "mcp-notification",
+    hostId: "local",
+    method: "turn/completed",
+    params: {
+      threadId: "local-notification-thread",
+      turn: { id: "turn-1", status: "completed" },
+    },
+  });
+
+  assert.equal(messages[1].args[0].hostId, "local");
+  assert.equal(
+    messages[1].args[0].params.threadId,
+    "local-notification-thread",
+  );
+});
+
 test("default remote ipc fetch requests are served through the local app server", () => {
   const messages = captureRendererMessages();
   const bridge = globalThis.__codexElectronIpcBridge;
@@ -790,6 +974,7 @@ test("default remote start-conversation fetch localizes nested host ids", () => 
     const body = JSON.parse(message.body);
     assert.equal(body.hostId, "local");
     assert.equal(body.projectAssignment.hostId, "local");
+    assert.equal(body.preparePrimaryRuntimeForFirstTurn, false);
     event.reply("codex_desktop:message-for-view", {
       type: "fetch-response",
       requestId: message.requestId,
@@ -817,6 +1002,7 @@ test("default remote start-conversation fetch localizes nested host ids", () => 
             path: "/repo",
             hostId: "remote:default",
           },
+          preparePrimaryRuntimeForFirstTurn: true,
         }),
       },
     ]);
@@ -825,6 +1011,43 @@ test("default remote start-conversation fetch localizes nested host ids", () => 
   }
 
   assert.equal(JSON.parse(messages[0].args[0].bodyJsonString), "thread-created");
+});
+
+test("developer instructions guard Codex automations away from OS schedulers", () => {
+  const messages = captureRendererMessages();
+  const window = new BrowserWindow();
+  const bridge = globalThis.__codexElectronIpcBridge;
+
+  bridge.handleRendererSend("codex_desktop:message-from-view", [
+    {
+      type: "fetch",
+      requestId: "developer-instructions",
+      method: "POST",
+      url: "vscode://codex/developer-instructions",
+      body: JSON.stringify({
+        hostId: "local",
+        params: { cwd: "/repo" },
+      }),
+    },
+  ]);
+  window.webContents.send("codex_desktop:message-for-view", {
+    type: "fetch-response",
+    requestId: "developer-instructions",
+    responseType: "success",
+    status: 200,
+    headers: {},
+    bodyJsonString: JSON.stringify({
+      instructions: "Existing instructions.",
+    }),
+  });
+
+  const body = JSON.parse(messages[0].args[0].bodyJsonString);
+  assert.match(body.instructions, /Existing instructions\./);
+  assert.match(body.instructions, /Codex Automations are app-level automations/);
+  assert.match(
+    body.instructions,
+    /Do not implement Codex Automations by editing OS crontab/,
+  );
 });
 
 test("app-server notifications present local host payloads as default remote", () => {

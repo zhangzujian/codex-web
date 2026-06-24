@@ -80,3 +80,16 @@ test("remote default fetch override refreshes only the default remote connection
     }
   }
 });
+
+test("remote default fetch override ignores nested local host params", () => {
+  assert.equal(
+    canHandleRemoteDefaultFetchMessage({
+      type: "fetch",
+      requestId: "req-local-nested",
+      method: "POST",
+      url: "vscode://codex/app-server-connection-state",
+      body: JSON.stringify({ params: { hostId: "local" } }),
+    }),
+    false,
+  );
+});

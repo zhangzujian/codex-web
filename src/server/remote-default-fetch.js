@@ -66,8 +66,14 @@ function fetchHostId(body) {
     }
     try {
         const parsed = JSON.parse(body);
-        return isRecord(parsed) && typeof parsed.hostId === "string"
-            ? parsed.hostId
+        if (!isRecord(parsed)) {
+            return null;
+        }
+        if (typeof parsed.hostId === "string") {
+            return parsed.hostId;
+        }
+        return isRecord(parsed.params) && typeof parsed.params.hostId === "string"
+            ? parsed.params.hostId
             : null;
     }
     catch {

@@ -215,7 +215,7 @@ export async function createOpenFileCommand(
         args:
           remoteEditor == null
             ? [targetPath]
-            : ["--folder-uri", remoteEditor.pathUri],
+            : ["--folder-uri", remoteEditor.workspaceRootUri ?? remoteEditor.pathUri],
       };
     }
     if (remoteEditor != null) {
