@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.dialog = exports.crashReporter = exports.webContents = exports.WebContentsView = exports.utilityProcess = exports.Tray = exports.session = exports.screen = exports.protocol = exports.powerMonitor = exports.Notification = exports.nativeTheme = exports.nativeImage = exports.net = exports.MessageChannelMain = exports.MenuItem = exports.Menu = exports.ipcMain = exports.BrowserWindow = exports.autoUpdater = exports.app = void 0;
+const remote_default_config_1 = require("../remote-default-config");
 function getIpcMainBridgeState() {
     const globals = globalThis;
     if (!globals.__codexElectronIpcBridge) {
@@ -101,31 +102,34 @@ function extractVirtualPortIds(transfer) {
         : null)
         .filter((portId) => portId !== null) ?? []);
 }
-const REMOTE_DEFAULT_HOST_ID = "remote:default";
-const REMOTE_DEFAULT_HOST_CONFIG = {
-    id: REMOTE_DEFAULT_HOST_ID,
-    display_name: "Remote",
-    kind: "ssh",
-};
-const REMOTE_DEFAULT_CONNECTION = {
-    hostId: REMOTE_DEFAULT_HOST_ID,
-    displayName: "Remote",
-    source: "codex-web",
-    sshHost: "remote",
-    sshPort: null,
-    sshAlias: null,
-    identity: null,
-    autoConnect: true,
+const GENERATED_PROJECTLESS_CWD_PATTERN = /^(.*(?:^|[\\/])Documents[\\/]+Codex)[\\/]+(?:\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]*|\d{4}-\d{2}-\d{2}[\\/]+[a-z0-9][a-z0-9-]*)[\\/]*$/;
+const mcpRequests = new Map();
+const proxiedMcpHosts = new Map();
+const fetchRequests = new Map();
+const remoteProjectState = {
+    workspaceRoots: [],
+    workspaceLabels: {},
+    remoteProjects: [],
+    localProjects: {},
+    writableRoots: {},
+    threadPaths: new Map(),
+    projectlessThreadIds: new Set(),
 };
 function isRecord(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function remoteDefaultSharedObjectValue(key, value) {
     if (key === "host_config") {
-        return { ...REMOTE_DEFAULT_HOST_CONFIG };
+        return (0, remote_default_config_1.remoteDefaultHostConfig)();
     }
     if (key === "remote_connections" || key === "remote_ssh_connections") {
-        return [{ ...REMOTE_DEFAULT_CONNECTION }];
+        return [(0, remote_default_config_1.remoteDefaultConnection)()];
+    }
+    if (key === "remote_wsl_connections") {
+        return [];
+    }
+    if (key === "local_remote_control_client_id") {
+        return null;
     }
     if (key === "statsig_default_enable_features") {
         return {
@@ -136,11 +140,624 @@ function remoteDefaultSharedObjectValue(key, value) {
     }
     return value;
 }
+function mcpRequestKey(hostId, id) {
+    if (typeof hostId !== "string") {
+        return null;
+    }
+    if (typeof id !== "string" && typeof id !== "number") {
+        return null;
+    }
+    return `${hostId}\0${String(id)}`;
+}
+function recordRendererMcpRequest(channel, args) {
+    if (channel !== "codex_desktop:message-from-view") {
+        return;
+    }
+    const message = args[0];
+    if (!isRecord(message) ||
+        message.type !== "mcp-request" ||
+        typeof message.hostId !== "string" ||
+        !isRecord(message.request) ||
+        typeof message.request.method !== "string") {
+        return;
+    }
+    const key = mcpRequestKey(message.hostId, message.request.id);
+    if (key == null) {
+        return;
+    }
+    mcpRequests.set(key, {
+        hostId: proxiedMcpHosts.get(key) ?? message.hostId,
+        method: message.request.method,
+        params: message.request.params,
+    });
+}
+function recordRendererFetchRequest(channel, args) {
+    if (channel !== "codex_desktop:message-from-view") {
+        return;
+    }
+    const message = args[0];
+    if (!isRecord(message) ||
+        message.type !== "fetch" ||
+        typeof message.requestId !== "string" ||
+        typeof message.url !== "string") {
+        return;
+    }
+    const route = fetchRoute(message.url);
+    if (route == null) {
+        return;
+    }
+    const body = parseFetchBody(message.body);
+    fetchRequests.set(message.requestId, {
+        route,
+        method: isRecord(body) && typeof body.method === "string"
+            ? body.method
+            : null,
+        params: fetchRequestParams(route, body),
+    });
+}
+function fetchRequestParams(route, body) {
+    if (!isRecord(body)) {
+        return undefined;
+    }
+    if (route === "send-cli-request-for-host" || route === "ipc-request") {
+        return body.params;
+    }
+    return "params" in body ? body.params : body;
+}
+function normalizeRendererToMainIpcArgs(channel, args) {
+    if (args.length === 0 ||
+        (channel !== "codex_desktop:message-from-view" &&
+            !isWorkerFromViewChannel(channel))) {
+        return args;
+    }
+    return [normalizeRendererToMainIpcMessage(args[0]), ...args.slice(1)];
+}
+function isWorkerFromViewChannel(channel) {
+    return /^codex_desktop:worker:[^:]+:from-view$/.test(channel);
+}
+function normalizeRendererToMainIpcMessage(message) {
+    if (!isRecord(message)) {
+        return message;
+    }
+    if (message.type === "worker-request") {
+        const localized = localizeRemoteDefaultMainPayload(message);
+        return localized;
+    }
+    if (message.type === "mcp-request" &&
+        message.hostId === remote_default_config_1.REMOTE_DEFAULT_HOST_ID &&
+        isRecord(message.request)) {
+        const key = mcpRequestKey("local", message.request.id);
+        if (key != null) {
+            proxiedMcpHosts.set(key, remote_default_config_1.REMOTE_DEFAULT_HOST_ID);
+        }
+        return {
+            ...message,
+            hostId: "local",
+            request: {
+                ...message.request,
+                params: localizeRemoteDefaultHostParam(message.request.params),
+            },
+        };
+    }
+    if (message.type === "fetch" &&
+        typeof message.url === "string" &&
+        fetchRoute(message.url) != null) {
+        const route = fetchRoute(message.url);
+        const body = parseFetchBody(message.body);
+        const localizedBody = localizeRemoteDefaultFetchBody(route, body);
+        if (localizedBody !== body) {
+            return {
+                ...message,
+                body: JSON.stringify(localizedBody),
+            };
+        }
+    }
+    return message;
+}
+function localizeRemoteDefaultMainPayload(value) {
+    if (Array.isArray(value)) {
+        let changed = false;
+        const next = value.map((item) => {
+            const localized = localizeRemoteDefaultMainPayload(item);
+            changed ||= localized !== item;
+            return localized;
+        });
+        return changed ? next : value;
+    }
+    if (!isRecord(value)) {
+        return value;
+    }
+    if (value.id === remote_default_config_1.REMOTE_DEFAULT_HOST_ID && value.kind === "ssh") {
+        return localHostConfig();
+    }
+    let changed = false;
+    const next = {};
+    for (const [key, item] of Object.entries(value)) {
+        if (key === "hostId" && item === remote_default_config_1.REMOTE_DEFAULT_HOST_ID) {
+            changed = true;
+            next[key] = "local";
+            continue;
+        }
+        const localized = localizeRemoteDefaultMainPayload(item);
+        changed ||= localized !== item;
+        next[key] = localized;
+    }
+    return changed ? next : value;
+}
+function localHostConfig() {
+    return { id: "local", display_name: "Local", kind: "local" };
+}
+function localizeRemoteDefaultFetchBody(route, body) {
+    if (!isRecord(body)) {
+        return body;
+    }
+    let changed = false;
+    const next = { ...body };
+    if (next.hostId === remote_default_config_1.REMOTE_DEFAULT_HOST_ID) {
+        next.hostId = "local";
+        changed = true;
+    }
+    const params = localizeRemoteDefaultHostParam(next.params);
+    if (params !== next.params) {
+        next.params = params;
+        changed = true;
+    }
+    const localized = route === "start-conversation"
+        ? localizeRemoteDefaultMainPayload(next)
+        : next;
+    return changed || localized !== next ? localized : body;
+}
+function localizeRemoteDefaultHostParam(params) {
+    if (!isRecord(params) || params.hostId !== remote_default_config_1.REMOTE_DEFAULT_HOST_ID) {
+        return params;
+    }
+    return { ...params, hostId: "local" };
+}
+function recordRendererRequest(channel, args) {
+    recordRendererMcpRequest(channel, args);
+    recordRendererFetchRequest(channel, args);
+}
+function fetchRoute(value) {
+    try {
+        const url = new URL(value);
+        return url.protocol === "vscode:" && url.hostname === "codex"
+            ? url.pathname.slice(1)
+            : null;
+    }
+    catch {
+        return null;
+    }
+}
+function parseFetchBody(body) {
+    if (typeof body !== "string") {
+        return body;
+    }
+    try {
+        return JSON.parse(body);
+    }
+    catch {
+        return null;
+    }
+}
+function normalizeRemoteDefaultMcpResponse(message) {
+    if (!isRecord(message.message)) {
+        return message;
+    }
+    const key = mcpRequestKey(message.hostId, message.message.id);
+    if (key == null) {
+        return message;
+    }
+    const proxiedHostId = proxiedMcpHosts.get(key);
+    proxiedMcpHosts.delete(key);
+    const request = mcpRequests.get(key);
+    if (request == null || !("result" in message.message)) {
+        return proxiedHostId == null ? message : { ...message, hostId: proxiedHostId };
+    }
+    mcpRequests.delete(key);
+    const result = normalizeRemoteDefaultMcpResult(request, message.message.result);
+    return {
+        ...message,
+        hostId: proxiedHostId ??
+            (message.hostId === "local" && containsThreadResult(result)
+                ? remote_default_config_1.REMOTE_DEFAULT_HOST_ID
+                : message.hostId),
+        message: {
+            ...message.message,
+            result,
+        },
+    };
+}
+function normalizeRemoteDefaultFetchResponse(message) {
+    const request = typeof message.requestId === "string"
+        ? fetchRequests.get(message.requestId)
+        : undefined;
+    if (typeof message.requestId === "string") {
+        fetchRequests.delete(message.requestId);
+    }
+    if (message.responseType !== "success" ||
+        typeof message.bodyJsonString !== "string") {
+        return message;
+    }
+    try {
+        const body = JSON.parse(message.bodyJsonString);
+        const normalizedBody = request == null
+            ? normalizeRemoteDefaultPayload(body)
+            : normalizeRemoteDefaultFetchResult(request, body);
+        return normalizedBody === body
+            ? message
+            : { ...message, bodyJsonString: JSON.stringify(normalizedBody) };
+    }
+    catch {
+        return message;
+    }
+}
+function normalizeRemoteDefaultFetchResult(request, result) {
+    if (request.route === "set-global-state") {
+        if (!isRecord(result) || result.success !== false) {
+            cacheRemoteDefaultGlobalStateWrite(request.params);
+        }
+        return normalizeRemoteDefaultPayload(result);
+    }
+    if (request.route === "send-cli-request-for-host" && request.method != null) {
+        return normalizeRemoteDefaultMcpResult({ hostId: "local", method: request.method, params: request.params }, result);
+    }
+    if (request.route === "ipc-request" && request.method != null) {
+        return normalizeRemoteDefaultMcpResult({ hostId: "local", method: request.method, params: request.params }, result);
+    }
+    return normalizeRemoteDefaultMcpResult({ hostId: "local", method: request.route, params: request.params }, result);
+}
+function normalizeRemoteDefaultPayload(value) {
+    if (Array.isArray(value)) {
+        let changed = false;
+        const next = value.map((item) => {
+            const normalized = normalizeRemoteDefaultPayload(item);
+            changed ||= normalized !== item;
+            return normalized;
+        });
+        return changed ? next : value;
+    }
+    if (!isRecord(value)) {
+        return value;
+    }
+    if (looksLikeThread(value)) {
+        return normalizeThread(value);
+    }
+    let changed = false;
+    const next = {};
+    for (const [key, item] of Object.entries(value)) {
+        if (key === "hostId" && item === "local") {
+            changed = true;
+            next[key] = remote_default_config_1.REMOTE_DEFAULT_HOST_ID;
+            continue;
+        }
+        if (key === "PROJECTLESS_THREAD_IDS" || key === "projectlessThreadIds") {
+            for (const threadId of stringArray(item)) {
+                remoteProjectState.projectlessThreadIds.add(threadId);
+            }
+            if (Array.isArray(item) && item.length > 0) {
+                changed = true;
+                next[key] = [];
+            }
+            else {
+                next[key] = item;
+            }
+            continue;
+        }
+        const normalized = normalizeRemoteDefaultPayload(item);
+        changed ||= normalized !== item;
+        next[key] = normalized;
+    }
+    if (next.projectKind === "local" &&
+        "projectId" in next &&
+        !("label" in next) &&
+        !("threadKeys" in next)) {
+        return normalizeProjectAssignment(next);
+    }
+    return changed ? next : value;
+}
+function normalizeRemoteDefaultMcpResult(request, result) {
+    if (request.hostId === "local" && request.method === "thread/list") {
+        return emptyThreadListResult(result);
+    }
+    if (request.method === "workspace-root-options" && isRecord(result)) {
+        cacheWorkspaceRootOptions(result);
+        return { ...result, roots: [], labels: {} };
+    }
+    if (request.method === "thread/list") {
+        return normalizeThreadListResult(result);
+    }
+    if (request.method === "set-global-state") {
+        if (!isRecord(result) || result.success !== false) {
+            cacheRemoteDefaultGlobalStateWrite(request.params);
+        }
+        return normalizeRemoteDefaultPayload(result);
+    }
+    if (request.method === "get-global-state" && isRecord(result)) {
+        const key = isRecord(request.params) ? request.params.key : null;
+        if (key === "REMOTE_PROJECTS") {
+            return { ...result, value: synthesizeRemoteProjects(result.value) };
+        }
+        if (key === "LOCAL_PROJECTS") {
+            remoteProjectState.localProjects = toRecord(result.value);
+            return { ...result, value: {} };
+        }
+        if (key === "PROJECT_WRITABLE_ROOTS") {
+            remoteProjectState.writableRoots = toRecord(result.value);
+            return { ...result, value: {} };
+        }
+        if (key === "PROJECTLESS_THREAD_IDS") {
+            for (const threadId of stringArray(result.value)) {
+                remoteProjectState.projectlessThreadIds.add(threadId);
+            }
+            return { ...result, value: [] };
+        }
+        if (key === "THREAD_PROJECT_ASSIGNMENTS") {
+            return {
+                ...result,
+                value: synthesizeThreadProjectAssignments(result.value),
+            };
+        }
+    }
+    return normalizeRemoteDefaultPayload(result);
+}
+function cacheRemoteDefaultGlobalStateWrite(params) {
+    if (!isRecord(params) || params.key !== "REMOTE_PROJECTS") {
+        return;
+    }
+    cacheRemoteDefaultProjectsWrite(params.value);
+}
+function cacheRemoteDefaultProjectsWrite(value) {
+    remoteProjectState.remoteProjects = Array.isArray(value)
+        ? value.flatMap((project) => {
+            const normalized = normalizeRemoteProject(project);
+            return normalized == null ? [] : [normalized];
+        })
+        : [];
+}
+function containsThreadResult(result) {
+    if (!isRecord(result)) {
+        return false;
+    }
+    return isRecord(result.thread) && looksLikeThread(result.thread);
+}
+function emptyThreadListResult(result) {
+    if (Array.isArray(result)) {
+        return [];
+    }
+    if (!isRecord(result)) {
+        return result;
+    }
+    const next = { ...result };
+    for (const key of ["threads", "conversations", "items", "data"]) {
+        if (Array.isArray(next[key])) {
+            next[key] = [];
+        }
+    }
+    return next;
+}
+function cacheWorkspaceRootOptions(result) {
+    if (Array.isArray(result.roots)) {
+        remoteProjectState.workspaceRoots = result.roots.filter((root) => typeof root === "string");
+    }
+    remoteProjectState.workspaceLabels = toStringRecord(result.labels);
+}
+function normalizeThreadListResult(result) {
+    if (Array.isArray(result)) {
+        return result.map(normalizeThread);
+    }
+    if (!isRecord(result)) {
+        return result;
+    }
+    const next = { ...result };
+    for (const key of ["threads", "conversations", "items", "data"]) {
+        if (Array.isArray(next[key])) {
+            next[key] = next[key].map(normalizeThread);
+        }
+    }
+    return looksLikeThread(result) ? normalizeThread(next) : next;
+}
+function normalizeThread(thread) {
+    if (!isRecord(thread) || !looksLikeThread(thread)) {
+        return thread;
+    }
+    const id = threadId(thread);
+    const path = threadPath(thread);
+    if (id != null && path != null) {
+        remoteProjectState.threadPaths.set(id, path);
+    }
+    const isProjectless = path === "~" ||
+        thread.workspaceKind === "projectless" ||
+        (typeof thread.cwd === "string" && isGeneratedProjectlessCwd(thread.cwd));
+    if (id != null && isProjectless) {
+        remoteProjectState.projectlessThreadIds.add(id);
+    }
+    return {
+        ...thread,
+        hostId: remote_default_config_1.REMOTE_DEFAULT_HOST_ID,
+        ...(path === "~" || isProjectless ? { workspaceKind: "workspace" } : {}),
+    };
+}
+function looksLikeThread(value) {
+    return (threadId(value) != null &&
+        ("cwd" in value ||
+            "workspaceKind" in value ||
+            "title" in value ||
+            "updatedAt" in value ||
+            "createdAt" in value ||
+            "threadRuntimeStatus" in value));
+}
+function threadId(value) {
+    if (typeof value.conversationId === "string") {
+        return value.conversationId;
+    }
+    if (typeof value.id === "string") {
+        return value.id;
+    }
+    return null;
+}
+function threadPath(value) {
+    if (typeof value.cwd === "string" && value.cwd.trim().length > 0) {
+        if (isGeneratedProjectlessCwd(value.cwd)) {
+            return "~";
+        }
+        return value.cwd;
+    }
+    if (value.workspaceKind === "projectless") {
+        return "~";
+    }
+    return "~";
+}
+function isGeneratedProjectlessCwd(cwd) {
+    return GENERATED_PROJECTLESS_CWD_PATTERN.test(cwd.trim());
+}
+function synthesizeRemoteProjects(existingValue) {
+    const projects = new Map();
+    for (const project of [
+        ...(Array.isArray(existingValue) ? existingValue : []),
+        ...remoteProjectState.remoteProjects,
+    ]) {
+        const normalized = normalizeRemoteProject(project);
+        if (normalized != null) {
+            projects.set(String(normalized.remotePath), normalized);
+        }
+    }
+    for (const root of remoteProjectState.workspaceRoots) {
+        projects.set(root, remoteProject(root));
+    }
+    for (const [projectId, project] of Object.entries(remoteProjectState.localProjects)) {
+        projects.set(projectId, remoteProject(projectId, localProjectName(project)));
+    }
+    for (const [projectId, roots] of Object.entries(remoteProjectState.writableRoots)) {
+        for (const root of stringArray(roots)) {
+            projects.set(root, remoteProject(root, localProjectLabel(projectId)));
+        }
+    }
+    for (const path of remoteProjectState.threadPaths.values()) {
+        projects.set(path, remoteProject(path));
+    }
+    projects.set("~", remoteProject("~"));
+    return Array.from(projects.values());
+}
+function normalizeRemoteProject(project) {
+    if (!isRecord(project)) {
+        return null;
+    }
+    const path = typeof project.remotePath === "string"
+        ? project.remotePath
+        : typeof project.path === "string"
+            ? project.path
+            : typeof project.id === "string"
+                ? project.id
+                : null;
+    if (path == null) {
+        return null;
+    }
+    return {
+        ...project,
+        id: typeof project.id === "string" ? project.id : path,
+        hostId: remote_default_config_1.REMOTE_DEFAULT_HOST_ID,
+        path: typeof project.path === "string" ? project.path : path,
+        remotePath: path,
+    };
+}
+function synthesizeThreadProjectAssignments(existingValue) {
+    const assignments = {};
+    if (isRecord(existingValue)) {
+        for (const [threadId, assignment] of Object.entries(existingValue)) {
+            assignments[threadId] = normalizeProjectAssignment(assignment);
+        }
+    }
+    for (const [threadId, path] of remoteProjectState.threadPaths) {
+        assignments[threadId] ??= remoteProjectAssignment(path);
+    }
+    for (const threadId of remoteProjectState.projectlessThreadIds) {
+        assignments[threadId] ??= remoteProjectAssignment("~");
+    }
+    return assignments;
+}
+function normalizeProjectAssignment(assignment) {
+    if (!isRecord(assignment)) {
+        return assignment;
+    }
+    if (assignment.projectKind === "remote") {
+        return { ...assignment, hostId: remote_default_config_1.REMOTE_DEFAULT_HOST_ID };
+    }
+    const path = typeof assignment.path === "string"
+        ? assignment.path
+        : typeof assignment.cwd === "string"
+            ? assignment.cwd
+            : typeof assignment.projectId === "string"
+                ? assignment.projectId
+                : null;
+    return path == null ? assignment : remoteProjectAssignment(path);
+}
+function remoteProjectAssignment(path) {
+    return {
+        projectKind: "remote",
+        projectId: path,
+        hostId: remote_default_config_1.REMOTE_DEFAULT_HOST_ID,
+        path,
+    };
+}
+function remoteProject(path, label = localProjectLabel(path)) {
+    return {
+        id: path,
+        hostId: remote_default_config_1.REMOTE_DEFAULT_HOST_ID,
+        label,
+        path,
+        remotePath: path,
+    };
+}
+function localProjectLabel(path) {
+    return (remoteProjectState.workspaceLabels[path]?.trim() ||
+        localProjectName(remoteProjectState.localProjects[path]) ||
+        basename(path) ||
+        "Remote");
+}
+function localProjectName(project) {
+    return isRecord(project) && typeof project.name === "string"
+        ? project.name.trim()
+        : "";
+}
+function basename(path) {
+    const normalized = path.replace(/\/+$/, "");
+    if (normalized === "~") {
+        return "Remote";
+    }
+    return normalized.split(/[\\/]/).filter(Boolean).at(-1) ?? "";
+}
+function toRecord(value) {
+    return isRecord(value) ? value : {};
+}
+function toStringRecord(value) {
+    if (!isRecord(value)) {
+        return {};
+    }
+    return Object.fromEntries(Object.entries(value).filter((entry) => typeof entry[1] === "string"));
+}
+function stringArray(value) {
+    return Array.isArray(value)
+        ? value.filter((item) => typeof item === "string")
+        : [];
+}
 function normalizeRendererIpcMessage(channel, message) {
     if (channel !== "codex_desktop:message-for-view" ||
         !isRecord(message) ||
         message.type !== "shared-object-updated" ||
         typeof message.key !== "string") {
+        if (channel === "codex_desktop:message-for-view" &&
+            isRecord(message) &&
+            message.type === "mcp-response") {
+            return normalizeRemoteDefaultMcpResponse(message);
+        }
+        if (channel === "codex_desktop:message-for-view" &&
+            isRecord(message) &&
+            message.type === "fetch-response") {
+            return normalizeRemoteDefaultFetchResponse(message);
+        }
+        if (channel === "codex_desktop:message-for-view" && isRecord(message)) {
+            return normalizeRemoteDefaultPayload(message);
+        }
         return message;
     }
     return {
@@ -196,7 +813,7 @@ function createIpcMainEvent({ ports = [], sourceUrl: _sourceUrl, } = {}) {
             getIpcMainBridgeState().broadcastToRenderer?.({
                 type: "ipc-main-event",
                 channel,
-                args,
+                args: normalizeRendererIpcArgs(channel, args),
             });
         },
     };
@@ -207,16 +824,20 @@ function createIpcMainStub() {
     const handlers = new Map();
     const bridgeState = getIpcMainBridgeState();
     bridgeState.handleRendererInvoke = async (channel, args, sourceUrl) => {
+        const normalizedArgs = normalizeRendererToMainIpcArgs(channel, args);
+        recordRendererRequest(channel, normalizedArgs);
         const handler = handlers.get(channel);
         if (!handler) {
             throw new Error(`[electron-main-stub] No ipcMain.handle for ${channel}`);
         }
         const event = createIpcMainEvent({ sourceUrl });
-        return await Promise.resolve(handler(event, ...args));
+        return await Promise.resolve(handler(event, ...normalizedArgs));
     };
     bridgeState.handleRendererSend = (channel, args, sourceUrl, ports) => {
+        const normalizedArgs = normalizeRendererToMainIpcArgs(channel, args);
+        recordRendererRequest(channel, normalizedArgs);
         const event = createIpcMainEvent({ ports, sourceUrl });
-        emitter.emit(channel, event, ...args);
+        emitter.emit(channel, event, ...normalizedArgs);
     };
     return {
         on: emitter.on,
