@@ -187,6 +187,34 @@ type VirtualMessagePort = {
   start: () => void;
 };
 
+const BUNDLED_TERMINAL_FONTS = new Map([
+  [
+    "MesloLGS NF",
+    [
+      {
+        fileName: "MesloLGS NF Regular.ttf",
+        fontStyle: "normal",
+        fontWeight: 400,
+      },
+      {
+        fileName: "MesloLGS NF Bold.ttf",
+        fontStyle: "normal",
+        fontWeight: 700,
+      },
+      {
+        fileName: "MesloLGS NF Italic.ttf",
+        fontStyle: "italic",
+        fontWeight: 400,
+      },
+      {
+        fileName: "MesloLGS NF Bold Italic.ttf",
+        fontStyle: "italic",
+        fontWeight: 700,
+      },
+    ],
+  ],
+]);
+
 function printUsage(): void {
   console.log(
     [
@@ -683,6 +711,15 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
 
     return reply.send({ files });
   });
+
+  const bundledFontsRoot = path.resolve(__dirname, "../../assets/fonts");
+  if (fsSync.existsSync(bundledFontsRoot)) {
+    await app.register(fastifyStatic, {
+      root: bundledFontsRoot,
+      prefix: "/__codex-web/fonts/",
+      decorateReply: false,
+    });
+  }
 
   await app.register(fastifyStatic, {
     root: "/",
@@ -1334,7 +1371,9 @@ export function injectWebviewRuntimeScripts(
   html: string,
   backendWebSocketToken: string,
 ): string {
-  const scripts = `<script>${terminalCtrlWBootstrapScript()}</script><script>${statsigOverrideBootstrapScript()}</script><script>window.__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__=${JSON.stringify(backendWebSocketToken)};</script>`;
+  const terminalFont = process.env.CODEX_WEB_TERMINAL_FONT?.trim() || null;
+  const fontFace = terminalFontFaceStyle(terminalFont);
+  const scripts = `<script>${terminalCtrlWBootstrapScript()}</script><script>${statsigOverrideBootstrapScript()}</script><script>window.__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__=${JSON.stringify(backendWebSocketToken)};window.__CODEX_WEB_TERMINAL_FONT__=${JSON.stringify(terminalFont)};</script>`;
   const preload =
     '<base href="/" /><script type="module" src="./assets/preload.js"></script>';
   const shellHtml = removeContentSecurityPolicyMeta(html)
@@ -1348,8 +1387,21 @@ export function injectWebviewRuntimeScripts(
       "",
     );
   return shellHtml.includes("<head>")
-    ? shellHtml.replace("<head>", `<head>${scripts}${preload}`)
-    : `${scripts}${preload}${shellHtml}`;
+    ? shellHtml.replace("<head>", `<head>${fontFace}${scripts}${preload}`)
+    : `${fontFace}${scripts}${preload}${shellHtml}`;
+}
+
+function terminalFontFaceStyle(fontName: string | null): string {
+  const faces = fontName ? BUNDLED_TERMINAL_FONTS.get(fontName) : null;
+  if (!fontName || !faces) {
+    return "";
+  }
+  return `<style>${faces
+    .map(
+      ({ fileName, fontStyle, fontWeight }) =>
+        `@font-face{font-family: ${JSON.stringify(fontName)};src: local(${JSON.stringify(fontName)}), url("/__codex-web/fonts/${encodeURIComponent(fileName)}") format("truetype");font-weight: ${fontWeight};font-style: ${fontStyle};font-display: swap;}`,
+    )
+    .join("")}</style>`;
 }
 
 function removeContentSecurityPolicyMeta(html: string): string {

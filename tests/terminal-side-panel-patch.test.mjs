@@ -71,6 +71,8 @@ const nativeTerminalChunk = [
   "let o=ce(t);return o==null?!0:(J(t),i(o),!1)}",
   "function J(e){e.preventDefault(),e.stopPropagation()}",
   "function Z(e,t){return e.ctrlKey&&!e.shiftKey&&!e.altKey&&!e.metaKey&&e.key.toLowerCase()===t}",
+  "function create(){let f=new be.Terminal({allowTransparency:!0,cursorStyle:`bar`,fontSize:P.current,allowProposedApi:!0,cursorBlink:!0,fontFamily:N.current,letterSpacing:0,lineHeight:1.2,theme:me(t)})}",
+  "function update(e){let b=N.current,x=P.current;e.options.fontFamily=b,e.options.fontSize=x}",
   "function terminal(){f.attachCustomKeyEventHandler(e=>oe({event:e,sendText:e=>write(e)}));return {\"data-codex-terminal\":!0}}",
 ].join("");
 
@@ -205,6 +207,34 @@ test("patchNativeTerminalCtrlWSource keeps Ctrl+W inside the terminal", () => {
     /if\(Z\(t,`w`\)\)return J\(t\),i\(`\\x17`\),!1;/,
   );
   assert.equal(patchNativeTerminalCtrlWSource(patched), patched);
+});
+
+test("patchNativeTerminalCtrlWSource applies the configured terminal font", () => {
+  const patched = patchNativeTerminalCtrlWSource(nativeTerminalChunk);
+
+  assert.match(
+    patched,
+    /fontFamily:window\.__CODEX_WEB_TERMINAL_FONT__\?\?N\.current/,
+  );
+  assert.match(
+    patched,
+    /e\.options\.fontFamily=window\.__CODEX_WEB_TERMINAL_FONT__\?\?b/,
+  );
+  assert.equal(patchNativeTerminalCtrlWSource(patched), patched);
+});
+
+test("patchNativeTerminalCtrlWSource upgrades partially patched terminal font", () => {
+  const partiallyPatched = nativeTerminalChunk.replace(
+    "fontFamily:N.current",
+    "fontFamily:window.__CODEX_WEB_TERMINAL_FONT__??N.current",
+  );
+
+  const patched = patchNativeTerminalCtrlWSource(partiallyPatched);
+
+  assert.match(
+    patched,
+    /e\.options\.fontFamily=window\.__CODEX_WEB_TERMINAL_FONT__\?\?b/,
+  );
 });
 
 test("findTerminalActionAsset finds the side panel Terminal action importer", () => {

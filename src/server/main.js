@@ -46,6 +46,33 @@ function compareWorkspaceDirectoryEntries(left, right) {
             workspaceDirectoryEntryHiddenRank(right) ||
         left.name.localeCompare(right.name));
 }
+const BUNDLED_TERMINAL_FONTS = new Map([
+    [
+        "MesloLGS NF",
+        [
+            {
+                fileName: "MesloLGS NF Regular.ttf",
+                fontStyle: "normal",
+                fontWeight: 400,
+            },
+            {
+                fileName: "MesloLGS NF Bold.ttf",
+                fontStyle: "normal",
+                fontWeight: 700,
+            },
+            {
+                fileName: "MesloLGS NF Italic.ttf",
+                fontStyle: "italic",
+                fontWeight: 400,
+            },
+            {
+                fileName: "MesloLGS NF Bold Italic.ttf",
+                fontStyle: "italic",
+                fontWeight: 700,
+            },
+        ],
+    ],
+]);
 function printUsage() {
     console.log([
         "Usage:",
@@ -407,6 +434,14 @@ async function startIpcBridgeServer(options) {
         })());
         return reply.send({ files });
     });
+    const bundledFontsRoot = node_path_1.default.resolve(__dirname, "../../assets/fonts");
+    if (node_fs_1.default.existsSync(bundledFontsRoot)) {
+        await app.register(static_1.default, {
+            root: bundledFontsRoot,
+            prefix: "/__codex-web/fonts/",
+            decorateReply: false,
+        });
+    }
     await app.register(static_1.default, {
         root: "/",
         prefix: "/@fs/",
@@ -912,15 +947,26 @@ async function sendWebviewIndex(reply, webviewRoot, backendWebSocketToken) {
         .send(injectWebviewRuntimeScripts(indexHtml, backendWebSocketToken));
 }
 function injectWebviewRuntimeScripts(html, backendWebSocketToken) {
-    const scripts = `<script>${terminalCtrlWBootstrapScript()}</script><script>${statsigOverrideBootstrapScript()}</script><script>window.__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__=${JSON.stringify(backendWebSocketToken)};</script>`;
+    const terminalFont = process.env.CODEX_WEB_TERMINAL_FONT?.trim() || null;
+    const fontFace = terminalFontFaceStyle(terminalFont);
+    const scripts = `<script>${terminalCtrlWBootstrapScript()}</script><script>${statsigOverrideBootstrapScript()}</script><script>window.__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__=${JSON.stringify(backendWebSocketToken)};window.__CODEX_WEB_TERMINAL_FONT__=${JSON.stringify(terminalFont)};</script>`;
     const preload = '<base href="/" /><script type="module" src="./assets/preload.js"></script>';
     const shellHtml = removeContentSecurityPolicyMeta(html)
         .replace('<link rel="manifest" href="/manifest.json" />', '<link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />')
         .replace(/<base\b[^>]*>\s*/i, "")
         .replace(/<script\s+type="module"\s+src="\.\/assets\/preload\.js"><\/script>\s*/i, "");
     return shellHtml.includes("<head>")
-        ? shellHtml.replace("<head>", `<head>${scripts}${preload}`)
-        : `${scripts}${preload}${shellHtml}`;
+        ? shellHtml.replace("<head>", `<head>${fontFace}${scripts}${preload}`)
+        : `${fontFace}${scripts}${preload}${shellHtml}`;
+}
+function terminalFontFaceStyle(fontName) {
+    const faces = fontName ? BUNDLED_TERMINAL_FONTS.get(fontName) : null;
+    if (!fontName || !faces) {
+        return "";
+    }
+    return `<style>${faces
+        .map(({ fileName, fontStyle, fontWeight }) => `@font-face{font-family: ${JSON.stringify(fontName)};src: local(${JSON.stringify(fontName)}), url("/__codex-web/fonts/${encodeURIComponent(fileName)}") format("truetype");font-weight: ${fontWeight};font-style: ${fontStyle};font-display: swap;}`)
+        .join("")}</style>`;
 }
 function removeContentSecurityPolicyMeta(html) {
     return html.replace(/<meta\b(?=[^>]*http-equiv=["']?Content-Security-Policy["']?)[^>]*>\s*/gi, "");

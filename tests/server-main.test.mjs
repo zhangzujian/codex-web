@@ -503,6 +503,58 @@ test("webview shell keeps terminal Ctrl+W out of global key handlers", () => {
   assert.equal(appCalls, 1);
 });
 
+test("webview shell exposes configured terminal font", () => {
+  const previousFont = process.env.CODEX_WEB_TERMINAL_FONT;
+  process.env.CODEX_WEB_TERMINAL_FONT = "MesloLGS NF";
+  try {
+    const injected = serverMain.injectWebviewRuntimeScripts(
+      "<head></head>",
+      "secret",
+    );
+
+    assert.match(injected, /__CODEX_WEB_TERMINAL_FONT__/);
+    assert.match(injected, /MesloLGS NF/);
+  } finally {
+    if (previousFont === undefined) {
+      delete process.env.CODEX_WEB_TERMINAL_FONT;
+    } else {
+      process.env.CODEX_WEB_TERMINAL_FONT = previousFont;
+    }
+  }
+});
+
+test("webview shell declares the bundled configured terminal font", () => {
+  const previousFont = process.env.CODEX_WEB_TERMINAL_FONT;
+  process.env.CODEX_WEB_TERMINAL_FONT = "MesloLGS NF";
+  try {
+    const injected = serverMain.injectWebviewRuntimeScripts(
+      "<head></head>",
+      "secret",
+    );
+
+    assert.match(injected, /@font-face/);
+    assert.match(injected, /font-family: "MesloLGS NF"/);
+    for (const fileName of [
+      "MesloLGS%20NF%20Regular.ttf",
+      "MesloLGS%20NF%20Bold.ttf",
+      "MesloLGS%20NF%20Italic.ttf",
+      "MesloLGS%20NF%20Bold%20Italic.ttf",
+    ]) {
+      assert.match(injected, new RegExp(`/__codex-web/fonts/${fileName}`));
+    }
+    assert.match(injected, /font-weight: 400/);
+    assert.match(injected, /font-weight: 700/);
+    assert.match(injected, /font-style: normal/);
+    assert.match(injected, /font-style: italic/);
+  } finally {
+    if (previousFont === undefined) {
+      delete process.env.CODEX_WEB_TERMINAL_FONT;
+    } else {
+      process.env.CODEX_WEB_TERMINAL_FONT = previousFont;
+    }
+  }
+});
+
 test("webview shell fetches the manifest with auth credentials", () => {
   const html = `<!doctype html>
 <html>

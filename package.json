@@ -3,6 +3,7 @@
   "version": "0.0.1",
   "files": [
     "README.md",
+    "assets/**/*",
     "scratch/asar/**/*",
     "src/server/**/*.js",
     "src/server/electron/index.js",

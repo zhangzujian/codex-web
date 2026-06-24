@@ -231,16 +231,30 @@ export function patchTerminalNewTabMenuSource(source) {
 }
 
 export function patchNativeTerminalCtrlWSource(source) {
-  if (source.includes(TERMINAL_CTRL_W_PATCH)) {
-    return source;
+  let patched = patchNativeTerminalFontSource(source);
+
+  if (patched.includes(TERMINAL_CTRL_W_PATCH)) {
+    return patched;
   }
 
   return replaceOnce(
-    source,
+    patched,
     "if(t.type!==`keydown`)return!0;",
     `if(t.type!==\`keydown\`)return!0;${TERMINAL_CTRL_W_PATCH}`,
     "Native terminal key handler target not found",
   );
+}
+
+function patchNativeTerminalFontSource(source) {
+  return source
+    .replace(
+      /fontFamily:(?!window\.__CODEX_WEB_TERMINAL_FONT__\?\?)([$A-Za-z_][\w$]*\.current)/,
+      "fontFamily:window.__CODEX_WEB_TERMINAL_FONT__??$1",
+    )
+    .replace(
+      /(\.options\.fontFamily=)(?!window\.__CODEX_WEB_TERMINAL_FONT__\?\?)([$A-Za-z_][\w$]*)/,
+      "$1window.__CODEX_WEB_TERMINAL_FONT__??$2",
+    );
 }
 
 export function patchSidebarNavigationButtonsSource(source) {
