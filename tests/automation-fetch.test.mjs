@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -72,7 +72,6 @@ test("automation fetch bridge creates and lists automations", async () => {
       executionEnvironment: "worktree",
       localEnvironmentConfigPath: null,
       model: "gpt-5",
-      reasoningEffort: null,
       rrule: "FREQ=MINUTELY;INTERVAL=10",
       createdAt: "2026-06-24T10:00:00.000Z",
       updatedAt: "2026-06-24T10:00:00.000Z",
@@ -105,7 +104,7 @@ test("automation fetch bridge creates and lists automations", async () => {
   }
 });
 
-test("automation fetch bridge updates, deletes, and hides deleted items", async () => {
+test("automation fetch bridge updates and deletes items", async () => {
   const tempDir = await mkdtemp(
     path.join(os.tmpdir(), "codex-web-automation-"),
   );
@@ -184,8 +183,9 @@ test("automation fetch bridge updates, deletes, and hides deleted items", async 
 
     assert.equal(fetchBody(messages[2]).success, true);
     assert.equal(fetchBody(messages[2]).status, "deleted");
-    assert.equal(fetchBody(messages[2]).item.status, "DELETED");
-    assert.equal(fetchBody(messages[2]).item.nextRunAt, null);
+    assert.equal(fetchBody(messages[2]).item.status, "PAUSED");
+
+    assert.deepEqual(JSON.parse(await readFile(storePath, "utf8")).items, []);
 
     await handleAutomationFetchMessage(
       {
@@ -206,24 +206,32 @@ test("automation fetch bridge updates, deletes, and hides deleted items", async 
 });
 
 test("automation fetch bridge returns empty inbox history", async () => {
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "codex-web-automation-"),
+  );
+  const storePath = path.join(tempDir, "automations.json");
   const messages = [];
 
-  assert.equal(
-    await handleAutomationFetchMessage(
-      {
-        type: "fetch",
-        requestId: "inbox",
-        url: "vscode://codex/inbox-items",
-      },
-      { respond: (message) => messages.push(message) },
-    ),
-    true,
-  );
+  try {
+    assert.equal(
+      await handleAutomationFetchMessage(
+        {
+          type: "fetch",
+          requestId: "inbox",
+          url: "vscode://codex/inbox-items",
+        },
+        { respond: (message) => messages.push(message), storePath },
+      ),
+      true,
+    );
 
-  assert.deepEqual(fetchBody(messages[0]), {
-    items: [],
-    unreadRunCounts: { total: 0, automationIds: [] },
-  });
+    assert.deepEqual(fetchBody(messages[0]), {
+      items: [],
+      unreadRunCounts: { total: 0, automationIds: [] },
+    });
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
 });
 
 test("automation fetch bridge runs automations through app-server threads", async () => {
@@ -587,6 +595,90 @@ test("automation dispatch bridge marks all automation runs read", async () => {
   }
 });
 
+test("automation dispatch bridge deletes run history for deleted threads", async () => {
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "codex-web-automation-"),
+  );
+  const storePath = path.join(tempDir, "automations.json");
+  const messages = [];
+
+  try {
+    await handleAutomationFetchMessage(
+      {
+        type: "fetch",
+        requestId: "create",
+        url: "vscode://codex/automation-create",
+        body: JSON.stringify({
+          kind: "cron",
+          name: "Trending",
+          prompt: "Check GitHub trending",
+          cwds: ["/repo"],
+          executionEnvironment: "worktree",
+          rrule: "FREQ=MINUTELY;INTERVAL=10",
+        }),
+      },
+      {
+        createId: () => "automation-1",
+        now: () => new Date("2026-06-24T10:00:00.000Z"),
+        respond: (message) => messages.push(message),
+        storePath,
+      },
+    );
+
+    await handleAutomationFetchMessage(
+      {
+        type: "fetch",
+        requestId: "run",
+        url: "vscode://codex/automation-run-now",
+        body: JSON.stringify({ id: "automation-1" }),
+      },
+      {
+        appServerClient: {
+          async rpc(method) {
+            return method === "thread/start"
+              ? { thread: { id: "thread-1" } }
+              : { turn: { id: "turn-1" } };
+          },
+        },
+        now: () => new Date("2026-06-24T10:05:00.000Z"),
+        respond: (message) => messages.push(message),
+        storePath,
+      },
+    );
+
+    assert.equal(
+      await handleAutomationDispatchMessage(
+        {
+          type: "inbox-automation-run-delete-by-thread",
+          threadId: "thread-1",
+        },
+        { storePath },
+      ),
+      true,
+    );
+
+    await handleAutomationFetchMessage(
+      {
+        type: "fetch",
+        requestId: "inbox",
+        url: "vscode://codex/inbox-items",
+      },
+      {
+        respond: (message) => messages.push(message),
+        storePath,
+      },
+    );
+
+    assert.deepEqual(fetchBody(messages[2]).items, []);
+    assert.deepEqual(fetchBody(messages[2]).unreadRunCounts, {
+      total: 0,
+      automationIds: [],
+    });
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("automation due runner runs active due automations once", async () => {
   const tempDir = await mkdtemp(
     path.join(os.tmpdir(), "codex-web-automation-"),
@@ -753,6 +845,7 @@ test("automation_update dynamic tool creates, updates, and deletes automations",
         rrule: "FREQ=MINUTELY;INTERVAL=10",
       },
     });
+    assert.deepEqual(JSON.parse(await readFile(storePath, "utf8")).items, []);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
@@ -817,14 +910,158 @@ test("automation_update dynamic tool normalizes common model-shaped cron argumen
       cwds: ["/home/zhang/kube-ovn"],
       executionEnvironment: "worktree",
       localEnvironmentConfigPath: null,
-      model: null,
-      reasoningEffort: null,
       rrule: "FREQ=MINUTELY;INTERVAL=10",
       createdAt: "2026-06-24T14:00:00.000Z",
       updatedAt: "2026-06-24T14:00:00.000Z",
       lastRunAt: null,
       nextRunAt: "2026-06-24T14:10:00.000Z",
     });
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("automation_update view lists automations and rejects unsupported suggested modes", async () => {
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "codex-web-automation-"),
+  );
+  const storePath = path.join(tempDir, "automations.json");
+
+  try {
+    await handleAutomationDynamicToolCall(
+      {
+        arguments: {
+          mode: "create",
+          name: "Fetch origin master head commit",
+          prompt: "Use gh to check the repository every ten minutes.",
+          rrule: "FREQ=MINUTELY;INTERVAL=10",
+          cwds: "/home/zhang/kube-ovn",
+        },
+        threadId: "thread-1",
+        tool: "automation_update",
+      },
+      {
+        createId: () => "automation-1",
+        now: () => new Date("2026-06-24T14:00:00.000Z"),
+        storePath,
+      },
+    );
+
+    const viewed = await handleAutomationDynamicToolCall(
+      {
+        arguments: { mode: "view" },
+        threadId: "thread-1",
+        tool: "automation_update",
+      },
+      { storePath },
+    );
+
+    assert.equal(viewed.success, true);
+    assert.deepEqual(JSON.parse(viewed.contentItems[0].text), {
+      items: [
+        {
+          id: "automation-1",
+          kind: "cron",
+          name: "Fetch origin master head commit",
+          status: "ACTIVE",
+          rrule: "FREQ=MINUTELY;INTERVAL=10",
+          cwds: ["/home/zhang/kube-ovn"],
+        },
+      ],
+    });
+
+    const suggested = await handleAutomationDynamicToolCall(
+      {
+        arguments: { mode: "suggested_create" },
+        threadId: "thread-1",
+        tool: "automation_update",
+      },
+      { storePath },
+    );
+
+    assert.equal(suggested.success, false);
+    assert.equal(
+      suggested.contentItems[0].text,
+      "automation_update received invalid mode.",
+    );
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("automation_update uses Codex defaults when model and reasoning effort are omitted", async () => {
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "codex-web-automation-"),
+  );
+  const storePath = path.join(tempDir, "automations.json");
+  const rpcCalls = [];
+
+  try {
+    const created = await handleAutomationDynamicToolCall(
+      {
+        arguments: {
+          mode: "create",
+          name: "Fetch origin master head commit",
+          prompt: "Use gh to check the repository every ten minutes.",
+          rrule: "FREQ=MINUTELY;INTERVAL=10",
+          cwds: "/home/zhang/kube-ovn",
+        },
+        threadId: "thread-1",
+        tool: "automation_update",
+      },
+      {
+        createId: () => "automation-1",
+        now: () => new Date("2026-06-24T14:00:00.000Z"),
+        storePath,
+      },
+    );
+
+    assert.equal(created.success, true);
+
+    const viewed = await handleAutomationDynamicToolCall(
+      {
+        arguments: { mode: "view" },
+        threadId: "thread-1",
+        tool: "automation_update",
+      },
+      { storePath },
+    );
+    const [item] = JSON.parse(viewed.contentItems[0].text).items;
+    assert.equal(Object.hasOwn(item, "model"), false);
+    assert.equal(Object.hasOwn(item, "reasoningEffort"), false);
+
+    await handleAutomationFetchMessage(
+      {
+        type: "fetch",
+        requestId: "run",
+        url: "vscode://codex/automation-run-now",
+        body: JSON.stringify({ id: "automation-1" }),
+      },
+      {
+        appServerClient: {
+          async rpc(method, params) {
+            rpcCalls.push({ method, params });
+            return method === "thread/start"
+              ? { thread: { id: "thread-1" } }
+              : { turn: { id: "turn-1" } };
+          },
+        },
+        now: () => new Date("2026-06-24T14:05:00.000Z"),
+        storePath,
+      },
+    );
+
+    assert.deepEqual(
+      rpcCalls.map(({ method, params }) => ({
+        method,
+        hasModel: Object.hasOwn(params, "model"),
+        hasEffort: Object.hasOwn(params, "effort"),
+      })),
+      [
+        { method: "thread/start", hasModel: false, hasEffort: false },
+        { method: "turn/start", hasModel: false, hasEffort: false },
+      ],
+    );
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }

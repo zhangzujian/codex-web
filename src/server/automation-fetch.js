@@ -75,13 +75,7 @@ async function handleAutomationFetchMessage(message, environment = {}) {
                     });
                     return true;
                 }
-                const item = {
-                    ...store.items[index],
-                    status: "DELETED",
-                    updatedAt: nowIso(environment),
-                    nextRunAt: null,
-                };
-                store.items[index] = item;
+                const [item] = store.items.splice(index, 1);
                 await writeStore(store, environment.storePath);
                 sendFetchResponse(environment, message.requestId, 200, {
                     success: true,
@@ -118,6 +112,15 @@ async function handleAutomationDispatchMessage(message, environment = {}) {
     }
     const store = await readStore(environment.storePath);
     switch (message.type) {
+        case "inbox-automation-run-delete-by-thread": {
+            const threadId = stringParam(message.threadId, "thread id");
+            const remainingItems = store.inboxItems.filter((item) => item.threadId !== threadId);
+            if (remainingItems.length !== store.inboxItems.length) {
+                store.inboxItems = remainingItems;
+                await writeStore(store, environment.storePath);
+            }
+            return true;
+        }
         case "inbox-item-set-read-state": {
             const id = stringParam(message.id, "inbox item id");
             const item = store.inboxItems.find((item) => item.id === id);
@@ -184,11 +187,10 @@ async function handleAutomationDynamicToolCall(params, environment = {}) {
                 });
             }
             case "view":
-            case "suggested_create":
-            case "suggested_update":
                 return dynamicToolResult({
-                    automationId: typeof args.id === "string" ? args.id : null,
-                    mode,
+                    items: (await readStore(environment.storePath)).items
+                        .filter((item) => item.status !== "DELETED")
+                        .map(automationToolViewItem),
                 });
             default:
                 return dynamicToolError("automation_update received invalid mode.");
@@ -252,8 +254,10 @@ function automationFields(params) {
         kind,
         name: stringParam(params.name, "name"),
         prompt: stringParam(params.prompt, "prompt"),
-        model: nullableString(params.model),
-        reasoningEffort: nullableString(params.reasoningEffort),
+        ...(typeof params.model === "string" ? { model: params.model } : {}),
+        ...(typeof params.reasoningEffort === "string"
+            ? { reasoningEffort: params.reasoningEffort }
+            : {}),
         rrule: stringParam(params.rrule, "rrule"),
     };
     if (kind === "heartbeat") {
@@ -292,7 +296,10 @@ async function readStore(storePath = defaultStorePath()) {
 }
 async function writeStore(store, storePath = defaultStorePath()) {
     await promises_1.default.mkdir(node_path_1.default.dirname(storePath), { recursive: true });
-    await promises_1.default.writeFile(storePath, `${JSON.stringify(store, null, 2)}\n`);
+    await promises_1.default.writeFile(storePath, `${JSON.stringify({
+        ...store,
+        items: store.items.filter((item) => item.status !== "DELETED"),
+    }, null, 2)}\n`);
 }
 function defaultStorePath() {
     return node_path_1.default.join(defaultCodexHome(), "automations", "codex-web.json");
@@ -454,6 +461,19 @@ function automationRouteItem(response) {
     }
     throw new Error("Automation route did not return an automation item");
 }
+function automationToolViewItem(item) {
+    return {
+        id: item.id,
+        kind: item.kind,
+        name: item.name,
+        status: item.status,
+        rrule: item.rrule,
+        ...(item.kind === "cron" ? { cwds: item.cwds ?? [] } : {}),
+        ...(item.kind === "heartbeat"
+            ? { targetThreadId: item.targetThreadId ?? null }
+            : {}),
+    };
+}
 function normalizeAutomationToolArgs(args, threadId) {
     const normalized = { ...args };
     if (typeof normalized.cwds === "string") {
@@ -469,12 +489,11 @@ function normalizeAutomationToolArgs(args, threadId) {
         if (normalized.status == null) {
             normalized.status = "ACTIVE";
         }
-        if (normalized.model === undefined || normalized.model === "") {
-            normalized.model = null;
+        if (normalized.model === "") {
+            delete normalized.model;
         }
-        if (normalized.reasoningEffort === undefined ||
-            normalized.reasoningEffort === "") {
-            normalized.reasoningEffort = null;
+        if (normalized.reasoningEffort === "") {
+            delete normalized.reasoningEffort;
         }
     }
     if (normalized.kind === "cron") {
@@ -560,7 +579,8 @@ function isAutomationRoute(value) {
         value === "list-automations");
 }
 function isAutomationDispatchRoute(value) {
-    return (value === "inbox-automation-runs-mark-all-read" ||
+    return (value === "inbox-automation-run-delete-by-thread" ||
+        value === "inbox-automation-runs-mark-all-read" ||
         value === "inbox-item-set-read-state");
 }
 function statusParam(value) {

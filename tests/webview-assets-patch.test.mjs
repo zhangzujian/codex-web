@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -15,6 +15,12 @@ import {
   patchStatsigTelemetryDisableSupport,
   patchDynamicToolsAutomationAsset,
   patchDynamicToolsAutomationSupport,
+  patchAutomationDefaultModelAsset,
+  patchAutomationDefaultModelSupport,
+  patchAutomationModelPickerAsset,
+  patchAutomationModelPickerSupport,
+  patchAutomationToolContractAsset,
+  patchAutomationToolContractSupport,
   patchAutomationArgumentsNormalizationSupport,
   patchAutomationRemoteDefaultHostSupport,
 } from "../scripts/patch_webview_assets.mjs";
@@ -301,6 +307,12 @@ test("patchDynamicToolsAutomationSupport adds automation_update and preserves on
   assert.match(patched, /name:`automation_update`/);
   assert.match(
     patched,
+    /Do not set model or reasoningEffort unless the user explicitly requests them/,
+  );
+  assert.match(patched, /omitted values use the Codex configured defaults/);
+  assert.doesNotMatch(patched, /suggested_create|suggested_update/);
+  assert.match(
+    patched,
     /codexWebAutomationUpdateTool,\.\.\.C&&m!==`conversational_onboarding`\?\[\.\.\.p,a\]:\[\]/,
   );
   assert.equal(patchDynamicToolsAutomationSupport(patched), patched);
@@ -362,15 +374,11 @@ test("patchAutomationRemoteDefaultHostAsset patches the automation host guard ch
     "case fe:{if(!Ab(n)){c=Ie(`Automations are only supported for local threads.`);break}let t=Me.safeParse(a.arguments);}",
   );
 
-  const { patchAutomationRemoteDefaultHostAsset } = await import(
-    "../scripts/patch_webview_assets.mjs"
-  );
+  const { patchAutomationRemoteDefaultHostAsset } =
+    await import("../scripts/patch_webview_assets.mjs");
 
   assert.equal(patchAutomationRemoteDefaultHostAsset(assetsDir), appMain);
-  assert.match(
-    await readFile(appMain, "utf8"),
-    /n!==`remote:default`/,
-  );
+  assert.match(await readFile(appMain, "utf8"), /n!==`remote:default`/);
 });
 
 test("patchAutomationArgumentsNormalizationSupport normalizes common model args before validation", () => {
@@ -379,10 +387,7 @@ test("patchAutomationArgumentsNormalizationSupport normalizes common model args 
 
   const patched = patchAutomationArgumentsNormalizationSupport(source);
 
-  assert.match(
-    patched,
-    /Me\.safeParse\(\(\(\)=>\{let e=a\.arguments;/,
-  );
+  assert.match(patched, /Me\.safeParse\(\(\(\)=>\{let e=a\.arguments;/);
   assert.match(patched, /typeof t\.cwds===`string`/);
   assert.match(patched, /t\.cwds=\[t\.cwds\]/);
   assert.match(patched, /t\.rrule\.startsWith\(`RRULE:`\)/);
@@ -409,17 +414,14 @@ test("patchAutomationArgumentsNormalizationSupport fills common cron defaults fo
   const patched = patchAutomationArgumentsNormalizationSupport(source);
 
   assert.match(patched, /t\.kind==null&&\(t\.kind=`cron`\)/);
-  assert.match(patched, /t\.status==null&&\(t\.status=`ACTIVE`\)/);
   assert.match(
     patched,
     /t\.executionEnvironment==null&&\(t\.executionEnvironment=`worktree`\)/,
   );
-  assert.match(
-    patched,
-    /t\.localEnvironmentConfigPath===void 0&&\(t\.localEnvironmentConfigPath=null\)/,
-  );
-  assert.match(patched, /t\.model===void 0&&\(t\.model=null\)/);
-  assert.match(patched, /t\.reasoningEffort===void 0&&\(t\.reasoningEffort=null\)/);
+  assert.doesNotMatch(patched, /t\.status==null/);
+  assert.doesNotMatch(patched, /t\.localEnvironmentConfigPath===void 0/);
+  assert.doesNotMatch(patched, /t\.model===void 0/);
+  assert.doesNotMatch(patched, /t\.reasoningEffort===void 0/);
 });
 
 test("patchAutomationArgumentsNormalizationSupport cleans common invalid model-shaped fields", () => {
@@ -428,9 +430,12 @@ test("patchAutomationArgumentsNormalizationSupport cleans common invalid model-s
 
   const patched = patchAutomationArgumentsNormalizationSupport(source);
 
-  assert.match(patched, /t\.localEnvironmentConfigPath===``&&\(t\.localEnvironmentConfigPath=null\)/);
-  assert.match(patched, /t\.model===``&&\(t\.model=null\)/);
-  assert.match(patched, /t\.reasoningEffort===``&&\(t\.reasoningEffort=null\)/);
+  assert.match(
+    patched,
+    /t\.localEnvironmentConfigPath===``&&delete t\.localEnvironmentConfigPath/,
+  );
+  assert.match(patched, /t\.model===``&&delete t\.model/);
+  assert.match(patched, /t\.reasoningEffort===``&&delete t\.reasoningEffort/);
   assert.match(
     patched,
     /t\.executionEnvironment===`local`&&\(t\.executionEnvironment=`worktree`\)/,
@@ -439,4 +444,121 @@ test("patchAutomationArgumentsNormalizationSupport cleans common invalid model-s
     patched,
     /t\.rrule\.split\(`\\n`\)\.find\(e=>e\.startsWith\(`RRULE:`\)\)/,
   );
+});
+
+test("patchAutomationArgumentsNormalizationSupport removes unsupported suggested setup guidance", () => {
+  const source =
+    "var wz=`For safety, automations created by the model cannot immediately run a worktree local environment setup script. Use suggested_create or suggested_update so the user can review and approve the setup-capable automation, or set localEnvironmentConfigPath to null.`;case fe:{let t=Me.safeParse(a.arguments);if(!t.success){c=Ie(`${fe} received invalid arguments.`);break}}";
+
+  const patched = patchAutomationArgumentsNormalizationSupport(source);
+
+  assert.doesNotMatch(patched, /suggested_create|suggested_update/);
+  assert.match(patched, /Set localEnvironmentConfigPath to null\./);
+});
+
+test("patchAutomationDefaultModelSupport stops requiring cron model selection", () => {
+  const source =
+    "function _(e){let t=e.name.trim(),n=e.prompt.trim(),r=[];return t.length===0&&r.push(`name`),n.length===0&&r.push(`prompt`),e.kind===`heartbeat`?e.targetThreadId??r.push(`thread`):(e.cwds.length===0&&r.push(`cwd`),e.executionEnvironment??r.push(`executionEnvironment`),e.model??r.push(`model`)),u(e.scheduleConfig)||r.push(`schedule`),{trimmedName:t,trimmedPrompt:n,missingRequirements:r,canSave:r.length===0}}function w(e,i){let a=n({automation:e,models:i??[]});return{id:e.id,kind:e.kind,name:e.name,prompt:e.prompt,status:e.status,cwds:t(e)?[]:e.cwds,executionEnvironment:t(e)?null:r(e.executionEnvironment),localEnvironmentConfigPath:t(e)?null:e.localEnvironmentConfigPath,targetThreadId:t(e)?e.targetThreadId:null,model:t(e)?null:a.model,reasoningEffort:t(e)?null:a.reasoningEffort,rawRrule:e.rrule}}function T({seed:e,targetAutomation:a,models:c}){let d=a==null?null:n({automation:a,models:c??[]}),p=a?.kind??e.kind??`cron`;return{model:p===`heartbeat`?null:e.model??d?.model??h.model,reasoningEffort:p===`heartbeat`?null:e.reasoningEffort??d?.reasoningEffort??h.reasoningEffort,rawRrule:e.rrule}}function P({draft:e,modelSettings:t}){return e.kind===`heartbeat`?{...e,model:null,reasoningEffort:null}:t.isLoading||e.model!=null?e:{...e,model:t.model,reasoningEffort:t.reasoningEffort}}function F({draft:e,name:t,prompt:n,status:r,rrule:i}){if(e.id==null)throw Error(`Automation draft is incomplete`);if(e.kind===`heartbeat`){if(e.targetThreadId==null)throw Error(`Heartbeat automation draft is incomplete`);return{id:e.id,kind:`heartbeat`,name:t,prompt:n,status:r,targetThreadId:e.targetThreadId,model:null,reasoningEffort:null,rrule:i}}if(e.executionEnvironment==null||e.model==null)throw Error(`Cron automation draft is incomplete`);return{id:e.id,kind:`cron`,name:t,prompt:n,status:r,cwds:e.cwds,executionEnvironment:e.executionEnvironment,localEnvironmentConfigPath:e.localEnvironmentConfigPath,model:e.model,reasoningEffort:e.reasoningEffort,rrule:i}}";
+
+  const patched = patchAutomationDefaultModelSupport(source);
+
+  assert.doesNotMatch(patched, /model`\)/);
+  assert.doesNotMatch(patched, /modelSettings|model:t\.model|reasoningEffort:t\.reasoningEffort/);
+  assert.doesNotMatch(patched, /let a=n\(\{automation:e|let d=a==null\?null:n\(\{automation:a/);
+  assert.doesNotMatch(patched, /e\.model==null\)throw Error\(`Cron automation draft is incomplete`\)/);
+  assert.doesNotMatch(patched, /model:e\.model,reasoningEffort:e\.reasoningEffort|model:null,reasoningEffort:null/);
+  assert.match(patched, /model:t\(e\)\?null:e\.model\?\?null/);
+  assert.match(patched, /let d=a==null\?null:\{model:a\.model\?\?null,reasoningEffort:a\.reasoningEffort\?\?null\}/);
+  assert.match(patched, /\.\.\.e\.model==null\?\{\}:\{model:e\.model\}/);
+  assert.match(patched, /e\.executionEnvironment\?\?r\.push\(`executionEnvironment`\)/);
+  assert.equal(patchAutomationDefaultModelSupport(patched), patched);
+});
+
+test("patchAutomationDefaultModelAsset skips browser builds without automation shared chunk", async () => {
+  const assetsDir = await mkdtemp(join(tmpdir(), "codex-web-assets-"));
+
+  try {
+    await writeFile(join(assetsDir, "preload.js"), "const browserBuild = true;");
+
+    assert.deepEqual(patchAutomationDefaultModelAsset(assetsDir), []);
+  } finally {
+    await rm(assetsDir, { recursive: true, force: true });
+  }
+});
+
+test("patchAutomationModelPickerSupport shows default model without persisting it", () => {
+  const source =
+    "function Lt({selectedModel:n,reasoningEffort:r,align:i,className:a,onSelect:o}=e){let c=p(),{data:l}=E(),u,f;if(t[0]!==l?.models||t[1]!==r||t[2]!==n){u=l?.models.find(e=>e.model===n)??null;let e=d({model:u,reasoningEffort:r});f=T(e)?e:null,t[0]=l?.models,t[1]=r,t[2]=n,t[3]=u,t[4]=f}else u=t[3],f=t[4];let m=f,h=n==null||l?.models==null,v=n??``,y=l?.models,b;t[5]!==o||t[6]!==n?(b=e=>{n!=null&&o(n,e)},t[5]=o,t[6]=n,t[7]=b):b=t[7];let w;t[12]!==c||t[13]!==n||t[14]!==u?.displayName?(w=n!=null&&n.trim().length>0?(0,Y.jsx)(we,{model:n,displayName:u?.displayName??n,labelClassName:`text-token-foreground`}):(0,Y.jsx)(`span`,{className:`truncate text-token-foreground`,children:c.formatMessage({id:`settings.automations.model.loading`,defaultMessage:`Loading model`,description:`Fallback label while automation model options are loading`})}),t[12]=c,t[13]=n,t[14]=u?.displayName,t[15]=w):w=t[15];return (0,Y.jsx)(Te,{disabled:h,model:v,models:y,reasoningEffort:m,onSelectModel:o,onSelectReasoningEffort:b})}";
+
+  const patched = patchAutomationModelPickerSupport(source);
+
+  assert.match(patched, /model===\(n\?\?l\?\.defaultModel\?\.model\)/);
+  assert.match(patched, /h=l\?\.models==null/);
+  assert.match(patched, /v=n\?\?l\?\.defaultModel\?\.model\?\?``/);
+  assert.match(patched, /v\.trim\(\)\.length>0&&o\(v,e\)/);
+  assert.match(patched, /model:v,displayName:u\?\.displayName\?\?v/);
+  assert.equal(patchAutomationModelPickerSupport(patched), patched);
+});
+
+test("patchAutomationModelPickerAsset skips locale chunks with the same loading text", async () => {
+  const assetsDir = await mkdtemp(join(tmpdir(), "codex-web-assets-"));
+
+  try {
+    const localeAsset = join(assetsDir, "en-US.js");
+    const dialogAsset = join(assetsDir, "automation-dialog.js");
+    await writeFile(
+      localeAsset,
+      "export default {'settings.automations.model.loading':'Loading model'};",
+    );
+    await writeFile(
+      dialogAsset,
+      "function Lt({selectedModel:n,reasoningEffort:r,align:i,className:a,onSelect:o}=e){let c=p(),{data:l}=E(),u,f;if(t[0]!==l?.models||t[1]!==r||t[2]!==n){u=l?.models.find(e=>e.model===n)??null;let e=d({model:u,reasoningEffort:r});f=T(e)?e:null,t[0]=l?.models,t[1]=r,t[2]=n,t[3]=u,t[4]=f}else u=t[3],f=t[4];let m=f,h=n==null||l?.models==null,v=n??``,y=l?.models,b;t[5]!==o||t[6]!==n?(b=e=>{n!=null&&o(n,e)},t[5]=o,t[6]=n,t[7]=b):b=t[7];let S;t[8]===c?S=t[9]:(S=c.formatMessage({id:`settings.automations.modelAndReasoning.ariaLabel`,defaultMessage:`Model and reasoning`,description:`Aria label for automation model and reasoning dropdown`}),t[8]=c,t[9]=S);let w;t[12]!==c||t[13]!==n||t[14]!==u?.displayName?(w=n!=null&&n.trim().length>0?(0,Y.jsx)(we,{model:n,displayName:u?.displayName??n,labelClassName:`text-token-foreground`}):(0,Y.jsx)(`span`,{className:`truncate text-token-foreground`,children:c.formatMessage({id:`settings.automations.model.loading`,defaultMessage:`Loading model`,description:`Fallback label while automation model options are loading`})}),t[12]=c,t[13]=n,t[14]=u?.displayName,t[15]=w):w=t[15];return (0,Y.jsx)(Te,{disabled:h,model:v,models:y,reasoningEffort:m,onSelectModel:o,onSelectReasoningEffort:b})}",
+    );
+
+    assert.deepEqual(patchAutomationModelPickerAsset(assetsDir), [dialogAsset]);
+
+    const locale = await readFile(localeAsset, "utf8");
+    const dialog = await readFile(dialogAsset, "utf8");
+    assert.match(locale, /Loading model/);
+    assert.match(dialog, /v=n\?\?l\?\.defaultModel\?\.model\?\?``/);
+  } finally {
+    await rm(assetsDir, { recursive: true, force: true });
+  }
+});
+
+test("patchAutomationToolContractSupport accepts minimal cron create and list view", () => {
+  const source =
+    "var eh=zt([`view`,`create`,`update`,`delete`,`suggested_create`,`suggested_update`]).transform(e=>{switch(e){case`view`:return`view`;case`create`:return`create`;case`update`:return`update`;case`delete`:return`delete`;case`suggested_create`:return`suggested-create`;case`suggested_update`:return`suggested-update`}}),oh=It({id:nh.optional(),kind:it.optional(),mode:eh,name:nh.optional(),prompt:nh.optional(),rrule:nh.optional(),cwds:ah.optional(),executionEnvironment:rh.optional(),model:nh.optional(),reasoningEffort:ct.optional(),status:th.optional()}).superRefine((e,t)=>{if(e.mode===`view`||e.mode===`delete`){e.id??t.addIssue({code:`custom`,message:`Missing id`,path:[`id`]});return}if((e.mode===`create`||e.mode===`suggested-create`)&&e.id!=null&&t.addIssue({code:`custom`,message:`Unexpected id`,path:[`id`]}),(e.mode===`update`||e.mode===`suggested-update`)&&e.id==null&&t.addIssue({code:`custom`,message:`Missing id`,path:[`id`]}),e.kind??t.addIssue({code:`custom`,message:`Missing kind`,path:[`kind`]}),e.name??t.addIssue({code:`custom`,message:`Missing name`,path:[`name`]}),e.prompt??t.addIssue({code:`custom`,message:`Missing prompt`,path:[`prompt`]}),e.rrule??t.addIssue({code:`custom`,message:`Missing rrule`,path:[`rrule`]}),e.status??t.addIssue({code:`custom`,message:`Missing status`,path:[`status`]}),e.kind===`heartbeat`){return}e.cwds??t.addIssue({code:`custom`,message:`Missing cwds`,path:[`cwds`]}),e.executionEnvironment??t.addIssue({code:`custom`,message:`Missing executionEnvironment`,path:[`executionEnvironment`]}),e.model??t.addIssue({code:`custom`,message:`Missing model`,path:[`model`]}),e.reasoningEffort??t.addIssue({code:`custom`,message:`Missing reasoningEffort`,path:[`reasoningEffort`]})}),uh={name:sh,description:`Use suggested_create or suggested_update.`,inputSchema:{type:`object`,properties:{id:{type:`string`,description:`Required for mode=view, mode=update, mode=delete, and mode=suggested_update. Omit for mode=create and mode=suggested_create.`},mode:{type:`string`,description:`One of view, create, update, delete, suggested_create, or suggested_update.`},model:{type:`string`,description:`Model to use for cron automations.`},reasoningEffort:{type:`string`,description:`Reasoning effort to use for cron automations.`}}}};function hh(e,t){return e.kind===`heartbeat`?{kind:`heartbeat`,name:e.name??``,prompt:e.prompt??``,targetThreadId:e.targetThreadId??t,model:null,reasoningEffort:null,rrule:e.rrule??``}:{kind:`cron`,name:e.name??``,prompt:e.prompt??``,cwds:e.cwds?.map(V)??[],executionEnvironment:e.executionEnvironment??`worktree`,localEnvironmentConfigPath:e.localEnvironmentConfigPath??null,model:e.model??null,reasoningEffort:e.reasoningEffort??null,rrule:e.rrule??``}}";
+
+  const patched = patchAutomationToolContractSupport(source);
+
+  assert.match(patched, /zt\(\[`view`,`create`,`update`,`delete`\]\)/);
+  assert.doesNotMatch(patched, /Missing kind|Missing status|Missing executionEnvironment|Missing model|Missing reasoningEffort/);
+  assert.doesNotMatch(patched, /e\.mode===`view`\|\|e\.mode===`delete`/);
+  assert.doesNotMatch(patched, /suggested_create|suggested_update|suggested-create|suggested-update/);
+  assert.match(patched, /Do not set model or reasoningEffort unless explicitly requested/);
+  assert.doesNotMatch(patched, /model:e\.model\?\?null|reasoningEffort:e\.reasoningEffort\?\?null|model:null,reasoningEffort:null/);
+  assert.match(patched, /\.\.\.e\.model===void 0\?\{\}:\{model:e\.model\}/);
+});
+
+test("patchAutomationToolContractAsset is idempotent after validation was already patched", async () => {
+  const assetsDir = await mkdtemp(join(tmpdir(), "codex-web-assets-"));
+
+  try {
+    const assetPath = join(assetsDir, "thread-context-inputs.js");
+    await writeFile(
+      assetPath,
+      "uh={inputSchema:{properties:{id:{description:`Automation id. Required for mode=view, mode=update, mode=delete. Omit for mode=create.`},mode:{description:`One of view, create, update, delete. Use view to show an existing automation, create/update/delete to mutate immediately, and create/update to present a proposal for the user to review.`},kind:{description:`Required for create, update, suggested_create, and suggested_update.`}}}}",
+    );
+
+    assert.deepEqual(patchAutomationToolContractAsset(assetsDir), [assetPath]);
+    assert.deepEqual(patchAutomationToolContractAsset(assetsDir), [assetPath]);
+
+    const patched = await readFile(assetPath, "utf8");
+    assert.doesNotMatch(patched, /suggested_create|suggested_update/);
+    assert.doesNotMatch(patched, /Required for mode=view/);
+    assert.match(patched, /Use view to list automations/);
+  } finally {
+    await rm(assetsDir, { recursive: true, force: true });
+  }
 });

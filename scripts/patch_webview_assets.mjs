@@ -33,7 +33,7 @@ const PATCHED_DYNAMIC_TOOLS_AUTOMATION_GATE_PATTERN =
 const DYNAMIC_TOOLS_FEATURE_GATE_PATTERN =
   /(?:,|\blet\s+)([$A-Za-z_][\w$]*)=[$A-Za-z_][\w$]*\?\.\[[^\]]+\]===!0/g;
 const DYNAMIC_TOOLS_AUTOMATION_TOOL =
-  "var codexWebAutomationUpdateTool={name:`automation_update`,description:`Create, update, view, or delete recurring automations in the Codex app. Use this when the user asks for an automation, recurring task, reminder, monitor, follow-up, or thread wakeup. Never create OS crontab, systemd timer, or launchd jobs for Codex automations.`,inputSchema:{type:`object`,additionalProperties:!0,properties:{id:{type:`string`},mode:{type:`string`,enum:[`view`,`create`,`update`,`delete`,`suggested_create`,`suggested_update`]},kind:{type:`string`,enum:[`cron`,`heartbeat`]},name:{type:`string`},prompt:{type:`string`},rrule:{type:`string`},cwds:{anyOf:[{type:`string`},{type:`array`,items:{type:`string`}}]},destination:{type:`string`,enum:[`thread`]},targetThreadId:{type:`string`},status:{type:`string`,enum:[`ACTIVE`,`PAUSED`,`DELETED`]},executionEnvironment:{type:`string`},localEnvironmentConfigPath:{type:`string`},model:{type:`string`},reasoningEffort:{type:`string`}}}};";
+  "var codexWebAutomationUpdateTool={name:`automation_update`,description:`Create, update, view, or delete recurring automations in the Codex app. Use this when the user asks for an automation, recurring task, reminder, monitor, follow-up, or thread wakeup. Do not set model or reasoningEffort unless the user explicitly requests them; omitted values use the Codex configured defaults. Never create OS crontab, systemd timer, or launchd jobs for Codex automations.`,inputSchema:{type:`object`,additionalProperties:!0,properties:{id:{type:`string`},mode:{type:`string`,enum:[`view`,`create`,`update`,`delete`]},kind:{type:`string`,enum:[`cron`,`heartbeat`]},name:{type:`string`},prompt:{type:`string`},rrule:{type:`string`},cwds:{anyOf:[{type:`string`},{type:`array`,items:{type:`string`}}]},destination:{type:`string`,enum:[`thread`]},targetThreadId:{type:`string`},status:{type:`string`,enum:[`ACTIVE`,`PAUSED`,`DELETED`]},executionEnvironment:{type:`string`},localEnvironmentConfigPath:{type:`string`},model:{type:`string`},reasoningEffort:{type:`string`}}}};";
 const AUTOMATION_REMOTE_DEFAULT_HOST_PATTERN =
   /if\(!([$A-Za-z_][\w$]*)\(([$A-Za-z_][\w$]*)\)\)\{([$A-Za-z_][\w$]*)=([$A-Za-z_][\w$]*)\(`Automations are only supported for local threads\.`\);break\}/;
 const PATCHED_AUTOMATION_REMOTE_DEFAULT_HOST_PATTERN =
@@ -46,6 +46,47 @@ const PARTIAL_PATCHED_AUTOMATION_ARGUMENTS_SAFE_PARSE_PATTERN =
   /\.safeParse\(\(\(\)=>\{let [$A-Za-z_][\w$]*=[$A-Za-z_][\w$]*\.arguments;if\(/;
 const AUTOMATION_ARGUMENTS_INLINE_PARSE_PATTERN =
   /let ([$A-Za-z_][\w$]*)=([$A-Za-z_][\w$]*)\.safeParse\(\(\(\)=>\{let [$A-Za-z_][\w$]*=([$A-Za-z_][\w$]*)\.arguments;[\s\S]*?\}\)\(\)\);if\(!\1\.success\)\{\s*([$A-Za-z_][\w$]*)=([$A-Za-z_][\w$]*)\(`\$\{([$A-Za-z_][\w$]*)\} received invalid arguments\.`\);break\}/;
+const AUTOMATION_REQUIRED_MODEL_PATTERN =
+  /,\s*([$A-Za-z_][\w$]*)\.model\?\?([$A-Za-z_][\w$]*)\.push\(`model`\)/g;
+const AUTOMATION_DRAFT_MODEL_DEFAULT_PATTERN =
+  /function ([$A-Za-z_][\w$]*)\(\{draft:([$A-Za-z_][\w$]*),modelSettings:([$A-Za-z_][\w$]*)\}\)\{return \2\.kind===`heartbeat`\?\{\.\.\.\2,model:null,reasoningEffort:null\}:\3\.isLoading\|\|\2\.model!=null\?\2:\{\.\.\.\2,model:\3\.model,reasoningEffort:\3\.reasoningEffort\}\}/g;
+const AUTOMATION_DRAFT_CRON_MODEL_REQUIRED_PATTERN =
+  /if\(([$A-Za-z_][\w$]*)\.executionEnvironment==null\|\|\1\.model==null\)throw Error\(`Cron automation draft is incomplete`\);/g;
+const AUTOMATION_DRAFT_HEARTBEAT_MODEL_FIELDS_PATTERN =
+  /,model:null,reasoningEffort:null(?=,rrule:[$A-Za-z_][\w$]*)/g;
+const AUTOMATION_DRAFT_CRON_MODEL_FIELDS_PATTERN =
+  /,model:([$A-Za-z_][\w$]*)\.model,reasoningEffort:\1\.reasoningEffort(?=,rrule:[$A-Za-z_][\w$]*)/g;
+const AUTOMATION_DRAFT_EDIT_MODEL_DEFAULT_PATTERN =
+  /,model:([$A-Za-z_][\w$]*)\(([$A-Za-z_][\w$]*)\)\?null:([$A-Za-z_][\w$]*)\.model,reasoningEffort:\1\(\2\)\?null:\3\.reasoningEffort(?=,rawRrule:)/g;
+const AUTOMATION_DRAFT_EDIT_MODEL_NORMALIZER_PATTERN =
+  /let ([$A-Za-z_][\w$]*)=([$A-Za-z_][\w$]*)\(\{automation:([$A-Za-z_][\w$]*),models:([$A-Za-z_][\w$]*)\?\?\[\]\}\);return(?=\{id:\3\.id)/g;
+const AUTOMATION_DRAFT_TARGET_MODEL_DEFAULT_PATTERN =
+  /(\blet\s+|,)([$A-Za-z_][\w$]*)=([$A-Za-z_][\w$]*)==null\?null:([$A-Za-z_][\w$]*)\(\{automation:\3,models:([$A-Za-z_][\w$]*)\?\?\[\]\}\)/g;
+const AUTOMATION_DRAFT_TARGET_MODEL_FALLBACK_PATTERN =
+  /,model:([$A-Za-z_][\w$]*)===`heartbeat`\?null:([$A-Za-z_][\w$]*)\.model\?\?([$A-Za-z_][\w$]*)\?\.model\?\?([$A-Za-z_][\w$]*)\.model,reasoningEffort:\1===`heartbeat`\?null:\2\.reasoningEffort\?\?\3\?\.reasoningEffort\?\?\4\.reasoningEffort(?=,rawRrule:)/g;
+const AUTOMATION_MODEL_PICKER_SELECTED_MODEL_PATTERN =
+  /([$A-Za-z_][\w$]*)=([$A-Za-z_][\w$]*)\?\.models\.find\(([$A-Za-z_][\w$]*)=>\3\.model===([$A-Za-z_][\w$]*)\)\?\?null;let ([^=]+)=([$A-Za-z_][\w$]*)\(\{model:\1,reasoningEffort:([$A-Za-z_][\w$]*)\}\)/g;
+const AUTOMATION_MODEL_PICKER_LOADING_DEFAULT_PATTERN =
+  /let ([$A-Za-z_][\w$]*)=([$A-Za-z_][\w$]*),([$A-Za-z_][\w$]*)=([$A-Za-z_][\w$]*)==null\|\|([$A-Za-z_][\w$]*)\?\.models==null,([$A-Za-z_][\w$]*)=\4\?\?``,([$A-Za-z_][\w$]*)=\5\?\.models,([$A-Za-z_][\w$]*);/g;
+const AUTOMATION_MODEL_PICKER_REASONING_SELECT_PATTERN =
+  /b=e=>\{n!=null&&o\(n,e\)\}/g;
+const AUTOMATION_MODEL_PICKER_LABEL_PATTERN =
+  /w=n!=null&&n\.trim\(\)\.length>0\?\(0,Y\.jsx\)\(we,\{model:n,displayName:u\?\.displayName\?\?n,labelClassName:`text-token-foreground`\}\):\(0,Y\.jsx\)\(`span`,\{className:`truncate text-token-foreground`,children:c\.formatMessage\(\{id:`settings\.automations\.model\.loading`,defaultMessage:`Loading model`,description:`Fallback label while automation model options are loading`\}\)\}\)/g;
+const AUTOMATION_NATIVE_MODE_PATTERN =
+  /zt\(\[`view`,`create`,`update`,`delete`,`suggested_create`,`suggested_update`\]\)\.transform\(e=>\{switch\(e\)\{case`view`:return`view`;case`create`:return`create`;case`update`:return`update`;case`delete`:return`delete`;case`suggested_create`:return`suggested-create`;case`suggested_update`:return`suggested-update`\}\}\)/g;
+const AUTOMATION_NATIVE_VIEW_DELETE_ID_PATTERN =
+  /if\(e\.mode===`view`\|\|e\.mode===`delete`\)\{e\.id\?\?t\.addIssue\(\{code:`custom`,message:`Missing id`,path:\[`id`\]\}\);return\}/g;
+const AUTOMATION_NATIVE_SUGGESTED_CREATE_PATTERN =
+  /\|\|e\.mode===`suggested-create`/g;
+const AUTOMATION_NATIVE_SUGGESTED_UPDATE_PATTERN =
+  /\|\|e\.mode===`suggested-update`/g;
+const AUTOMATION_NATIVE_OPTIONAL_FIELD_PATTERNS = [
+  /,e\.kind\?\?t\.addIssue\(\{code:`custom`,message:`Missing kind`,path:\[`kind`\]\}\)/g,
+  /,e\.status\?\?t\.addIssue\(\{code:`custom`,message:`Missing status`,path:\[`status`\]\}\)/g,
+  /,e\.executionEnvironment\?\?t\.addIssue\(\{code:`custom`,message:`Missing executionEnvironment`,path:\[`executionEnvironment`\]\}\)/g,
+  /,e\.model\?\?t\.addIssue\(\{code:`custom`,message:`Missing model`,path:\[`model`\]\}\)/g,
+  /,e\.reasoningEffort\?\?t\.addIssue\(\{code:`custom`,message:`Missing reasoningEffort`,path:\[`reasoningEffort`\]\}\)/g,
+];
 
 export function patchWebviewAssets(assetsDir) {
   const patchedFiles = [
@@ -57,8 +98,11 @@ export function patchWebviewAssets(assetsDir) {
     patchStatsigTelemetryDisableAsset(assetsDir),
     patchStatsigTelemetryFlushDisableAsset(assetsDir),
     patchDynamicToolsAutomationAsset(assetsDir),
+    ...patchAutomationToolContractAsset(assetsDir),
     patchAutomationRemoteDefaultHostAsset(assetsDir),
     patchAutomationArgumentsNormalizationAsset(assetsDir),
+    ...patchAutomationDefaultModelAsset(assetsDir),
+    ...patchAutomationModelPickerAsset(assetsDir),
     ...patchInvalidCssPropertyInitialValuesAsset(assetsDir),
   ];
 
@@ -360,11 +404,16 @@ export function patchAutomationRemoteDefaultHostAsset(assetsDir) {
 }
 
 export function patchAutomationArgumentsNormalizationSupport(source) {
-  if (PATCHED_AUTOMATION_ARGUMENTS_SAFE_PARSE_PATTERN.test(source)) {
-    return source;
+  let patched = source.replace(
+    /Use suggested_create or suggested_update so the user can review and approve the setup-capable automation, or set localEnvironmentConfigPath to null\./g,
+    "Set localEnvironmentConfigPath to null.",
+  );
+
+  if (PATCHED_AUTOMATION_ARGUMENTS_SAFE_PARSE_PATTERN.test(patched)) {
+    return patched;
   }
-  if (PARTIAL_PATCHED_AUTOMATION_ARGUMENTS_SAFE_PARSE_PATTERN.test(source)) {
-    return source.replace(
+  if (PARTIAL_PATCHED_AUTOMATION_ARGUMENTS_SAFE_PARSE_PATTERN.test(patched)) {
+    return patched.replace(
       AUTOMATION_ARGUMENTS_INLINE_PARSE_PATTERN,
       (
         _match,
@@ -378,10 +427,10 @@ export function patchAutomationArgumentsNormalizationSupport(source) {
         `let ${parsed}=${schema}.safeParse(${buildAutomationArgumentsNormalizerExpression(params, "o")});if(!${parsed}.success){${resultLocal}=${errorLocal}(\`\${${toolName}} received invalid arguments.\`);break}`,
     );
   }
-  if (!AUTOMATION_ARGUMENTS_SAFE_PARSE_PATTERN.test(source)) {
+  if (!AUTOMATION_ARGUMENTS_SAFE_PARSE_PATTERN.test(patched)) {
     throw new Error("automation arguments safeParse not found");
   }
-  const patched = source.replace(
+  patched = patched.replace(
     AUTOMATION_ARGUMENTS_SAFE_PARSE_PATTERN,
     (
       _match,
@@ -398,7 +447,7 @@ export function patchAutomationArgumentsNormalizationSupport(source) {
 }
 
 function buildAutomationArgumentsNormalizerExpression(params, sourceThreadId) {
-  return `(()=>{let e=${params}.arguments;if(e==null||typeof e!==\`object\`||Array.isArray(e))return e;let t={...e};if(typeof t.cwds===\`string\`)t.cwds=[t.cwds];if(typeof t.rrule===\`string\`){let e=t.rrule.split(\`\\n\`).find(e=>e.startsWith(\`RRULE:\`));e!=null&&(t.rrule=e),t.rrule.startsWith(\`RRULE:\`)&&(t.rrule=t.rrule.slice(6))}return t.mode===\`create\`&&t.kind==null&&(t.kind=\`cron\`),(t.mode===\`create\`||t.mode===\`update\`)&&(t.status==null&&(t.status=\`ACTIVE\`),t.model===void 0&&(t.model=null),t.model===\`\`&&(t.model=null),t.reasoningEffort===void 0&&(t.reasoningEffort=null),t.reasoningEffort===\`\`&&(t.reasoningEffort=null)),t.kind===\`cron\`&&(t.cwds==null&&(t.cwds=[]),t.executionEnvironment==null&&(t.executionEnvironment=\`worktree\`),t.executionEnvironment===\`\`&&(t.executionEnvironment=\`worktree\`),t.executionEnvironment===\`local\`&&(t.executionEnvironment=\`worktree\`),t.localEnvironmentConfigPath===void 0&&(t.localEnvironmentConfigPath=null),t.localEnvironmentConfigPath===\`\`&&(t.localEnvironmentConfigPath=null),delete t.destination,delete t.targetThreadId),t.destination===\`thread\`&&t.targetThreadId==null&&typeof ${sourceThreadId}===\`string\`&&t.kind===\`heartbeat\`&&(t.targetThreadId=${sourceThreadId}),t})()`;
+  return `(()=>{let e=${params}.arguments;if(e==null||typeof e!==\`object\`||Array.isArray(e))return e;let t={...e};if(typeof t.cwds===\`string\`)t.cwds=[t.cwds];if(typeof t.rrule===\`string\`){let e=t.rrule.split(\`\\n\`).find(e=>e.startsWith(\`RRULE:\`));e!=null&&(t.rrule=e),t.rrule.startsWith(\`RRULE:\`)&&(t.rrule=t.rrule.slice(6))}return t.mode===\`create\`&&t.kind==null&&(t.kind=\`cron\`),(t.mode===\`create\`||t.mode===\`update\`)&&(t.model===\`\`&&delete t.model,t.reasoningEffort===\`\`&&delete t.reasoningEffort),t.kind===\`cron\`&&(t.cwds==null&&(t.cwds=[]),t.executionEnvironment==null&&(t.executionEnvironment=\`worktree\`),t.executionEnvironment===\`\`&&(t.executionEnvironment=\`worktree\`),t.executionEnvironment===\`local\`&&(t.executionEnvironment=\`worktree\`),t.localEnvironmentConfigPath===\`\`&&delete t.localEnvironmentConfigPath,delete t.destination,delete t.targetThreadId),t.destination===\`thread\`&&t.targetThreadId==null&&typeof ${sourceThreadId}===\`string\`&&t.kind===\`heartbeat\`&&(t.targetThreadId=${sourceThreadId}),t})()`;
 }
 
 export function patchAutomationArgumentsNormalizationAsset(assetsDir) {
@@ -430,6 +479,177 @@ export function patchAutomationArgumentsNormalizationAsset(assetsDir) {
   }
 
   throw new Error(`automation arguments safeParse asset not found in ${assetsDir}`);
+}
+
+export function patchAutomationDefaultModelSupport(source) {
+  return source
+    .replace(AUTOMATION_REQUIRED_MODEL_PATTERN, "")
+    .replace(
+      AUTOMATION_DRAFT_MODEL_DEFAULT_PATTERN,
+      "function $1({draft:$2}){return $2}",
+    )
+    .replace(
+      AUTOMATION_DRAFT_CRON_MODEL_REQUIRED_PATTERN,
+      "if($1.executionEnvironment==null)throw Error(`Cron automation draft is incomplete`);",
+    )
+    .replace(AUTOMATION_DRAFT_HEARTBEAT_MODEL_FIELDS_PATTERN, "")
+    .replace(
+      AUTOMATION_DRAFT_CRON_MODEL_FIELDS_PATTERN,
+      ",...$1.model==null?{}:{model:$1.model},...$1.reasoningEffort==null?{}:{reasoningEffort:$1.reasoningEffort}",
+    )
+    .replace(
+      AUTOMATION_DRAFT_EDIT_MODEL_DEFAULT_PATTERN,
+      ",model:$1($2)?null:$2.model??null,reasoningEffort:$1($2)?null:$2.reasoningEffort??null",
+    )
+    .replace(AUTOMATION_DRAFT_EDIT_MODEL_NORMALIZER_PATTERN, "return")
+    .replace(
+      AUTOMATION_DRAFT_TARGET_MODEL_DEFAULT_PATTERN,
+      "$1$2=$3==null?null:{model:$3.model??null,reasoningEffort:$3.reasoningEffort??null}",
+    )
+    .replace(
+      AUTOMATION_DRAFT_TARGET_MODEL_FALLBACK_PATTERN,
+      ",model:$1===`heartbeat`?null:$2.model??$3?.model??null,reasoningEffort:$1===`heartbeat`?null:$2.reasoningEffort??$3?.reasoningEffort??null",
+    );
+}
+
+export function patchAutomationDefaultModelAsset(assetsDir) {
+  const candidates = fs
+    .readdirSync(assetsDir)
+    .filter((name) => name.endsWith(".js"))
+    .map((name) => path.join(assetsDir, name))
+    .filter((assetPath) => {
+      const source = fs.readFileSync(assetPath, "utf8");
+      return (
+        source.includes("missingRequirements") &&
+        ((source.includes(".model??") && source.includes(".push(`model`)")) ||
+          source.includes("modelSettings") ||
+          source.includes("model:e.model,reasoningEffort:e.reasoningEffort"))
+      );
+    });
+
+  for (const assetPath of candidates) {
+    const source = fs.readFileSync(assetPath, "utf8");
+    const patched = patchAutomationDefaultModelSupport(source);
+    if (patched !== source) {
+      fs.writeFileSync(assetPath, patched);
+    }
+    return [assetPath];
+  }
+
+  return [];
+}
+
+export function patchAutomationModelPickerSupport(source) {
+  return source
+    .replace(
+      AUTOMATION_MODEL_PICKER_SELECTED_MODEL_PATTERN,
+      "$1=$2?.models.find($3=>$3.model===($4??$2?.defaultModel?.model))??$2?.defaultModel??null;let $5=$6({model:$1,reasoningEffort:$7})",
+    )
+    .replace(
+      AUTOMATION_MODEL_PICKER_LOADING_DEFAULT_PATTERN,
+      "let $1=$2,$3=$5?.models==null,$6=$4??$5?.defaultModel?.model??``,$7=$5?.models,$8;",
+    )
+    .replace(
+      AUTOMATION_MODEL_PICKER_REASONING_SELECT_PATTERN,
+      "b=e=>{v.trim().length>0&&o(v,e)}",
+    )
+    .replace(
+      AUTOMATION_MODEL_PICKER_LABEL_PATTERN,
+      "w=v.trim().length>0?(0,Y.jsx)(we,{model:v,displayName:u?.displayName??v,labelClassName:`text-token-foreground`}):(0,Y.jsx)(`span`,{className:`truncate text-token-foreground`,children:c.formatMessage({id:`settings.automations.model.loading`,defaultMessage:`Loading model`,description:`Fallback label while automation model options are loading`})})",
+    );
+}
+
+export function patchAutomationModelPickerAsset(assetsDir) {
+  const candidates = fs
+    .readdirSync(assetsDir)
+    .filter((name) => name.endsWith(".js"))
+    .map((name) => path.join(assetsDir, name))
+    .filter((assetPath) => {
+      const source = fs.readFileSync(assetPath, "utf8");
+      return (
+        source.includes("settings.automations.model.loading") &&
+        source.includes("settings.automations.modelAndReasoning.ariaLabel")
+      );
+    });
+
+  for (const assetPath of candidates) {
+    const source = fs.readFileSync(assetPath, "utf8");
+    const patched = patchAutomationModelPickerSupport(source);
+    if (patched !== source) {
+      fs.writeFileSync(assetPath, patched);
+      return [assetPath];
+    }
+  }
+
+  return [];
+}
+
+export function patchAutomationToolContractSupport(source) {
+  let patched = source
+    .replace(AUTOMATION_NATIVE_MODE_PATTERN, "zt([`view`,`create`,`update`,`delete`])")
+    .replace(
+      AUTOMATION_NATIVE_VIEW_DELETE_ID_PATTERN,
+      "if(e.mode===`view`)return;if(e.mode===`delete`){e.id??t.addIssue({code:`custom`,message:`Missing id`,path:[`id`]});return}",
+    )
+    .replace(AUTOMATION_NATIVE_SUGGESTED_CREATE_PATTERN, "")
+    .replace(AUTOMATION_NATIVE_SUGGESTED_UPDATE_PATTERN, "")
+    .replace(/suggested_create or suggested_update/g, "create or update")
+    .replace(/suggested_create\/suggested_update/g, "create/update")
+    .replace(/, suggested_create, and suggested_update/g, "")
+    .replace(/, suggested_create, or suggested_update/g, "")
+    .replace(/, and mode=suggested_update/g, "")
+    .replace(/ and mode=suggested_create/g, "")
+    .replace(
+      /Required for mode=view, mode=update, mode=delete\./g,
+      "Required for mode=update and mode=delete.",
+    )
+    .replace(
+      /Use view to show an existing automation, create\/update\/delete to mutate immediately, and create\/update to present a proposal for the user to review\./g,
+      "Use view to list automations and create/update/delete to mutate immediately.",
+    )
+    .replace(
+      /,model:e\.model\?\?null,reasoningEffort:e\.reasoningEffort\?\?null(?=,rrule:e\.rrule\?\?``)/g,
+      ",...e.model===void 0?{}:{model:e.model},...e.reasoningEffort===void 0?{}:{reasoningEffort:e.reasoningEffort}",
+    )
+    .replace(
+      /,model:null,reasoningEffort:null(?=,rrule:e\.rrule\?\?``)/g,
+      "",
+    )
+    .replace(/Use suggested_create or suggested_update[^`]*\./g, "")
+    .replace(/Model to use for cron automations\./g, "Optional model override for cron automations.")
+    .replace(/Reasoning effort to use for cron automations\.[^`]*/g, "Optional reasoning effort override for cron automations. Do not set model or reasoningEffort unless explicitly requested.");
+
+  for (const pattern of AUTOMATION_NATIVE_OPTIONAL_FIELD_PATTERNS) {
+    patched = patched.replace(pattern, "");
+  }
+  return patched;
+}
+
+export function patchAutomationToolContractAsset(assetsDir) {
+  const candidates = fs
+    .readdirSync(assetsDir)
+    .filter((name) => name.endsWith(".js"))
+    .map((name) => path.join(assetsDir, name))
+    .filter((assetPath) => {
+      const source = fs.readFileSync(assetPath, "utf8");
+      return (
+        source.includes("Required for mode=view") ||
+        source.includes("Missing reasoningEffort") ||
+        source.includes("model:e.model??null,reasoningEffort:e.reasoningEffort??null") ||
+        source.includes("Use view to list automations")
+      );
+    });
+
+  for (const assetPath of candidates) {
+    const source = fs.readFileSync(assetPath, "utf8");
+    const patched = patchAutomationToolContractSupport(source);
+    if (patched !== source) {
+      fs.writeFileSync(assetPath, patched);
+    }
+    return [assetPath];
+  }
+
+  return [];
 }
 
 const invokedPath = process.argv[1]

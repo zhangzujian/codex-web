@@ -24,7 +24,7 @@ type AutomationFetchEnvironment = {
     respond?: (message: MainToRendererMessage) => void;
     storePath?: string;
 };
-type AutomationDispatchRoute = "inbox-automation-runs-mark-all-read" | "inbox-item-set-read-state";
+type AutomationDispatchRoute = "inbox-automation-run-delete-by-thread" | "inbox-automation-runs-mark-all-read" | "inbox-item-set-read-state";
 export type DynamicToolCallParams = {
     arguments?: unknown;
     tool?: unknown;
