@@ -24,6 +24,7 @@ import {
   type AppServerRpcClient,
   type TerminalSessionFactory,
 } from "./terminal";
+import { createTerminalIpcMessageHandler } from "./terminal-ipc";
 import { createCodexAppServerClient } from "./app-server-client";
 import {
   createBrowserPanelRuntime,
@@ -794,6 +795,18 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
     terminalSessionFactory,
     { resolveCwd: resolveRemoteTerminalCwd },
   );
+  const handleTerminalIpcMessage = createTerminalIpcMessageHandler(
+    terminalSessionFactory,
+    {
+      resolveCwd: resolveRemoteTerminalCwd,
+      respond: (payload) =>
+        bridgeState.broadcastToRenderer?.({
+          type: "ipc-main-event",
+          channel: "codex_desktop:message-for-view",
+          args: [payload],
+        }),
+    },
+  );
 
   app.addHook("onClose", async () => {
     automationScheduler.dispose();
@@ -1112,6 +1125,12 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
           });
           return;
         }
+        if (
+          message.channel === "codex_desktop:message-from-view" &&
+          handleTerminalIpcMessage(message.args[0])
+        ) {
+          return;
+        }
         const handledByBrowserPanelRuntime =
           handleBrowserPanelRuntimeIpcMessage(
             browserPanelRuntime,
@@ -1247,6 +1266,18 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
           void handleRemoteDefaultMcpMessage(args[0], {
             respond: (payload) => bridgeState.broadcastToRenderer?.(payload),
           });
+          sendSocketMessage(socket, {
+            type: "ipc-renderer-invoke-result",
+            requestId,
+            ok: true,
+            result: undefined,
+          });
+          return;
+        }
+        if (
+          channel === "codex_desktop:message-from-view" &&
+          handleTerminalIpcMessage(args[0])
+        ) {
           sendSocketMessage(socket, {
             type: "ipc-renderer-invoke-result",
             requestId,

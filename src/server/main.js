@@ -32,6 +32,7 @@ const static_1 = __importDefault(require("@fastify/static"));
 const module_1 = require("./module");
 const glob_1 = require("glob");
 const terminal_1 = require("./terminal");
+const terminal_ipc_1 = require("./terminal-ipc");
 const app_server_client_1 = require("./app-server-client");
 const browser_panel_runtime_1 = require("./browser-panel-runtime");
 const native_open_1 = require("./native-open");
@@ -485,6 +486,14 @@ async function startIpcBridgeServer(options) {
     const automationScheduler = (0, automation_fetch_1.startAutomationScheduler)(appServerClient);
     const terminalSessionFactory = createDefaultTerminalSessionFactory(appServerClient);
     const handleTerminalSocket = (0, terminal_1.createTerminalSocketHandler)(terminalSessionFactory, { resolveCwd: resolveRemoteTerminalCwd });
+    const handleTerminalIpcMessage = (0, terminal_ipc_1.createTerminalIpcMessageHandler)(terminalSessionFactory, {
+        resolveCwd: resolveRemoteTerminalCwd,
+        respond: (payload) => bridgeState.broadcastToRenderer?.({
+            type: "ipc-main-event",
+            channel: "codex_desktop:message-for-view",
+            args: [payload],
+        }),
+    });
     app.addHook("onClose", async () => {
         automationScheduler.dispose();
         appServerClient.dispose();
@@ -722,6 +731,10 @@ async function startIpcBridgeServer(options) {
                     });
                     return;
                 }
+                if (message.channel === "codex_desktop:message-from-view" &&
+                    handleTerminalIpcMessage(message.args[0])) {
+                    return;
+                }
                 const handledByBrowserPanelRuntime = (0, browser_panel_runtime_1.handleBrowserPanelRuntimeIpcMessage)(browserPanelRuntime, message.channel, message.args);
                 if (handledByBrowserPanelRuntime) {
                     return;
@@ -825,6 +838,16 @@ async function startIpcBridgeServer(options) {
                     void (0, remote_default_mcp_1.handleRemoteDefaultMcpMessage)(args[0], {
                         respond: (payload) => bridgeState.broadcastToRenderer?.(payload),
                     });
+                    sendSocketMessage(socket, {
+                        type: "ipc-renderer-invoke-result",
+                        requestId,
+                        ok: true,
+                        result: undefined,
+                    });
+                    return;
+                }
+                if (channel === "codex_desktop:message-from-view" &&
+                    handleTerminalIpcMessage(args[0])) {
                     sendSocketMessage(socket, {
                         type: "ipc-renderer-invoke-result",
                         requestId,
