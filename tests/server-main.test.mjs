@@ -419,6 +419,36 @@ test("webview shell installs Statsig overrides before module scripts run", async
   assert.equal(await nativeResponse.text(), "native");
 });
 
+test("webview shell registers valid edge fade custom property before assets load", () => {
+  const injected = serverMain.injectWebviewRuntimeScripts(
+    '<head><script type="module" src="./assets/index.js"></script></head>',
+    "secret",
+  );
+
+  const edgeFadeIndex = injected.indexOf("--edge-fade-distance");
+  const appIndex = injected.indexOf("./assets/index.js");
+
+  assert.notEqual(edgeFadeIndex, -1);
+  assert.match(injected, /CSS\?\.registerProperty\?\./);
+  assert.match(injected, /initialValue:\s*"16px"/);
+  assert.ok(edgeFadeIndex < appIndex);
+});
+
+test("webview shell installs sidebar history control hider before assets load", () => {
+  const injected = serverMain.injectWebviewRuntimeScripts(
+    '<head><script type="module" src="./assets/index.js"></script></head>',
+    "secret",
+  );
+
+  const hiderIndex = injected.indexOf("__CODEX_WEB_HIDE_SIDEBAR_HISTORY__");
+  const appIndex = injected.indexOf("./assets/index.js");
+
+  assert.notEqual(hiderIndex, -1);
+  assert.match(injected, /sidebar-trigger/);
+  assert.match(injected, /data-codex-web-hidden-sidebar-history/);
+  assert.ok(hiderIndex < appIndex);
+});
+
 test("webview shell keeps terminal Ctrl+W out of global key handlers", () => {
   const injected = serverMain.injectWebviewRuntimeScripts("<head></head>", "secret");
   const bootstrapScripts = [

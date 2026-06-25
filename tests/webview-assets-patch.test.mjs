@@ -5,8 +5,6 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
-  patchInvalidCssPropertyInitialValuesAsset,
-  patchInvalidCssPropertyInitialValuesSupport,
   patchRefetchQueriesCancelRefetchAsset,
   patchRefetchQueriesCancelRefetchSupport,
   patchStatsigTelemetryDisableAsset,
@@ -24,33 +22,6 @@ import {
   patchAutomationArgumentsNormalizationSupport,
   patchAutomationRemoteDefaultHostSupport,
 } from "../scripts/patch_webview_assets.mjs";
-
-test("patchInvalidCssPropertyInitialValuesSupport fixes rem @property initial values", () => {
-  const source =
-    '@property --edge-fade-distance{syntax:"<length>";inherits:false;initial-value:1rem}';
-  const patched = patchInvalidCssPropertyInitialValuesSupport(source);
-
-  assert.equal(
-    patched,
-    '@property --edge-fade-distance{syntax:"<length>";inherits:false;initial-value:16px}',
-  );
-  assert.equal(patchInvalidCssPropertyInitialValuesSupport(patched), patched);
-});
-
-test("patchInvalidCssPropertyInitialValuesAsset patches app css assets", async () => {
-  const assetsDir = await mkdtemp(join(tmpdir(), "codex-web-assets-"));
-  const appCss = join(assetsDir, "app-test.css");
-  await writeFile(
-    appCss,
-    '@property --edge-fade-distance{syntax:"<length>";inherits:false;initial-value:1rem}',
-  );
-  await writeFile(join(assetsDir, "other.css"), "body{}");
-
-  assert.deepEqual(patchInvalidCssPropertyInitialValuesAsset(assetsDir), [
-    appCss,
-  ]);
-  assert.match(await readFile(appCss, "utf8"), /initial-value:16px/);
-});
 
 test("patchRefetchQueriesCancelRefetchSupport keeps refetchQueries from cancelling in-flight fetches by default", () => {
   const source =

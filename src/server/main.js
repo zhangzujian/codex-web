@@ -1155,7 +1155,7 @@ async function sendWebviewIndex(reply, webviewRoot, backendWebSocketToken) {
 function injectWebviewRuntimeScripts(html, backendWebSocketToken) {
     const terminalFont = process.env.CODEX_WEB_TERMINAL_FONT?.trim() || null;
     const fontFace = terminalFontFaceStyle(terminalFont);
-    const scripts = `<script>${terminalCtrlWBootstrapScript()}</script><script>${statsigOverrideBootstrapScript()}</script><script>window.__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__=${JSON.stringify(backendWebSocketToken)};window.__CODEX_WEB_REMOTE_SSH_HOST__=${JSON.stringify((0, remote_default_config_1.remoteDefaultSshHost)())};window.__CODEX_WEB_TERMINAL_FONT__=${JSON.stringify(terminalFont)};</script>`;
+    const scripts = `<script>${terminalCtrlWBootstrapScript()}</script><script>${edgeFadeCustomPropertyBootstrapScript()}</script><script>${sidebarHistoryControlsBootstrapScript()}</script><script>${statsigOverrideBootstrapScript()}</script><script>window.__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__=${JSON.stringify(backendWebSocketToken)};window.__CODEX_WEB_REMOTE_SSH_HOST__=${JSON.stringify((0, remote_default_config_1.remoteDefaultSshHost)())};window.__CODEX_WEB_TERMINAL_FONT__=${JSON.stringify(terminalFont)};</script>`;
     const preload = '<base href="/" /><script type="module" src="./assets/preload.js"></script>';
     const shellHtml = removeContentSecurityPolicyMeta(html)
         .replace('<link rel="manifest" href="/manifest.json" />', '<link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />')
@@ -1255,6 +1255,57 @@ function terminalCtrlWBootstrapScript() {
       options,
     );
   };
+})();`;
+}
+function edgeFadeCustomPropertyBootstrapScript() {
+    return `(() => {
+  try {
+    globalThis.CSS?.registerProperty?.({
+      name: "--edge-fade-distance",
+      syntax: "<length>",
+      inherits: false,
+      initialValue: "16px",
+    });
+  } catch {}
+})();`;
+}
+function sidebarHistoryControlsBootstrapScript() {
+    return `(() => {
+  if (window.__CODEX_WEB_HIDE_SIDEBAR_HISTORY__ || typeof document?.querySelectorAll !== "function") {
+    return;
+  }
+  window.__CODEX_WEB_HIDE_SIDEBAR_HISTORY__ = true;
+  let scheduled = false;
+  const hide = () => {
+    scheduled = false;
+    for (const trigger of document.querySelectorAll("*")) {
+      if (
+        trigger instanceof HTMLElement &&
+        getComputedStyle(trigger).viewTransitionName === "sidebar-trigger"
+      ) {
+        const controls = trigger.nextElementSibling;
+        if (controls instanceof HTMLElement) {
+          controls.hidden = true;
+          controls.style.display = "none";
+          controls.setAttribute("data-codex-web-hidden-sidebar-history", "true");
+        }
+      }
+    }
+  };
+  const schedule = () => {
+    if (scheduled) {
+      return;
+    }
+    scheduled = true;
+    requestAnimationFrame(hide);
+  };
+  hide();
+  if (typeof MutationObserver === "function") {
+    new MutationObserver(schedule).observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+    });
+  }
 })();`;
 }
 function statsigOverrideBootstrapScript() {

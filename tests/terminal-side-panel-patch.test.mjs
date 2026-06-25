@@ -7,12 +7,10 @@ import test from "node:test";
 import {
   findTerminalActionAsset,
   findTerminalSidePanelAsset,
+  patchKeepMountedTerminalPanelsSource,
   patchNativeTerminalCtrlWSource,
-  patchSidebarNavigationButtonsAsset,
   patchTerminalActionSource,
   patchTerminalNewTabMenuSource,
-  patchSidebarNavigationButtonsSource,
-  patchTerminalSidePanelAsset,
   patchTerminalSidePanelSupport,
   patchThreadOpenInPrimaryIconSource,
 } from "../scripts/patch_terminal_side_panel.mjs";
@@ -89,6 +87,31 @@ const appShellNavigationChunk = [
   "}",
 ].join("");
 
+const appShellTabPanelChunk = [
+  "function _n(e){",
+  "let t=(0,$.c)(20),{emptyState:a,controller:s}=e,l=c(s.tabs$),u=c(s.activeTab$),d=c(s.activeTabReactKey$),g=(0,Q.jsx)(vn,{controller:s,tabs:l});",
+  "let _;t[12]!==u||t[13]!==d||t[14]!==s||t[15]!==a?(_=u==null?(0,Q.jsx)(`div`,{className:`relative min-h-0 flex-1`,children:a}):(0,Q.jsx)(Cn,{controller:s,tab:u},d),t[12]=u,t[13]=d,t[14]=s,t[15]=a,t[16]=_):_=t[16];",
+  "let v;return t[17]!==g||t[18]!==_?(v=(0,Q.jsxs)(`div`,{children:[g,_]}),t[17]=g,t[18]=_,t[19]=v):v=t[19],v}",
+  "function Sn(e,t){return t!==-1}",
+  "var Cn=(0,Z.memo)(function(e){let{controller:n,tab:r}=e;return(0,Q.jsx)(`div`,{role:`tabpanel`,`data-app-shell-tab-panel-controller`:n.panelId,\"data-tab-id\":r.tabId})});",
+].join("");
+
+const appShellPanelWrapperChunk = [
+  "function fr({bottomPanelHeight:e,children:t,clampedBottomPanelHeight:n,mainContentHeight:r,isVisible:i=!1}){let a=s(X),{isMounted:o}=lr({size:n,isVisible:i});return!o&&!i?null:(0,Q.jsx)(`div`,{children:t})}",
+  "function kr({children:e,isRightPanelOpen:t,rightPanelWidth:r}){let o=s(X),l=c(Se),u=c(I),{isMounted:g}=lr({size:r,isVisible:t});return Qt(r,`change`,()=>{}),!g&&!t?null:(0,Q.jsx)(`aside`,{children:[e,l]})}",
+].join("");
+
+const actualAppShellSource = fs.readFileSync(
+  path.join(process.cwd(), "scratch/asar/webview/assets/app-shell-DCvuE1cb.js"),
+  "utf8",
+);
+const appShellRootChunk = actualAppShellSource.slice(
+  actualAppShellSource.indexOf(
+    "function Yr({bottomPanelSlot:e,children:t,leftPanelSlot:n,rightPanelSlot:r})",
+  ),
+  actualAppShellSource.indexOf("function Xr(e)"),
+);
+
 const openInPrimaryIconChunk = [
   "function ft(){",
   "let g={icon:`apps/vscode.png`,resolvedIcon:`data:image/png;base64,abc`,label:`VS Code`},_=!0;",
@@ -114,21 +137,6 @@ test("findTerminalSidePanelAsset follows the public re-export to the source chun
 
   assert.equal(path.basename(result.assetPath), "thread-side-panel-tabs-source.js");
   assert.equal(result.functionName, "rm");
-});
-
-test("patchTerminalSidePanelAsset leaves the native terminal source chunk alone", () => {
-  const assetsDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), "codex-web-terminal-side-panel-assets-"),
-  );
-  fs.writeFileSync(
-    path.join(assetsDir, "thread-side-panel-tabs-entry.js"),
-    reexportChunk,
-  );
-  const sourcePath = path.join(assetsDir, "thread-side-panel-tabs-source.js");
-  fs.writeFileSync(sourcePath, sourceChunk);
-
-  assert.equal(patchTerminalSidePanelAsset(assetsDir), sourcePath);
-  assert.equal(fs.readFileSync(sourcePath, "utf8"), sourceChunk);
 });
 
 test("patchTerminalActionSource keeps Terminal on the native desktop opener", () => {
@@ -277,41 +285,31 @@ test("patchThreadOpenInPrimaryIconSource uses resolved icons for the top Open in
   assert.equal(patchThreadOpenInPrimaryIconSource(patched), patched);
 });
 
-test("patchSidebarNavigationButtonsSource removes back and forward buttons", () => {
-  const patched = patchSidebarNavigationButtonsSource(appShellNavigationChunk);
-
-  assert.match(patched, /viewTransitionName:`sidebar-trigger`/);
-  assert.match(patched, /J=null/);
-  assert.doesNotMatch(patched, /children:\[H,q\]/);
-  assert.equal(patchSidebarNavigationButtonsSource(patched), patched);
-});
-
-test("patchSidebarNavigationButtonsSource ignores unrelated null locals", () => {
-  const patched = patchSidebarNavigationButtonsSource(
-    `function unrelated(){let J=null;}${appShellNavigationChunk}`,
+test("patchKeepMountedTerminalPanelsSource keeps terminal panels mounted", () => {
+  const patched = patchKeepMountedTerminalPanelsSource(
+    `${appShellPanelWrapperChunk}${appShellRootChunk}${appShellTabPanelChunk}`,
   );
 
-  assert.doesNotMatch(patched, /children:\[H,q\]/);
+  assert.match(patched, /function codexWebRenderTerminalPanels/);
+  assert.match(patched, /return!o&&!i&&t==null\?null:/);
+  assert.match(patched, /,!t&&e==null&&rightPanelOutlet==null\?null:/);
+  assert.match(patched, /rightPanelOutletCache\.current=l\?\?rightPanelOutletCache\.current/);
+  assert.match(patched, /children:\[e,rightPanelOutlet\]/);
+  assert.match(patched, /children:r\?\.children/);
+  assert.match(
+    patched,
+    /let _=codexWebRenderTerminalPanels\(s,u,l,d,a\);/,
+  );
+  assert.match(patched, /startsWith\(`terminal:`\)/);
+  assert.match(patched, /className:r\?`contents`:`hidden`/);
+  assert.match(patched, /\(Cn,\{controller:e,tab:n\},n\.tabId\)/);
+  assert.doesNotMatch(patched, /panelId!==`bottom`/);
+  assert.doesNotMatch(patched, /inactive/);
+  assert.doesNotMatch(patched, /activeTabReactKey\$\).*?t\[12\]!==u/s);
+  assert.equal(patchKeepMountedTerminalPanelsSource(patched), patched);
 });
 
-test("patchSidebarNavigationButtonsAsset skips unrelated null locals", () => {
-  const assetsDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), "codex-web-sidebar-navigation-assets-"),
-  );
-  const unrelatedPath = path.join(assetsDir, "a.js");
-  fs.writeFileSync(
-    unrelatedPath,
-    "function unrelated(){let J=null;}let L=(0,Q.jsx)(nr,{viewTransitionName:`sidebar-trigger`});",
-  );
-  const appShellPath = path.join(assetsDir, "z.js");
-  fs.writeFileSync(appShellPath, appShellNavigationChunk);
-
-  assert.equal(patchSidebarNavigationButtonsAsset(assetsDir), appShellPath);
-  assert.match(fs.readFileSync(unrelatedPath, "utf8"), /let J=null/);
-  assert.doesNotMatch(fs.readFileSync(appShellPath, "utf8"), /children:\[H,q\]/);
-});
-
-test("patchTerminalSidePanelSupport keeps sidebar Terminal native", () => {
+test("patchTerminalSidePanelSupport keeps sidebar Terminal native without patching app shell navigation", () => {
   const assetsDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "codex-web-terminal-support-assets-"),
   );
@@ -329,7 +327,10 @@ test("patchTerminalSidePanelSupport keeps sidebar Terminal native", () => {
   );
   fs.writeFileSync(nativeTerminalPath, nativeTerminalChunk);
   const appShellPath = path.join(assetsDir, "app-shell.js");
-  fs.writeFileSync(appShellPath, appShellNavigationChunk);
+  fs.writeFileSync(
+    appShellPath,
+    `${appShellNavigationChunk}${appShellPanelWrapperChunk}${appShellRootChunk}${appShellTabPanelChunk}`,
+  );
   const patchedPaths = patchTerminalSidePanelSupport(assetsDir);
 
   assert.deepEqual(patchedPaths, [actionPath, nativeTerminalPath, appShellPath]);
@@ -354,5 +355,15 @@ test("patchTerminalSidePanelSupport keeps sidebar Terminal native", () => {
     fs.readFileSync(actionPath, "utf8"),
     /e\.props\?\.codexWebIsTerminal!==!0/,
   );
-  assert.doesNotMatch(fs.readFileSync(appShellPath, "utf8"), /children:\[H,q\]/);
+  assert.match(fs.readFileSync(appShellPath, "utf8"), /children:\[H,q\]/);
+  assert.match(
+    fs.readFileSync(appShellPath, "utf8"),
+    /codexWebRenderTerminalPanels/,
+  );
+  assert.match(fs.readFileSync(appShellPath, "utf8"), /&&!i&&t==null/);
+  assert.match(
+    fs.readFileSync(appShellPath, "utf8"),
+    /!t&&e==null&&rightPanelOutlet==null\?null:/,
+  );
+  assert.match(fs.readFileSync(appShellPath, "utf8"), /rightPanelOutletCache/);
 });

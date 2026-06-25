@@ -12,10 +12,20 @@ const TERMINAL_NATIVE_SHORTCUT_FUNCTION_PATTERN =
 const TERMINAL_BROWSER_SHORTCUT_FUNCTION =
   "function codexWebInstallTerminalBrowserShortcut(e){let t=globalThis;if(t.codexWebTerminalBrowserShortcutHandler)document.removeEventListener(`keydown`,t.codexWebTerminalBrowserShortcutHandler,!0);let n=t.codexWebTerminalBrowserShortcutHandler=t=>{if(t.ctrlKey&&!t.metaKey&&!t.altKey&&!t.shiftKey&&t.code===`Backquote`){t.preventDefault();e()}};document.addEventListener(`keydown`,n,!0)}";
 const TERMINAL_CTRL_W_PATCH = "if(Z(t,`w`))return J(t),i(`\\x17`),!1;";
-const SIDEBAR_NAVIGATION_BUTTONS_PATTERN =
-  /let J;t\[\d+\]!==H\|\|t\[\d+\]!==q\?\(J=\(0,Q\.jsx\)\(_t,\{electron:!0,extension:!0,children:\(0,Q\.jsxs\)\(Q\.Fragment,\{children:\[H,q\]\}\)\}\),t\[\d+\]=H,t\[\d+\]=q,t\[\d+\]=J\):J=t\[\d+\];/;
-const PATCHED_SIDEBAR_NAVIGATION_BUTTONS_PATTERN =
-  /let J=null;[^]*?children:\[L,J\]/;
+const LEGACY_KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION =
+  "function codexWebRenderBottomTerminalPanels(e,t,n,r,i){if(e.panelId!==`bottom`||t==null||!Array.isArray(n)||!n.some(e=>typeof e?.tabId==`string`&&e.tabId.startsWith(`terminal:`)))return t==null?(0,Q.jsx)(`div`,{className:`relative min-h-0 flex-1`,children:i}):(0,Q.jsx)(Cn,{controller:e,tab:t},r);let a=n.filter(e=>e.tabId===t.tabId||typeof e?.tabId==`string`&&e.tabId.startsWith(`terminal:`));return(0,Q.jsx)(Q.Fragment,{children:a.map(n=>{let r=n.tabId===t.tabId;return(0,Q.jsx)(`div`,{className:r?`contents`:`hidden`,children:(0,Q.jsx)(Cn,{controller:e,tab:n},n.tabId)},n.tabId)})})}";
+const KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION =
+  "function codexWebRenderTerminalPanels(e,t,n,r,i){if(t==null||!Array.isArray(n)||!n.some(e=>typeof e?.tabId==`string`&&e.tabId.startsWith(`terminal:`)))return t==null?(0,Q.jsx)(`div`,{className:`relative min-h-0 flex-1`,children:i}):(0,Q.jsx)(Cn,{controller:e,tab:t},r);let a=n.filter(e=>e.tabId===t.tabId||typeof e?.tabId==`string`&&e.tabId.startsWith(`terminal:`));return(0,Q.jsx)(Q.Fragment,{children:a.map(n=>{let r=n.tabId===t.tabId;return(0,Q.jsx)(`div`,{className:r?`contents`:`hidden`,children:(0,Q.jsx)(Cn,{controller:e,tab:n},n.tabId)},n.tabId)})})}";
+const BOTTOM_PANEL_UNMOUNT_CONDITION = "return!o&&!i?null:";
+const BOTTOM_PANEL_KEEP_MOUNTED_CONDITION = "return!o&&!i&&t==null?null:";
+const RIGHT_PANEL_UNMOUNT_CONDITION = "),!g&&!t?null:";
+const RIGHT_PANEL_LEGACY_KEEP_MOUNTED_CONDITION = "),!g&&!t&&e==null?null:";
+const RIGHT_PANEL_KEEP_MOUNTED_CONDITION =
+  "),!t&&e==null&&rightPanelOutlet==null?null:";
+const RIGHT_PANEL_REF_CACHE_PATCH =
+  "let rightPanelChildrenCache=(0,Z.useRef)(null);rightPanelChildrenCache.current=r?.children??rightPanelChildrenCache.current;";
+const RIGHT_PANEL_GLOBAL_CACHE_PATCH =
+  "let rightPanelChildrenCache=globalThis.__codexWebRightPanelChildrenCache??=new Map,rightPanelChildren=r?.children??rightPanelChildrenCache.get(i.value.pathname)??null;r?.children!=null&&rightPanelChildrenCache.set(i.value.pathname,r.children);";
 
 export function findTerminalSidePanelAsset(assetsDir) {
   const terminal = resolvePublicExport(assetsDir, PUBLIC_TERMINAL_EXPORT);
@@ -67,28 +77,6 @@ export function findTerminalActionAsset(assetsDir, terminalPatchTarget) {
   );
 }
 
-export function findSidebarNavigationButtonsAsset(assetsDir) {
-  const candidates = fs
-    .readdirSync(assetsDir)
-    .filter((name) => name.endsWith(".js"))
-    .map((name) => path.join(assetsDir, name));
-
-  for (const assetPath of candidates) {
-    const source = fs.readFileSync(assetPath, "utf8");
-    if (
-      source.includes("viewTransitionName:`sidebar-trigger`") &&
-      (SIDEBAR_NAVIGATION_BUTTONS_PATTERN.test(source) ||
-        PATCHED_SIDEBAR_NAVIGATION_BUTTONS_PATTERN.test(source))
-    ) {
-      return assetPath;
-    }
-  }
-
-  throw new Error(
-    `Unable to find sidebar navigation buttons asset in ${assetsDir}`,
-  );
-}
-
 function findNativeTerminalAsset(assetsDir) {
   const candidates = fs
     .readdirSync(assetsDir)
@@ -106,6 +94,25 @@ function findNativeTerminalAsset(assetsDir) {
   }
 
   throw new Error(`Unable to find native terminal asset in ${assetsDir}`);
+}
+
+function findAppShellTabPanelAsset(assetsDir) {
+  const candidates = fs
+    .readdirSync(assetsDir)
+    .filter((name) => name.endsWith(".js"))
+    .map((name) => path.join(assetsDir, name));
+
+  for (const assetPath of candidates) {
+    const source = fs.readFileSync(assetPath, "utf8");
+    if (
+      source.includes("activeTabReactKey$") &&
+      source.includes("data-app-shell-tab-panel-controller")
+    ) {
+      return assetPath;
+    }
+  }
+
+  throw new Error(`Unable to find app shell tab panel asset in ${assetsDir}`);
 }
 
 export function patchTerminalActionSource(
@@ -245,6 +252,73 @@ export function patchNativeTerminalCtrlWSource(source) {
   );
 }
 
+export function patchKeepMountedTerminalPanelsSource(source) {
+  const upgradedSource = source
+    .replace(
+      LEGACY_KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION,
+      KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION,
+    )
+    .replace(/codexWebRenderBottomTerminalPanels/g, "codexWebRenderTerminalPanels")
+    .replace("`${n.tabId}:${r?`active`:`inactive`}`", "n.tabId")
+    .replace(BOTTOM_PANEL_UNMOUNT_CONDITION, BOTTOM_PANEL_KEEP_MOUNTED_CONDITION)
+    .replace(RIGHT_PANEL_UNMOUNT_CONDITION, RIGHT_PANEL_KEEP_MOUNTED_CONDITION)
+    .replace(
+      RIGHT_PANEL_LEGACY_KEEP_MOUNTED_CONDITION,
+      RIGHT_PANEL_KEEP_MOUNTED_CONDITION,
+    )
+    .replace(
+      "),!t&&e==null?null:",
+      RIGHT_PANEL_KEEP_MOUNTED_CONDITION,
+    );
+  const withHelper = upgradedSource.includes(KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION)
+    ? upgradedSource
+    : replaceOnce(
+        upgradedSource,
+        "var Cn=(0,Z.memo)(function(e){",
+        `${KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION}var Cn=(0,Z.memo)(function(e){`,
+        "App shell tab panel component target not found",
+      );
+
+  let withRightPanelCache = withHelper
+    .replace(RIGHT_PANEL_REF_CACHE_PATCH, "")
+    .replace(RIGHT_PANEL_GLOBAL_CACHE_PATCH, "")
+    .replace("children:rightPanelChildrenCache.current", "children:r?.children")
+    .replace("children:rightPanelChildren", "children:r?.children");
+  if (!withRightPanelCache.includes("children:r?.children")) {
+    throw new Error("Right panel children render target not found");
+  }
+
+  if (!withRightPanelCache.includes("rightPanelOutletCache.current")) {
+    withRightPanelCache = replaceOnce(
+      withRightPanelCache,
+      "let o=s(X),l=c(Se),u=c(I),",
+      "let o=s(X),l=c(Se),rightPanelOutletCache=(0,Z.useRef)(null);rightPanelOutletCache.current=l??rightPanelOutletCache.current;let rightPanelOutlet=l??rightPanelOutletCache.current,u=c(I),",
+      "Right panel outlet cache target not found",
+    );
+  }
+  if (withRightPanelCache.includes("children:[e,l]")) {
+    withRightPanelCache = replaceOnce(
+      withRightPanelCache,
+      "children:[e,l]",
+      "children:[e,rightPanelOutlet]",
+      "Right panel outlet render target not found",
+    );
+  } else if (!withRightPanelCache.includes("children:[e,rightPanelOutlet]")) {
+    throw new Error("Right panel outlet render target not found");
+  }
+
+  if (withRightPanelCache.includes("codexWebRenderTerminalPanels(s,u,l,d,a)")) {
+    return withRightPanelCache;
+  }
+
+  return replaceOnce(
+    withRightPanelCache,
+    "let _;t[12]!==u||t[13]!==d||t[14]!==s||t[15]!==a?(_=u==null?(0,Q.jsx)(`div`,{className:`relative min-h-0 flex-1`,children:a}):(0,Q.jsx)(Cn,{controller:s,tab:u},d),t[12]=u,t[13]=d,t[14]=s,t[15]=a,t[16]=_):_=t[16];",
+    "let _=codexWebRenderTerminalPanels(s,u,l,d,a);",
+    "Active tab panel render target not found",
+  );
+}
+
 function patchNativeTerminalFontSource(source) {
   return source
     .replace(
@@ -255,24 +329,6 @@ function patchNativeTerminalFontSource(source) {
       /(\.options\.fontFamily=)(?!window\.__CODEX_WEB_TERMINAL_FONT__\?\?)([$A-Za-z_][\w$]*)/,
       "$1window.__CODEX_WEB_TERMINAL_FONT__??$2",
     );
-}
-
-export function patchSidebarNavigationButtonsSource(source) {
-  const patched = source.replace(
-    SIDEBAR_NAVIGATION_BUTTONS_PATTERN,
-    "let J=null;",
-  );
-  if (
-    patched !== source ||
-    PATCHED_SIDEBAR_NAVIGATION_BUTTONS_PATTERN.test(source)
-  ) {
-    return patched;
-  }
-  throw new Error("Sidebar navigation buttons target not found");
-}
-
-export function patchTerminalSidePanelAsset(assetsDir) {
-  return findTerminalSidePanelAsset(assetsDir).assetPath;
 }
 
 export function patchTerminalActionAsset(assetsDir, terminalPatchTarget) {
@@ -289,20 +345,20 @@ export function patchTerminalActionAsset(assetsDir, terminalPatchTarget) {
   return patchTarget.assetPath;
 }
 
-export function patchSidebarNavigationButtonsAsset(assetsDir) {
-  const assetPath = findSidebarNavigationButtonsAsset(assetsDir);
+export function patchNativeTerminalCtrlWAsset(assetsDir) {
+  const assetPath = findNativeTerminalAsset(assetsDir);
   const source = fs.readFileSync(assetPath, "utf8");
-  const patched = patchSidebarNavigationButtonsSource(source);
+  const patched = patchNativeTerminalCtrlWSource(source);
   if (patched !== source) {
     fs.writeFileSync(assetPath, patched);
   }
   return assetPath;
 }
 
-export function patchNativeTerminalCtrlWAsset(assetsDir) {
-  const assetPath = findNativeTerminalAsset(assetsDir);
+export function patchKeepMountedTerminalPanelsAsset(assetsDir) {
+  const assetPath = findAppShellTabPanelAsset(assetsDir);
   const source = fs.readFileSync(assetPath, "utf8");
-  const patched = patchNativeTerminalCtrlWSource(source);
+  const patched = patchKeepMountedTerminalPanelsSource(source);
   if (patched !== source) {
     fs.writeFileSync(assetPath, patched);
   }
@@ -314,7 +370,7 @@ export function patchTerminalSidePanelSupport(assetsDir) {
   return [
     patchTerminalActionAsset(assetsDir, terminalPatchTarget),
     patchNativeTerminalCtrlWAsset(assetsDir),
-    patchSidebarNavigationButtonsAsset(assetsDir),
+    patchKeepMountedTerminalPanelsAsset(assetsDir),
   ];
 }
 

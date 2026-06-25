@@ -103,37 +103,9 @@ export function patchWebviewAssets(assetsDir) {
     patchAutomationArgumentsNormalizationAsset(assetsDir),
     ...patchAutomationDefaultModelAsset(assetsDir),
     ...patchAutomationModelPickerAsset(assetsDir),
-    ...patchInvalidCssPropertyInitialValuesAsset(assetsDir),
   ];
 
   return [...new Set(patchedFiles)];
-}
-
-export function patchInvalidCssPropertyInitialValuesSupport(source) {
-  return source.replace(
-    /(@property\s+--edge-fade-distance\s*\{\s*syntax:"<length>";\s*inherits:false;\s*initial-value:)1rem(\s*\})/g,
-    "$116px$2",
-  );
-}
-
-export function patchInvalidCssPropertyInitialValuesAsset(assetsDir) {
-  const patchedFiles = [];
-  for (const name of fs.readdirSync(assetsDir)) {
-    if (!name.endsWith(".css")) {
-      continue;
-    }
-    const assetPath = path.join(assetsDir, name);
-    const source = fs.readFileSync(assetPath, "utf8");
-    if (!source.includes("@property --edge-fade-distance")) {
-      continue;
-    }
-    const patched = patchInvalidCssPropertyInitialValuesSupport(source);
-    if (patched !== source) {
-      fs.writeFileSync(assetPath, patched);
-    }
-    patchedFiles.push(assetPath);
-  }
-  return patchedFiles;
 }
 
 export function patchRefetchQueriesCancelRefetchSupport(source) {
