@@ -2,7 +2,7 @@
 
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { patchBrowserPanelIframeAsset } from "./patch_browser_panel_iframe.mjs";
+import { patchBrowserPanelIframeAssets } from "./patch_browser_panel_iframe.mjs";
 import { patchTerminalSidePanelSupport } from "./patch_terminal_side_panel.mjs";
 import { patchWebviewAutomationsEmptyStateIconAssets } from "./patch_webview_automations_empty_state_icon.mjs";
 import { patchWebviewAutomationsNavAssets } from "./patch_webview_automations_nav.mjs";
@@ -14,6 +14,7 @@ import { patchWebviewMobileSidebarAssets } from "./patch_webview_mobile_sidebar.
 import { patchWebviewMobileTabLayoutAssets } from "./patch_webview_mobile_tab_layout.mjs";
 import { patchWebviewOpenTargetLabelsAssets } from "./patch_webview_open_target_labels.mjs";
 import { patchWebviewThreadDeleteAssets } from "./patch_webview_thread_delete.mjs";
+import { patchWebviewTelemetryDisableAssets } from "./patch_webview_telemetry_disable.mjs";
 import { patchWebviewTurnStreamingAssets } from "./patch_webview_turn_streaming.mjs";
 
 export function patchWebviewAssets(assetsDir) {
@@ -22,6 +23,7 @@ export function patchWebviewAssets(assetsDir) {
     ...patchWebviewThreadDeleteAssets(assetsDir),
     ...patchWebviewI18nAssets(assetsDir),
     ...patchWebviewConsoleNoiseAssets(assetsDir),
+    ...patchWebviewTelemetryDisableAssets(assetsDir),
     ...patchWebviewMarkdownRetryAssets(assetsDir),
     ...patchWebviewTurnStreamingAssets(assetsDir),
     ...patchTerminalSidePanelSupport(assetsDir),
@@ -30,7 +32,7 @@ export function patchWebviewAssets(assetsDir) {
     ...patchWebviewClipboardAssets(assetsDir),
     ...patchWebviewMobileSidebarAssets(assetsDir),
     ...patchWebviewMobileTabLayoutAssets(assetsDir),
-    patchBrowserPanelIframeAsset(assetsDir),
+    ...patchBrowserPanelIframeAssets(assetsDir),
   ];
 
   return [...new Set(patchedFiles)];

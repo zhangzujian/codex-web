@@ -31,6 +31,9 @@ const threadSource = `let L = I,
     : (R = t[33]);
   let z;`;
 
+const minifiedThreadSource =
+  "let L=I,R;t[5]!==_||t[29]!==T||t[32]!==E?(R=(0,$.jsx)(Gt,{conversationId:i,hostId:o,turnSearchKey:k,turn:T,turnState:E,turnRequests:S,preserveServerUserMessages:b}),t[5]=_,t[29]=T,t[32]=E,t[33]=R):R=t[33];let z;";
+
 test("turn streaming patch avoids memoizing mutable turn items", () => {
   const patched = patchWebviewTurnStreamingSource(
     turnSource,
@@ -63,6 +66,18 @@ test("turn streaming patch removes outer caches that can reuse stale turn elemen
   assert.doesNotMatch(patchedThread, /t\[29\] !== T/);
   assert.doesNotMatch(patchedThread, /t\[33\]/);
   assert.doesNotThrow(() => new Function(patchedThread));
+});
+
+test("turn streaming patch removes minified thread turn element cache", () => {
+  const patched = patchWebviewTurnStreamingSource(
+    minifiedThreadSource,
+    "local-conversation-thread-CGdGhhp8.js",
+  );
+
+  assert.match(patched, /let L=I,R=\(0,\$\.jsx\)\(Gt,\{/);
+  assert.doesNotMatch(patched, /t\[29\]!==T/);
+  assert.doesNotMatch(patched, /t\[33\]/);
+  assert.doesNotThrow(() => new Function(patched));
 });
 
 test("turn streaming patch is idempotent", () => {

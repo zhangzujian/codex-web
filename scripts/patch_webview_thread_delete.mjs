@@ -31,12 +31,16 @@ export function patchThreadDeleteMenuSource(
     throw new Error("Unable to import remove icon for thread delete menu");
   }
 
-  const importNeedle = `import{a as Me,i as Ne,r as v}from"./thread-actions-DFoNjmfj.js";`;
+  const threadActionsImportPattern =
+    /import\{a as Me,i as Ne,r as v\}from"\.\/thread-actions-[^"]+\.js";/;
   const helper = [
     "async function codexWebDeleteThread({conversationId:e,hostId:t,onDeleteStart:n,scope:r,intl:i}){if(e==null)return!1;n?.();try{return await s(`send-cli-request-for-host`,{hostId:t??`local`,method:`thread/delete`,params:{threadId:e}}),!0}catch(e){return r.get(oe).danger(i.formatMessage({id:`threadHeader.deleteThreadError`,defaultMessage:`Failed to remove chat`,description:`Error message shown when deleting a local thread fails`})),!1}}",
     "function codexWebDeleteThreadConfirmDialog({open:e,onOpenChange:t,onConfirm:n,isRemoving:r}){if(!e)return null;let i=e=>{!e&&!r&&t(!1)},a=e=>{e.preventDefault(),n()},o=()=>t(!1);return(0,b.jsx)(codexDialogRoot,{open:!0,onOpenChange:i,size:`compact`,children:(0,b.jsxs)(codexDialogContent,{as:`form`,onSubmit:a,children:[(0,b.jsx)(codexDialogBody,{children:(0,b.jsx)(codexDialogHeader,{title:(0,b.jsx)(codexDialogTitle,{className:`contents`,children:(0,b.jsx)(h,{id:`threadHeader.deleteThreadConfirm.title`,defaultMessage:`Remove chat?`,description:`Confirmation title for permanently removing a chat`})}),subtitle:(0,b.jsx)(codexDialogDescription,{className:`contents`,children:(0,b.jsx)(h,{id:`threadHeader.deleteThreadConfirm.body`,defaultMessage:`This will permanently remove this chat from Codex.`,description:`Confirmation body for permanently removing a chat`})})})}),(0,b.jsx)(codexDialogBody,{children:(0,b.jsxs)(codexDialogFooter,{children:[(0,b.jsx)(ae,{color:`ghost`,type:`button`,disabled:r,onClick:o,children:(0,b.jsx)(h,{id:`threadHeader.deleteThreadConfirm.cancel`,defaultMessage:`Cancel`,description:`Cancel button label for removing a chat`})}),(0,b.jsx)(ae,{color:`danger`,type:`submit`,disabled:r,children:r?(0,b.jsx)(h,{id:`threadHeader.deleteThreadConfirm.removing`,defaultMessage:`Removing…`,description:`In-progress button label while removing a chat`}):(0,b.jsx)(h,{id:`threadHeader.deleteThreadConfirm.confirm`,defaultMessage:`Remove`,description:`Confirm button label for removing a chat`})})]})})]})})}",
   ].join("");
-  patched = patched.replace(importNeedle, `${importNeedle}${helper}`);
+  patched = patched.replace(
+    threadActionsImportPattern,
+    (match) => `${match}${helper}`,
+  );
 
   if (!patched.includes(DELETE_CONFIRM_DIALOG_NAME)) {
     throw new Error("Unable to add thread delete helper");

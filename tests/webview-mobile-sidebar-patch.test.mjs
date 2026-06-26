@@ -216,3 +216,27 @@ test("mobile sidebar asset patch ignores app shell helper chunks", () => {
     fs.rmSync(assetsDir, { force: true, recursive: true });
   }
 });
+
+test("mobile sidebar asset patch picks the app shell chunk imported by thread chrome", () => {
+  const assetsDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "codex-web-mobile-sidebar-"),
+  );
+
+  try {
+    fs.writeFileSync(path.join(assetsDir, "app-shell-0b-x_r3Z.js"), "other");
+    fs.writeFileSync(path.join(assetsDir, "app-shell-DCvuE1cb.js"), appShellSource);
+    fs.writeFileSync(
+      path.join(assetsDir, "thread-app-shell-chrome-test.js"),
+      'import "./app-shell-DCvuE1cb.js";',
+    );
+
+    const patchedFiles = patchWebviewMobileSidebarAssets(assetsDir);
+
+    assert.deepEqual(
+      patchedFiles.map((filePath) => path.basename(filePath)),
+      ["app-shell-DCvuE1cb.js"],
+    );
+  } finally {
+    fs.rmSync(assetsDir, { force: true, recursive: true });
+  }
+});

@@ -28,14 +28,6 @@ const patchNames = [
   "webview-preload.patch",
   "webview-favicon.patch",
   "webview-pwa.patch",
-  "webview-thread-title.patch",
-  "webview-initial-route.patch",
-  "webview-electron-shim-close-sidebar.patch",
-  "webview-use-atfs-for-local-files.patch",
-  "webview-prompt-search-param.patch",
-  "webview-statsig-override-adapter.patch",
-  "sentry-disable-shell.patch",
-  "sentry-disable-webview.patch",
 ];
 
 async function writeExecutable(path, source) {
@@ -288,6 +280,7 @@ exit 0
     prepareLog,
     /node scripts\/patch_webview_assets\.mjs scratch\/asar\/webview\/assets/,
   );
+  assert.match(prepareLog, /node scripts\/patch_sentry_disable\.mjs scratch\/asar/);
 });
 
 test("build:browser uses the browser build asset patch wrapper", async () => {

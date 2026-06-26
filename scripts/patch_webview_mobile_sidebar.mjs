@@ -154,6 +154,28 @@ function replaceOnce(source, patternOrPatterns, replacement, description) {
   );
 }
 
+function pickAppShellCandidate(candidates, assetsDir) {
+  if (candidates.length <= 1) {
+    return candidates[0] ?? null;
+  }
+
+  const threadAppShellChromeNames = fs
+    .readdirSync(assetsDir)
+    .filter((name) => /^thread-app-shell-chrome-[\w-]+\.js$/.test(name));
+
+  for (const name of threadAppShellChromeNames) {
+    const source = fs.readFileSync(path.join(assetsDir, name), "utf8");
+    const match = candidates.find(({ filePath }) =>
+      source.includes(`./${path.basename(filePath)}`),
+    );
+    if (match != null) {
+      return match;
+    }
+  }
+
+  return null;
+}
+
 export function patchWebviewMobileSidebarSource(source) {
   let patched = source;
   patched = replaceOnce(
@@ -222,11 +244,13 @@ export function patchWebviewMobileSidebarAssets(assetsDir) {
   if (candidates.length === 0) {
     throw new Error("Unable to find app shell asset");
   }
-  if (candidates.length > 1) {
+
+  const selectedCandidate = pickAppShellCandidate(candidates, assetsDir);
+  if (selectedCandidate == null) {
     throw new Error("Expected one app shell asset, found multiple");
   }
 
-  const [{ filePath: assetPath, source }] = candidates;
+  const { filePath: assetPath, source } = selectedCandidate;
   const patched = patchWebviewMobileSidebarSource(source);
 
   if (patched === source) {

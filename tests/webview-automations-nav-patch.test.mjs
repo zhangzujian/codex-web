@@ -11,6 +11,8 @@ import {
 
 const appMainSource =
   "e && !l && _\n              ? (0, Z.jsx)(Ca, {items:[{id:`mark-all-read`}],children:(0,Z.jsx)(a_,{label:(0,Z.jsx)(X,{id:`sidebarElectron.inboxRouteNavLink`,defaultMessage:`Automations`})})})\n              : null";
+const minifiedAppMainSource =
+  "e&&!l&&_?(0,Z.jsx)(Ca,{items:[{id:`mark-all-read`}],children:(0,Z.jsx)(a_,{label:(0,Z.jsx)(X,{id:`sidebarElectron.inboxRouteNavLink`,defaultMessage:`Automations`})})}):null";
 
 test("Automations nav patch keeps the nav visible for remote host contexts", () => {
   const patched = patchWebviewAutomationsNavSource(appMainSource);
@@ -28,6 +30,15 @@ test("Automations nav patch upgrades gate-only intermediate patches", () => {
 
   assert.doesNotMatch(patched, /e && _/);
   assert.match(patched, /e\n\s+\? \(0, Z\.jsx\)\(Ca,/);
+});
+
+test("Automations nav patch handles minified app main chunks", () => {
+  const patched = patchWebviewAutomationsNavSource(minifiedAppMainSource);
+
+  assert.doesNotMatch(patched, /e&&!l&&_/);
+  assert.doesNotMatch(patched, /e&&_/);
+  assert.match(patched, /e\?\(0,Z\.jsx\)\(Ca,\{/);
+  assert.match(patched, /sidebarElectron\.inboxRouteNavLink/);
 });
 
 test("Automations nav asset patch updates the bundled app main chunk", () => {

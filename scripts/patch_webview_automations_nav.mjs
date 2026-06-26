@@ -8,16 +8,36 @@ const AUTOMATIONS_NAV_PATTERN =
   "e && !l && _\n              ? (0, Z.jsx)(Ca, {";
 const AUTOMATIONS_NAV_GATE_ONLY_PATTERN =
   "e && _\n              ? (0, Z.jsx)(Ca, {";
+const AUTOMATIONS_NAV_MINIFIED_PATTERN = "e&&!l&&_?(0,Z.jsx)(Ca,{";
+const AUTOMATIONS_NAV_MINIFIED_GATE_ONLY_PATTERN = "e&&_?(0,Z.jsx)(Ca,{";
 const PATCHED_AUTOMATIONS_NAV = "e\n              ? (0, Z.jsx)(Ca, {";
+const PATCHED_AUTOMATIONS_NAV_MINIFIED = "e?(0,Z.jsx)(Ca,{";
 
 export function patchWebviewAutomationsNavSource(source) {
-  if (source.includes(PATCHED_AUTOMATIONS_NAV)) {
+  if (
+    source.includes(PATCHED_AUTOMATIONS_NAV) ||
+    source.includes(PATCHED_AUTOMATIONS_NAV_MINIFIED)
+  ) {
     return source;
   }
 
-  const pattern = source.includes(AUTOMATIONS_NAV_PATTERN)
-    ? AUTOMATIONS_NAV_PATTERN
-    : AUTOMATIONS_NAV_GATE_ONLY_PATTERN;
+  const replacements = [
+    [AUTOMATIONS_NAV_PATTERN, PATCHED_AUTOMATIONS_NAV],
+    [AUTOMATIONS_NAV_GATE_ONLY_PATTERN, PATCHED_AUTOMATIONS_NAV],
+    [AUTOMATIONS_NAV_MINIFIED_PATTERN, PATCHED_AUTOMATIONS_NAV_MINIFIED],
+    [
+      AUTOMATIONS_NAV_MINIFIED_GATE_ONLY_PATTERN,
+      PATCHED_AUTOMATIONS_NAV_MINIFIED,
+    ],
+  ];
+  const replacement = replacements.find(([pattern]) =>
+    source.includes(pattern),
+  );
+  if (replacement == null) {
+    throw new Error("Unable to patch Automations navigation visibility");
+  }
+
+  const [pattern, patchedPattern] = replacement;
   const first = source.indexOf(pattern);
   if (first === -1) {
     throw new Error("Unable to patch Automations navigation visibility");
@@ -32,7 +52,7 @@ export function patchWebviewAutomationsNavSource(source) {
 
   return (
     source.slice(0, first) +
-    PATCHED_AUTOMATIONS_NAV +
+    patchedPattern +
     source.slice(first + pattern.length)
   );
 }

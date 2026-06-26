@@ -24,6 +24,28 @@ const APP_SHELL_TAB_STRIP_MARKERS = [
   "scrollPaddingInlineEnd",
 ];
 
+function pickAppShellTabStripCandidate(candidates, assetsDir) {
+  if (candidates.length <= 1) {
+    return candidates[0] ?? null;
+  }
+
+  const threadAppShellChromeNames = fs
+    .readdirSync(assetsDir)
+    .filter((name) => /^thread-app-shell-chrome-[\w-]+\.js$/.test(name));
+
+  for (const name of threadAppShellChromeNames) {
+    const source = fs.readFileSync(path.join(assetsDir, name), "utf8");
+    const match = candidates.find(({ filePath }) =>
+      source.includes(`./${path.basename(filePath)}`),
+    );
+    if (match != null) {
+      return match;
+    }
+  }
+
+  return null;
+}
+
 export function patchWebviewMobileTabLayoutSource(source) {
   let patched = source;
 
@@ -137,11 +159,13 @@ export function patchWebviewMobileTabLayoutAssets(assetsDir) {
   if (candidates.length === 0) {
     throw new Error("Unable to find app shell tab strip asset");
   }
-  if (candidates.length > 1) {
+
+  const selectedCandidate = pickAppShellTabStripCandidate(candidates, assetsDir);
+  if (selectedCandidate == null) {
     throw new Error("Expected one app shell tab strip asset, found multiple");
   }
 
-  const [{ filePath: assetPath, source }] = candidates;
+  const { filePath: assetPath, source } = selectedCandidate;
   const patched = patchWebviewMobileTabLayoutSource(source);
 
   if (patched === source) {

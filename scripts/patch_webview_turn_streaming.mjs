@@ -73,7 +73,8 @@ export function patchWebviewTurnStreamingAssets(assetsDir) {
       patched.includes(TURN_COMPONENT_DIRECT_START);
     sawThreadTurnElementPatch ||=
       assetName.startsWith("local-conversation-thread-") &&
-      patched.includes("let L = I,\n    R = (0, $.jsx)(Gt, {");
+      (patched.includes("let L = I,\n    R = (0, $.jsx)(Gt, {") ||
+        patched.includes("let L=I,R=(0,$.jsx)(Gt,{"));
 
     if (patched !== source) {
       fs.writeFileSync(assetPath, patched);
@@ -147,9 +148,26 @@ function patchThreadTurnElementCache(source) {
   if (source.includes(patchedStart)) {
     return fixMalformedThreadTurnElementPatch(source, patchedStart);
   }
+  if (source.includes("let L=I,R=(0,$.jsx)(Gt,{")) {
+    return source;
+  }
 
   const marker = "turnState: E,\n        turnRequests: S,";
   const markerIndex = source.indexOf(marker);
+  if (markerIndex !== -1) {
+    return patchFormattedThreadTurnElementCache(source, markerIndex);
+  }
+
+  const minifiedMarker = "turnState:E,turnRequests:S,";
+  const minifiedMarkerIndex = source.indexOf(minifiedMarker);
+  if (minifiedMarkerIndex !== -1) {
+    return patchMinifiedThreadTurnElementCache(source, minifiedMarkerIndex);
+  }
+
+  return source;
+}
+
+function patchFormattedThreadTurnElementCache(source, markerIndex) {
   if (markerIndex === -1) {
     return source;
   }
@@ -168,6 +186,23 @@ function patchThreadTurnElementCache(source) {
 
   const jsx = source.slice(jsxStart + jsxStartMarker.length, jsxEnd);
   return source.slice(0, start) + `let L = I,\n    R = ${jsx});\n` + source.slice(blockEnd);
+}
+
+function patchMinifiedThreadTurnElementCache(source, markerIndex) {
+  const start = source.lastIndexOf("let L=I,R;", markerIndex);
+  if (start === -1) {
+    return source;
+  }
+  const jsxStartMarker = "?(R=";
+  const jsxStart = source.indexOf(jsxStartMarker, start);
+  const jsxEnd = source.indexOf(",t[5]=", jsxStart);
+  const blockEnd = source.indexOf("let z;", jsxEnd);
+  if (jsxStart === -1 || jsxEnd === -1 || blockEnd === -1) {
+    throw new Error("Unable to patch local conversation thread turn element memo");
+  }
+
+  const jsx = source.slice(jsxStart + jsxStartMarker.length, jsxEnd);
+  return source.slice(0, start) + `let L=I,R=${jsx};` + source.slice(blockEnd);
 }
 
 function fixMalformedThreadTurnElementPatch(source, patchedStart) {

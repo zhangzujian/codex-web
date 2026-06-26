@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { spawnSync } from "node:child_process";
+import fs from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import test from "node:test";
 
-const patchPath = new URL(
-  "../patches/webview-statsig-override-adapter.patch",
-  import.meta.url,
-);
+import {
+  patchWebviewTelemetryDisableAssets,
+  patchWebviewTelemetryDisableSource,
+} from "../scripts/patch_webview_telemetry_disable.mjs";
+
 const appMainAssetName = "app-main-C-_HjS2P.js";
 const composerAssetName = "composer-CCuv6v-2.js";
 
@@ -65,76 +65,69 @@ async function ff({
   return at.getInstance().post(sf, JSON.stringify({ events: [] }), Nn());
 }`;
 
-test("webview Statsig patch disables analytics and network telemetry", async () => {
-  const patch = await readFile(patchPath, "utf8");
+test("webview telemetry patch disables analytics and network telemetry", () => {
+  const patched = patchWebviewTelemetryDisableSource(
+    appMainFixture,
+    appMainAssetName,
+  );
 
-  assert.match(patch, /\+\s+disableLogging: true,/);
-  assert.match(patch, /\+\s+preventAllNetworkTraffic: true,/);
-  assert.match(patch, /\+\s+o = false,/);
+  assert.match(patched, /o=false,/);
+  assert.match(patched, /async function hP\(e\) \{\s*return;/);
   assert.match(
-    patch,
-    /async function hP\(e\) \{\n\+\s+return;/,
-    "Codex analytics event submission should be disabled before it can POST",
+    patched,
+    /overrideAdapter:window\.__ELECTRON_SHIM__\.overrideAdapter/,
   );
-  assert.match(
-    patch,
-    /function eF\(e\) \{\n\+\s+return e\.children;/,
-    "Statsig provider setup should return children without initializing experiments",
-  );
-  assert.match(
-    patch,
-    new RegExp(`--- a/webview/assets/${composerAssetName}`),
-    "Composer usage limit analytics should be patched too",
-  );
-  assert.match(
-    patch,
-    new RegExp(
-      `--- a/webview/assets/${composerAssetName}[\\s\\S]*?\\}\\) \\{\\n\\+\\s+return false;`,
-    ),
-    "Composer usage limit analytics should return before POSTing",
+  assert.match(patched, /disableLogging:!0/);
+  assert.match(patched, /preventAllNetworkTraffic:!0/);
+  assert.match(patched, /function eF\(e\) \{\s*return e\.children;/);
+  assert.equal(
+    patchWebviewTelemetryDisableSource(patched, appMainAssetName),
+    patched,
   );
 });
 
-test("webview telemetry patch disables direct analytics helpers when applied", async () => {
-  const fixtureRoot = await mkdtemp(
-    join(tmpdir(), "codex-web-telemetry-patch-"),
+test("webview telemetry patch disables direct usage limit analytics", () => {
+  const patched = patchWebviewTelemetryDisableSource(
+    composerFixture,
+    composerAssetName,
   );
+
+  assert.match(patched, /async function ff\(\{[\s\S]*?\}\) \{\s*return false;/);
+  assert.equal(
+    patchWebviewTelemetryDisableSource(patched, composerAssetName),
+    patched,
+  );
+});
+
+test("webview telemetry asset patch updates app main and composer chunks", () => {
+  const assetsDir = fs.mkdtempSync(join(tmpdir(), "codex-web-telemetry-"));
   try {
-    const assetsPath = join(fixtureRoot, "webview/assets");
-    await mkdir(assetsPath, { recursive: true });
-    await writeFile(join(assetsPath, appMainAssetName), appMainFixture);
-    await writeFile(join(assetsPath, composerAssetName), composerFixture);
+    fs.writeFileSync(join(assetsDir, appMainAssetName), appMainFixture);
+    fs.writeFileSync(join(assetsDir, composerAssetName), composerFixture);
 
-    const patch = await readFile(patchPath, "utf8");
-    const result = spawnSync(
-      "patch",
-      ["--batch", "--forward", "--strip", "1"],
-      {
-        cwd: fixtureRoot,
-        encoding: "utf8",
-        input: patch,
-      },
+    const patchedFiles = patchWebviewTelemetryDisableAssets(assetsDir);
+
+    assert.deepEqual(
+      patchedFiles.map((filePath) => basename(filePath)).sort(),
+      [appMainAssetName, composerAssetName],
     );
-
-    assert.equal(result.status, 0, result.stderr || result.stdout);
-
-    const patchedAppMain = await readFile(
-      join(assetsPath, appMainAssetName),
+    const patchedAppMain = fs.readFileSync(
+      join(assetsDir, appMainAssetName),
       "utf8",
     );
-    const patchedComposer = await readFile(
-      join(assetsPath, composerAssetName),
+    const patchedComposer = fs.readFileSync(
+      join(assetsDir, composerAssetName),
       "utf8",
     );
 
-    assert.match(patchedAppMain, /\bo = false,/);
-    assert.match(patchedAppMain, /async function hP\(e\) \{\n\s+return;/);
-    assert.match(patchedAppMain, /function eF\(e\) \{\n\s+return e\.children;/);
+    assert.match(patchedAppMain, /\bo=false,/);
+    assert.match(patchedAppMain, /async function hP\(e\) \{\s*return;/);
+    assert.match(patchedAppMain, /function eF\(e\) \{\s*return e\.children;/);
     assert.match(
       patchedComposer,
-      /async function ff\(\{[\s\S]*?\}\) \{\n\s+return false;/,
+      /async function ff\(\{[\s\S]*?\}\) \{\s*return false;/,
     );
   } finally {
-    await rm(fixtureRoot, { recursive: true, force: true });
+    fs.rmSync(assetsDir, { recursive: true, force: true });
   }
 });

@@ -68,3 +68,17 @@ test("patchWebviewMobileTabLayoutAssets patches only the app shell tab strip ass
     /paddingInlineEnd:_/,
   );
 });
+
+test("patchWebviewMobileTabLayoutAssets picks the tab strip chunk imported by thread chrome", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-tab-layout-"));
+  fs.writeFileSync(path.join(dir, "app-shell-0b-x_r3Z.js"), "other");
+  fs.writeFileSync(path.join(dir, "app-shell-DCvuE1cb.js"), appShellTabStripChunk);
+  fs.writeFileSync(
+    path.join(dir, "thread-app-shell-chrome-test.js"),
+    'import "./app-shell-DCvuE1cb.js";',
+  );
+
+  const patchedFiles = patchWebviewMobileTabLayoutAssets(dir);
+
+  assert.deepEqual(patchedFiles, [path.join(dir, "app-shell-DCvuE1cb.js")]);
+});
