@@ -290,6 +290,14 @@ exit 0
     prepareLog,
     /node scripts\/patch_webview_assets\.mjs scratch\/asar\/webview\/assets/,
   );
+  assert.match(
+    prepareLog,
+    /node scripts\/adapt_preload_hook\.mjs scratch\/asar patches\/webview-preload\.patch scratch\/preload-hook-report\.json/,
+  );
+  assert.ok(
+    prepareLog.indexOf("node scripts/adapt_preload_hook.mjs") <
+      prepareLog.indexOf("patch --batch --forward --strip 1 --directory scratch/asar"),
+  );
   await assert.rejects(
     stat(join(fixtureDir, "scratch/asar/node_modules/node-pty")),
   );
