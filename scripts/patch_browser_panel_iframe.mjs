@@ -16,16 +16,17 @@ const helperSource =
 export function findBrowserSidebarManagerAssets(assetsDir) {
   return fs
     .readdirSync(assetsDir)
-    .filter(
-      (name) =>
-        name.startsWith("browser-sidebar-manager-") && name.endsWith(".js"),
-    )
+    .filter((name) => name.endsWith(".js"))
     .map((name) => path.join(assetsDir, name))
     .filter((assetPath) => {
+      const assetName = path.basename(assetPath);
       const source = fs.readFileSync(assetPath, "utf8");
       return (
+        assetName.startsWith("browser-sidebar-manager-") ||
         source.includes("browser-sidebar-manager") ||
-        source.includes(WEBVIEW_CREATE)
+        (source.includes(WEBVIEW_CREATE) &&
+          source.includes("browser-sidebar-webview-host-created") &&
+          source.includes("data-browser-sidebar-webview-host-root"))
       );
     });
 }
@@ -33,6 +34,10 @@ export function findBrowserSidebarManagerAssets(assetsDir) {
 export function patchBrowserPanelIframeSupport(source) {
   const alreadyPatched = source.includes(PATCH_MARKER);
   let patched = source.replaceAll(IFRAME_SANDBOX_SETTER, "");
+
+  if (isModernBrowserSidebarManagerSource(source)) {
+    return patchModernBrowserPanelIframeSupport(patched, alreadyPatched);
+  }
 
   if (!alreadyPatched) {
     const webviewCreateCount = countOccurrences(source, WEBVIEW_CREATE);
@@ -115,6 +120,89 @@ export function patchBrowserPanelIframeSupport(source) {
     "this.snapshots.set(o,a),codexWebSyncBrowserPanelSnapshotUrl(this.webviews.get(o),a),this.browserUseTabKeys.has(o)&&this.syncBrowserUseTabKeys(e),a.tabType!==n.WEB",
     "this.snapshots.set(o,a),codexWebSyncBrowserPanelSnapshotUrl(this.webviews.get(o),a)",
     "browser panel snapshot URL updates",
+  );
+
+  return patched;
+}
+
+function isModernBrowserSidebarManagerSource(source) {
+  return (
+    source.includes("data-browser-sidebar-webview-host-root") &&
+    source.includes("browser-sidebar-webview-host-created") &&
+    source.includes("setAdoptionAttributes(e,t,n)") &&
+    source.includes("getRetainedWebview(e,t,n,r)")
+  );
+}
+
+function patchModernBrowserPanelIframeSupport(source, alreadyPatched) {
+  let patched = source;
+
+  if (!alreadyPatched) {
+    patched = replaceOnce(
+      patched,
+      "bEe(),PEe=`about:blank`,",
+      `bEe(),${helperSource}PEe=\`about:blank\`,`,
+      "modern browser panel constants",
+    );
+
+    patched = replaceOnce(
+      patched,
+      "let l=document.createElement(`div`),u=document.createElement(`div`),d=document.createElement(`webview`);",
+      "let l=document.createElement(`div`),u=document.createElement(`div`),d=codexWebCreateBrowserPanelFrame();",
+      "modern visible browser panel host",
+    );
+
+    patched = replaceOnce(
+      patched,
+      "webview=document.createElement(`webview`);",
+      "webview=codexWebCreateBrowserPanelFrame();",
+      "modern retained browser panel host",
+    );
+
+    patched = replaceOnce(
+      patched,
+      "this.setAdoptionAttributes(a??null,o??null,s),d.setAttribute(`src`,PEe),l.append(d,u)",
+      "this.setAdoptionAttributes(a??null,o??null,s),codexWebSetBrowserPanelFrameSrc(d,s.length===0?PEe:s),l.append(d,u)",
+      "modern visible browser panel initial URL",
+    );
+
+    patched = replaceOnce(
+      patched,
+      "this.webview.setAttribute(`src`,o.length===0?ODe:o),this.container.append(this.webview,this.cursorOverlayHost)",
+      "codexWebSetBrowserPanelFrameSrc(this.webview,o.length===0?ODe:o),this.container.append(this.webview,this.cursorOverlayHost)",
+      "modern retained browser panel initial URL",
+    );
+
+    patched = replaceOnce(
+      patched,
+      "this.webview.removeAttribute(zEe),this.webview.removeAttribute(BEe),this.webview.removeAttribute(VEe);return}this.webview.setAttribute(zEe,e),this.webview.setAttribute(BEe,t.toString()),this.webview.setAttribute(VEe,n)}}",
+      "this.webview.removeAttribute(zEe),this.webview.removeAttribute(BEe),this.webview.removeAttribute(VEe),codexWebSetBrowserPanelFrameSrc(this.webview,n.length===0?PEe:n);return}this.webview.setAttribute(zEe,e),this.webview.setAttribute(BEe,t.toString()),this.webview.setAttribute(VEe,n),codexWebSetBrowserPanelFrameSrc(this.webview,n.length===0?PEe:n)}}",
+      "modern browser panel adoption URL updates",
+    );
+  }
+
+  patched = replaceOnceIfMissing(
+    patched,
+    "if(l instanceof ES&&l.getPartition()===c)return l.setHostKind(u),l.setPagePersistence(s)&&(this.notifyWebviewHostCreated(e,n,u,s),this.emitChange()),i!=null&&(l.setAdoptionAttributes(i.adoptionLease??null,i.adoptedWebContentsId??null,r),i.adoptionLease!=null&&i.adoptedWebContentsId!=null&&lr.info(`IAB_ADOPTION renderer updated adopted webview`,{safe:{adoptedWebContentsId:i.adoptedWebContentsId,browserTabId:n,conversationId:e,hasInitialUrl:r.length>0},sensitive:{}})),l;",
+    "if(l instanceof ES&&l.getPartition()===c)return l.setHostKind(u),l.setPagePersistence(s)&&(this.notifyWebviewHostCreated(e,n,u,s),this.emitChange()),l.setAdoptionAttributes(i?.adoptionLease??null,i?.adoptedWebContentsId??null,r),i?.adoptionLease!=null&&i.adoptedWebContentsId!=null&&lr.info(`IAB_ADOPTION renderer updated adopted webview`,{safe:{adoptedWebContentsId:i.adoptedWebContentsId,browserTabId:n,conversationId:e,hasInitialUrl:r.length>0},sensitive:{}}),l;",
+    "l.setAdoptionAttributes(i?.adoptionLease??null,i?.adoptedWebContentsId??null,r)",
+    "modern existing visible browser panel URL updates",
+  );
+
+  patched = replaceOnceIfMissing(
+    patched,
+    "if(c!=null&&c.getPartition()===s)return c.setHostKind(l),c.setPagePersistence(o)&&(this.notifyWebviewHostCreated(e,t,l,o),this.emitChange()),c;",
+    "if(c!=null&&c.getPartition()===s)return c.setHostKind(l),c.setPagePersistence(o)&&(this.notifyWebviewHostCreated(e,t,l,o),this.emitChange()),codexWebSetBrowserPanelFrameSrc(c.webview,n.length===0?ODe:n),c;",
+    "codexWebSetBrowserPanelFrameSrc(c.webview,n.length===0?ODe:n)",
+    "modern existing retained browser panel URL updates",
+  );
+
+  patched = replaceOnceIfMissing(
+    patched,
+    "this.snapshots.set(a,i),this.browserUseTabKeys.has(a)&&this.syncBrowserUseTabKeys(e),i.tabType!==p.WEB",
+    "this.snapshots.set(a,i),codexWebSyncBrowserPanelSnapshotUrl(this.webviews.get(a),i),this.browserUseTabKeys.has(a)&&this.syncBrowserUseTabKeys(e),i.tabType!==p.WEB",
+    "this.snapshots.set(a,i),codexWebSyncBrowserPanelSnapshotUrl(this.webviews.get(a),i)",
+    "modern browser panel snapshot URL updates",
   );
 
   return patched;

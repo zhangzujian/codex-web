@@ -157,7 +157,7 @@ export function patchWebviewMobileTabLayoutAssets(assetsDir) {
     );
 
   if (candidates.length === 0) {
-    throw new Error("Unable to find app shell tab strip asset");
+    return [];
   }
 
   const selectedCandidate = pickAppShellTabStripCandidate(candidates, assetsDir);

@@ -14,10 +14,32 @@ const TURN_ITEMS_DIRECT =
   "fe=j?My(a.items):a.items,{userItems:he,assistantItem:ge,toolOutputItems:_e,systemEventItem:ve,agentItems:ye,automationUpdateItems:be,unifiedDiffItem:G,todoListItem:xe,proposedPlanItem:Se,approvalItem:Ce,userInputItem:we,mcpServerElicitationItems:Te,permissionRequestItems:Ee,postAssistantItems:De,remoteTaskCreatedItems:Oe,personalityChangedItems:ke,forkedFromConversationItems:Ae,modelChangedItems:je,modelReroutedItems:Me}=Qa(fe,a.status),Ne=(()=>{let e=new Map;return fe.forEach((t,n)=>{if(t.type===`user-message`){e.set(t,`${n}:user`);return}t.type===`assistant-message`&&e.set(t,`${n}:assistant`)}),e})(),";
 const TURN_COMPONENT_MEMO_START = "By=(0,X.memo)(function(e){";
 const TURN_COMPONENT_DIRECT_START = "By=function(e){";
+const MODERN_RENDER_TURN_MEMO =
+  "ie;t[0]!==z||t[1]!==a||t[2]!==R||t[3]!==s||t[4]!==o?(ie=o??Rs(a,s??nVn,{isBackgroundSubagentsEnabled:z,preserveServerUserMessages:R}),t[0]=z,t[1]=a,t[2]=R,t[3]=s,t[4]=o,t[5]=ie):ie=t[5];let ae=ie,";
+const MODERN_RENDER_TURN_DIRECT =
+  "ie=o??Rs(a,s??nVn,{isBackgroundSubagentsEnabled:z,preserveServerUserMessages:R});let ae=ie,";
+const MODERN_TURN_ITEMS_MEMO =
+  "pe=(0,$4.useMemo)(()=>{let e=o?a.items:a.items.filter(e=>e.type!==`subagent-activity`);return M?UBn(e):e},[o,!1,!1,V,M,a.items]),";
+const MODERN_TURN_ITEMS_DIRECT =
+  "pe=(()=>{let e=o?a.items:a.items.filter(e=>e.type!==`subagent-activity`);return M?UBn(e):e})(),";
+const MODERN_TURN_ITEM_GROUPS_MEMO =
+  "{userItems:me,assistantItem:he,toolOutputItems:ge,systemEventItem:_e,agentItems:ve,automationUpdateItems:K,unifiedDiffItem:ye,todoListItem:be,proposedPlanItem:xe,approvalItem:Se,userInputItem:Ce,mcpServerElicitationItems:we,permissionRequestItems:Te,postAssistantItems:Ee,remoteTaskCreatedItems:De,personalityChangedItems:Oe,forkedFromConversationItems:ke,modelChangedItems:Ae,modelReroutedItems:je,subagentActivityItemGroups:Me}=(0,$4.useMemo)(()=>_Bn(pe,a.status),[pe,a.status]),";
+const MODERN_TURN_ITEM_GROUPS_DIRECT =
+  "{userItems:me,assistantItem:he,toolOutputItems:ge,systemEventItem:_e,agentItems:ve,automationUpdateItems:K,unifiedDiffItem:ye,todoListItem:be,proposedPlanItem:xe,approvalItem:Se,userInputItem:Ce,mcpServerElicitationItems:we,permissionRequestItems:Te,postAssistantItems:Ee,remoteTaskCreatedItems:De,personalityChangedItems:Oe,forkedFromConversationItems:ke,modelChangedItems:Ae,modelReroutedItems:je,subagentActivityItemGroups:Me}=_Bn(pe,a.status),";
+const MODERN_TURN_ITEM_KEY_MAP_MEMO =
+  "He=(0,$4.useMemo)(()=>{let e=new Map;return pe.forEach((t,n)=>{if(t.type===`user-message`){e.set(t,`${n}:user`);return}t.type===`assistant-message`&&e.set(t,`${n}:assistant`)}),e},[pe]),";
+const MODERN_TURN_ITEM_KEY_MAP_DIRECT =
+  "He=(()=>{let e=new Map;return pe.forEach((t,n)=>{if(t.type===`user-message`){e.set(t,`${n}:user`);return}t.type===`assistant-message`&&e.set(t,`${n}:assistant`)}),e})(),";
+const MODERN_TURN_COMPONENT_MEMO_START = "oVn=(0,$4.memo)(function(e){";
+const MODERN_TURN_COMPONENT_DIRECT_START = "oVn=function(e){";
 
 export function patchWebviewTurnStreamingSource(source, assetName = "") {
   if (assetName.startsWith("local-conversation-thread-")) {
     return patchThreadTurnElementCache(source);
+  }
+
+  if (isModernTurnSource(source)) {
+    return patchModernTurnStreamingSource(source);
   }
 
   if (assetName.startsWith("local-conversation-turn-")) {
@@ -67,14 +89,21 @@ export function patchWebviewTurnStreamingAssets(assetsDir) {
     const source = fs.readFileSync(assetPath, "utf8");
     const patched = patchWebviewTurnStreamingSource(source, assetName);
     sawRenderTurnPatch ||= patched.includes(RENDER_TURN_DIRECT);
-    sawTurnItemsPatch ||= patched.includes(TURN_ITEMS_DIRECT);
+    sawRenderTurnPatch ||= patched.includes(MODERN_RENDER_TURN_DIRECT);
+    sawTurnItemsPatch ||=
+      patched.includes(TURN_ITEMS_DIRECT) ||
+      patched.includes(MODERN_TURN_ITEMS_DIRECT);
     sawTurnComponentPatch ||=
-      assetName.startsWith("local-conversation-turn-") &&
-      patched.includes(TURN_COMPONENT_DIRECT_START);
+      (assetName.startsWith("local-conversation-turn-") &&
+        patched.includes(TURN_COMPONENT_DIRECT_START)) ||
+      patched.includes(MODERN_TURN_COMPONENT_DIRECT_START);
     sawThreadTurnElementPatch ||=
       assetName.startsWith("local-conversation-thread-") &&
       (patched.includes("let L = I,\n    R = (0, $.jsx)(Gt, {") ||
         patched.includes("let L=I,R=(0,$.jsx)(Gt,{"));
+    sawThreadTurnElementPatch ||= patched.includes(
+      "return (0,e3.jsx)(GBn,{conversationId:n,hostId:r,turnSearchKey:i,turnId:a.turnId,mcpTurn:a,turn:ae",
+    );
 
     if (patched !== source) {
       fs.writeFileSync(assetPath, patched);
@@ -96,6 +125,87 @@ export function patchWebviewTurnStreamingAssets(assetsDir) {
   }
 
   return patchedFiles;
+}
+
+function isModernTurnSource(source) {
+  return (
+    source.includes(MODERN_TURN_COMPONENT_MEMO_START) ||
+    source.includes(MODERN_TURN_COMPONENT_DIRECT_START)
+  );
+}
+
+function patchModernTurnStreamingSource(source) {
+  let patched = source;
+  const hadTurnComponentMemo = patched.includes(
+    MODERN_TURN_COMPONENT_MEMO_START,
+  );
+  patched = replaceOnceIfPresent(
+    patched,
+    MODERN_TURN_COMPONENT_MEMO_START,
+    MODERN_TURN_COMPONENT_DIRECT_START,
+    "modern turn component React memo",
+  );
+  patched = replaceModernTurnComponentElementCache(patched);
+  patched = replaceOnceIfPresent(
+    patched,
+    MODERN_RENDER_TURN_MEMO,
+    MODERN_RENDER_TURN_DIRECT,
+    "modern render turn memo",
+  );
+  patched = replaceOnceIfPresent(
+    patched,
+    MODERN_TURN_ITEMS_MEMO,
+    MODERN_TURN_ITEMS_DIRECT,
+    "modern turn items memo",
+  );
+  patched = replaceOnceIfPresent(
+    patched,
+    MODERN_TURN_ITEM_GROUPS_MEMO,
+    MODERN_TURN_ITEM_GROUPS_DIRECT,
+    "modern turn item groups memo",
+  );
+  patched = replaceOnceIfPresent(
+    patched,
+    MODERN_TURN_ITEM_KEY_MAP_MEMO,
+    MODERN_TURN_ITEM_KEY_MAP_DIRECT,
+    "modern turn item key map memo",
+  );
+  return patched;
+}
+
+function replaceModernTurnComponentElementCache(source) {
+  if (
+    source.includes(
+      "return (0,e3.jsx)(GBn,{conversationId:n,hostId:r,turnSearchKey:i,turnId:a.turnId,mcpTurn:a,turn:ae",
+    )
+  ) {
+    return source;
+  }
+
+  const marker = "turnId:a.turnId,mcpTurn:a,turn:ae";
+  const markerIndex = source.indexOf(marker);
+  if (markerIndex === -1) {
+    return source;
+  }
+
+  const start = source.lastIndexOf("let me;return", markerIndex);
+  if (start === -1) {
+    return source;
+  }
+  const jsxStartMarker = "?(me=";
+  const jsxStart = source.indexOf(jsxStartMarker, start);
+  const jsxEnd = source.indexOf(",t[16]=w", jsxStart);
+  const blockEnd = source.indexOf("})}));function", jsxEnd);
+  if (jsxStart === -1 || jsxEnd === -1 || blockEnd === -1) {
+    throw new Error("Unable to patch modern local conversation turn element memo");
+  }
+
+  const jsx = source.slice(jsxStart + jsxStartMarker.length, jsxEnd);
+  return (
+    source.slice(0, start) +
+    `return ${jsx}};function` +
+    source.slice(blockEnd + "})}));function".length)
+  );
 }
 
 function replaceTurnComponentElementCache(source) {

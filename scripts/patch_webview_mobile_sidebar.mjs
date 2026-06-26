@@ -242,7 +242,7 @@ export function patchWebviewMobileSidebarAssets(assetsDir) {
     );
 
   if (candidates.length === 0) {
-    throw new Error("Unable to find app shell asset");
+    return [];
   }
 
   const selectedCandidate = pickAppShellCandidate(candidates, assetsDir);

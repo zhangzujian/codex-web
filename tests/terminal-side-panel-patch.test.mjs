@@ -50,6 +50,14 @@ const terminalCommandShortcutChunk = [
 
 const sidePanelActionWithTerminalCommandChunk = `${sidePanelActionChunk}${terminalCommandShortcutChunk}`;
 
+const modernSidePanelActionChunk = [
+  "function tt(){",
+  "  let ye=()=>{Je(i,t),e?.()};",
+  "  return [...ue?[{id:`terminal`,Icon:Zt,onSelect:ye,title:(0,K.jsx)(V,{id:`thread.sidePanel.newTab.terminal.title`,defaultMessage:`Terminal`})}]:[]];",
+  "}",
+  "function Cr(){let v;t[13]!==m||t[14]!==i||t[15]!==l?(v=()=>{m&&Ze(i,void 0,l)},t[13]=m,t[14]=i,t[15]=l,t[16]=v):v=t[16],rn(`toggleTerminal`,v);return null}",
+].join("");
+
 const newTabMenuChunk = [
   "function tt(){",
   "let E=!0,D=!1,S=[],A={display_name:`host`},O={cwd:`/tmp`},N=`conversation`,r=`right`,a={},n=()=>{};",
@@ -58,6 +66,13 @@ const newTabMenuChunk = [
   "return [...pe?[{id:`browser`,onSelect:ke}]:[]]",
   "}",
   "function it(e){return de(e)}",
+].join("");
+
+const modernNewTabMenuChunk = [
+  "function tt(){",
+  "let ge=()=>{st(i,{browserConversationId:x??void 0,browserHostDisplayName:y.display_name,cwd:_.cwd,initiator:`side_panel_menu`,source:`manual`,target:m?t:`right`})!=null&&e?.()};",
+  "return [...ae?[{id:`browser`,onSelect:ge}]:[]]",
+  "}",
 ].join("");
 
 const sidePanelActionWithNewTabMenuChunk = `${sidePanelActionWithTerminalCommandChunk}${newTabMenuChunk}`;
@@ -101,15 +116,13 @@ const appShellPanelWrapperChunk = [
   "function kr({children:e,isRightPanelOpen:t,rightPanelWidth:r}){let o=s(X),l=c(Se),u=c(I),{isMounted:g}=lr({size:r,isVisible:t});return Qt(r,`change`,()=>{}),!g&&!t?null:(0,Q.jsx)(`aside`,{children:[e,l]})}",
 ].join("");
 
-const actualAppShellSource = fs.readFileSync(
-  path.join(process.cwd(), "scratch/asar/webview/assets/app-shell-DCvuE1cb.js"),
-  "utf8",
+const actualAppShellSource = readActualAppShellSource();
+const appShellRootStart = actualAppShellSource.indexOf(
+  "bottomPanelSlot:e,children:t,leftPanelSlot:n,rightPanelSlot:r",
 );
 const appShellRootChunk = actualAppShellSource.slice(
-  actualAppShellSource.indexOf(
-    "function Yr({bottomPanelSlot:e,children:t,leftPanelSlot:n,rightPanelSlot:r})",
-  ),
-  actualAppShellSource.indexOf("function Xr(e)"),
+  actualAppShellSource.lastIndexOf("function ", appShellRootStart),
+  actualAppShellSource.indexOf("function ", appShellRootStart + 1),
 );
 
 const openInPrimaryIconChunk = [
@@ -119,6 +132,22 @@ const openInPrimaryIconChunk = [
   "}",
   "var vt=S({openPrimaryTarget:{id:`localConversationPage.openPrimaryTarget`,defaultMessage:`Open in`,description:`Primary open button label`}});",
 ].join("");
+
+function readActualAppShellSource() {
+  const assetsDir = path.join(process.cwd(), "scratch/asar/webview/assets");
+  const assetName = fs
+    .readdirSync(assetsDir)
+    .find((name) => {
+      if (!name.endsWith(".js")) {
+        return false;
+      }
+      return fs
+        .readFileSync(path.join(assetsDir, name), "utf8")
+        .includes("bottomPanelSlot:e,children:t,leftPanelSlot:n,rightPanelSlot:r");
+    });
+  assert.ok(assetName, "app shell source asset should exist in scratch");
+  return fs.readFileSync(path.join(assetsDir, assetName), "utf8");
+}
 
 test("findTerminalSidePanelAsset follows the public re-export to the source chunk", () => {
   const assetsDir = fs.mkdtempSync(
@@ -267,6 +296,39 @@ test("findTerminalActionAsset finds the side panel Terminal action importer", ()
   assert.equal(result.terminalActionFunctionName, "Pe");
 });
 
+test("findTerminalActionAsset supports modern direct Terminal actions", () => {
+  const assetsDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "codex-web-terminal-modern-action-assets-"),
+  );
+  fs.writeFileSync(
+    path.join(assetsDir, "thread-side-panel-tabs-source.js"),
+    sourceChunk,
+  );
+  fs.writeFileSync(
+    path.join(assetsDir, "thread-app-shell-chrome.js"),
+    modernSidePanelActionChunk,
+  );
+
+  const result = findTerminalActionAsset(assetsDir, {
+    assetPath: path.join(assetsDir, "thread-side-panel-tabs-source.js"),
+    functionName: "rm",
+  });
+
+  assert.equal(path.basename(result.assetPath), "thread-app-shell-chrome.js");
+  assert.equal(result.terminalActionFunctionName, "ye");
+});
+
+test("patchTerminalActionSource supports modern command registration names", () => {
+  const patched = patchTerminalActionSource(modernSidePanelActionChunk, {
+    terminalActionFunctionName: "ye",
+  });
+
+  assert.match(
+    patched,
+    /rn\(`toggleTerminal`,v\);codexWebInstallNativeTerminalShortcut\(v\)/,
+  );
+});
+
 test("patchTerminalNewTabMenuSource keeps Browser available for legacy terminal tabs", () => {
   const patched = patchTerminalNewTabMenuSource(newTabMenuChunk);
 
@@ -278,11 +340,26 @@ test("patchTerminalNewTabMenuSource keeps Browser available for legacy terminal 
   assert.equal(patchTerminalNewTabMenuSource(patched), patched);
 });
 
+test("patchTerminalNewTabMenuSource supports modern Browser actions", () => {
+  const patched = patchTerminalNewTabMenuSource(modernNewTabMenuChunk);
+
+  assert.doesNotThrow(() => patchTerminalNewTabMenuSource(patched));
+  assert.match(patched, /browserTabId:crypto\.randomUUID\(\)/);
+  assert.match(patched, /initiator:`side_panel_browser`/);
+});
+
 test("patchThreadOpenInPrimaryIconSource uses resolved icons for the top Open in button", () => {
   const patched = patchThreadOpenInPrimaryIconSource(openInPrimaryIconChunk);
 
   assert.match(patched, /src:g\.resolvedIcon\?\?g\.icon,className:`icon-sm`/);
   assert.equal(patchThreadOpenInPrimaryIconSource(patched), patched);
+});
+
+test("patchThreadOpenInPrimaryIconSource skips modern resolved icon code", () => {
+  const source =
+    "src:c==null?e.resolvedIcon??e.icon:c.get(e.id)??e.icon;localConversationPage.openPrimaryTarget";
+
+  assert.equal(patchThreadOpenInPrimaryIconSource(source), source);
 });
 
 test("patchKeepMountedTerminalPanelsSource keeps terminal panels mounted", () => {

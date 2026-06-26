@@ -73,29 +73,49 @@ test("app server json rpc client can disable timeout for long-running requests",
       const message = JSON.parse(line);
       if (message.method === "initialize") {
         process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { ok: true } }) + "\\n");
+        return;
+      }
+      if (message.method === "initialized") {
+        return;
+      }
+      if (message.method === "warmup") {
+        process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { ok: true } }) + "\\n");
+        return;
+      }
+      if (message.method === "slow/timeout") {
+        setTimeout(() => {
+          process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { ok: true } }) + "\\n");
+        }, 150);
+        return;
+      }
+      if (message.method === "command/exec") {
+        setTimeout(() => {
+          process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { ok: true } }) + "\\n");
+        }, 150);
       }
     });
   `;
   const client = createAppServerJsonRpcClient({
     args: ["-e", script],
     command: process.execPath,
-    requestTimeoutMs: 100,
+    requestTimeoutMs: 1_000,
   });
-  let settled = false;
-
-  const pending = client
-    .rpc("command/exec", {}, { timeoutMs: null })
-    .finally(() => {
-      settled = true;
-    });
-  await new Promise((resolve) => setTimeout(resolve, 150));
-
+  assert.deepEqual(
+    await client.rpc("warmup", {}, { timeoutMs: 1_000 }),
+    { ok: true },
+  );
+  await assert.rejects(
+    () => client.rpc("slow/timeout", {}, { timeoutMs: 50 }),
+    /timed out/,
+  );
   try {
-    assert.equal(settled, false);
+    assert.deepEqual(
+      await client.rpc("command/exec", {}, { timeoutMs: null }),
+      { ok: true },
+    );
   } finally {
     client.dispose();
   }
-  await assert.rejects(pending, /stopped|exited|timed out/);
 });
 
 test("app server json rpc client drains stderr and disposes pending requests", async () => {

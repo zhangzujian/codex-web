@@ -10,13 +10,17 @@ const AUTOMATIONS_NAV_GATE_ONLY_PATTERN =
   "e && _\n              ? (0, Z.jsx)(Ca, {";
 const AUTOMATIONS_NAV_MINIFIED_PATTERN = "e&&!l&&_?(0,Z.jsx)(Ca,{";
 const AUTOMATIONS_NAV_MINIFIED_GATE_ONLY_PATTERN = "e&&_?(0,Z.jsx)(Ca,{";
+const MODERN_AUTOMATIONS_NAV_MINIFIED_PATTERN =
+  "t&&!c&&l&&n===`codex`?(0,TN.jsx)(rS,{";
 const PATCHED_AUTOMATIONS_NAV = "e\n              ? (0, Z.jsx)(Ca, {";
 const PATCHED_AUTOMATIONS_NAV_MINIFIED = "e?(0,Z.jsx)(Ca,{";
+const PATCHED_MODERN_AUTOMATIONS_NAV_MINIFIED = "t?(0,TN.jsx)(rS,{";
 
 export function patchWebviewAutomationsNavSource(source) {
   if (
     source.includes(PATCHED_AUTOMATIONS_NAV) ||
-    source.includes(PATCHED_AUTOMATIONS_NAV_MINIFIED)
+    source.includes(PATCHED_AUTOMATIONS_NAV_MINIFIED) ||
+    source.includes(PATCHED_MODERN_AUTOMATIONS_NAV_MINIFIED)
   ) {
     return source;
   }
@@ -28,6 +32,10 @@ export function patchWebviewAutomationsNavSource(source) {
     [
       AUTOMATIONS_NAV_MINIFIED_GATE_ONLY_PATTERN,
       PATCHED_AUTOMATIONS_NAV_MINIFIED,
+    ],
+    [
+      MODERN_AUTOMATIONS_NAV_MINIFIED_PATTERN,
+      PATCHED_MODERN_AUTOMATIONS_NAV_MINIFIED,
     ],
   ];
   const replacement = replacements.find(([pattern]) =>
@@ -58,24 +66,47 @@ export function patchWebviewAutomationsNavSource(source) {
 }
 
 export function patchWebviewAutomationsNavAssets(assetsDir) {
-  const assetName = fs
+  const assetNames = fs
     .readdirSync(assetsDir)
-    .find((name) => /^app-main-[\w-]+\.js$/.test(name));
+    .filter((name) => name.endsWith(".js"))
+    .filter((name) => {
+      if (/^app-main-[\w-]+\.js$/.test(name)) {
+        return true;
+      }
+      const source = fs.readFileSync(path.join(assetsDir, name), "utf8");
+      return (
+        source.includes("sidebarElectron.inboxRouteNavLink") &&
+        source.includes("mark-all-read")
+      );
+    });
 
-  if (assetName == null) {
+  if (assetNames.length === 0) {
     throw new Error("Unable to find app main asset");
   }
 
-  const assetPath = path.join(assetsDir, assetName);
-  const source = fs.readFileSync(assetPath, "utf8");
-  const patched = patchWebviewAutomationsNavSource(source);
+  const patchedFiles = [];
+  for (const assetName of assetNames) {
+    const assetPath = path.join(assetsDir, assetName);
+    const source = fs.readFileSync(assetPath, "utf8");
+    let patched;
+    try {
+      patched = patchWebviewAutomationsNavSource(source);
+    } catch (error) {
+      if (!source.includes("sidebarElectron.inboxRouteNavLink")) {
+        continue;
+      }
+      throw error;
+    }
 
-  if (patched === source) {
-    return [];
+    if (patched === source) {
+      continue;
+    }
+
+    fs.writeFileSync(assetPath, patched);
+    patchedFiles.push(assetPath);
   }
 
-  fs.writeFileSync(assetPath, patched);
-  return [assetPath];
+  return patchedFiles;
 }
 
 const invokedPath = process.argv[1]

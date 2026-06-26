@@ -16,6 +16,8 @@ const LEGACY_KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION =
   "function codexWebRenderBottomTerminalPanels(e,t,n,r,i){if(e.panelId!==`bottom`||t==null||!Array.isArray(n)||!n.some(e=>typeof e?.tabId==`string`&&e.tabId.startsWith(`terminal:`)))return t==null?(0,Q.jsx)(`div`,{className:`relative min-h-0 flex-1`,children:i}):(0,Q.jsx)(Cn,{controller:e,tab:t},r);let a=n.filter(e=>e.tabId===t.tabId||typeof e?.tabId==`string`&&e.tabId.startsWith(`terminal:`));return(0,Q.jsx)(Q.Fragment,{children:a.map(n=>{let r=n.tabId===t.tabId;return(0,Q.jsx)(`div`,{className:r?`contents`:`hidden`,children:(0,Q.jsx)(Cn,{controller:e,tab:n},n.tabId)},n.tabId)})})}";
 const KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION =
   "function codexWebRenderTerminalPanels(e,t,n,r,i){if(t==null||!Array.isArray(n)||!n.some(e=>typeof e?.tabId==`string`&&e.tabId.startsWith(`terminal:`)))return t==null?(0,Q.jsx)(`div`,{className:`relative min-h-0 flex-1`,children:i}):(0,Q.jsx)(Cn,{controller:e,tab:t},r);let a=n.filter(e=>e.tabId===t.tabId||typeof e?.tabId==`string`&&e.tabId.startsWith(`terminal:`));return(0,Q.jsx)(Q.Fragment,{children:a.map(n=>{let r=n.tabId===t.tabId;return(0,Q.jsx)(`div`,{className:r?`contents`:`hidden`,children:(0,Q.jsx)(Cn,{controller:e,tab:n},n.tabId)},n.tabId)})})}";
+const MODERN_KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION =
+  "function codexWebRenderTerminalPanels(e,t,n,r,i,a,o){if(t==null||!o)return a?(0,CU.jsx)(`div`,{className:`relative min-h-0 flex-1`,children:i}):(0,CU.jsx)(`div`,{className:`flex min-h-0 flex-1 items-center justify-center p-4 text-center text-sm text-token-text-secondary`,children:(0,CU.jsx)(J,{id:`appShell.tabPanel.worktreeProvisioning`,defaultMessage:`Available when the worktree is ready`,description:`Placeholder shown instead of tab content while a worktree is being provisioned`})});if(!Array.isArray(n)||!n.some(e=>typeof e?.tabId==`string`&&e.tabId.startsWith(`terminal:`)))return(0,CU.jsx)(ZGt,{controller:e,tab:t},r);let s=n.filter(e=>e.tabId===t.tabId||typeof e?.tabId==`string`&&e.tabId.startsWith(`terminal:`));return(0,CU.jsx)(CU.Fragment,{children:s.map(n=>{let r=n.tabId===t.tabId;return(0,CU.jsx)(`div`,{className:r?`contents`:`hidden`,children:(0,CU.jsx)(ZGt,{controller:e,tab:n},n.tabId)},n.tabId)})})}";
 const BOTTOM_PANEL_UNMOUNT_CONDITION = "return!o&&!i?null:";
 const BOTTOM_PANEL_KEEP_MOUNTED_CONDITION = "return!o&&!i&&t==null?null:";
 const RIGHT_PANEL_UNMOUNT_CONDITION = "),!g&&!t?null:";
@@ -60,6 +62,14 @@ export function findTerminalActionAsset(assetsDir, terminalPatchTarget) {
       (specifier) => specifier.imported === terminalExportName,
     );
     if (!importedSpecifier) {
+      const terminalActionFunctionName =
+        findDirectTerminalActionFunctionName(source);
+      if (terminalActionFunctionName != null) {
+        return {
+          assetPath,
+          terminalActionFunctionName,
+        };
+      }
       continue;
     }
 
@@ -140,7 +150,16 @@ export function patchTerminalActionSource(
 }
 
 function patchTerminalCommandNativeShortcutSource(source) {
-  if (!source.includes("Ne(`toggleTerminal`,")) {
+  if (
+    source.includes("codexWebInstallNativeTerminalShortcut(") &&
+    !source.includes(TERMINAL_NATIVE_SHORTCUT_FUNCTION)
+  ) {
+    return `${TERMINAL_NATIVE_SHORTCUT_FUNCTION}${source}`;
+  }
+
+  const commandRegistrationPattern =
+    /([$A-Za-z_][\w$]*)\(`toggleTerminal`,([$A-Za-z_][\w$]*)\);(?!codexWebInstallNativeTerminalShortcut)/;
+  if (!commandRegistrationPattern.test(source)) {
     return source;
   }
 
@@ -149,8 +168,8 @@ function patchTerminalCommandNativeShortcutSource(source) {
     : `${TERMINAL_NATIVE_SHORTCUT_FUNCTION}${source}`;
 
   return patched.replace(
-    /Ne\(`toggleTerminal`,([$A-Za-z_][\w$]*)\);(?!codexWebInstallNativeTerminalShortcut)/,
-    "Ne(`toggleTerminal`,$1);codexWebInstallNativeTerminalShortcut($1);",
+    commandRegistrationPattern,
+    "$1(`toggleTerminal`,$2);codexWebInstallNativeTerminalShortcut($2);",
   );
 }
 
@@ -206,7 +225,7 @@ export function patchThreadOpenInPrimaryIconSource(source) {
     return source;
   }
 
-  throw new Error("Top Open in primary icon target not found");
+  return source;
 }
 
 export function patchTerminalNewTabMenuSource(source) {
@@ -214,7 +233,8 @@ export function patchTerminalNewTabMenuSource(source) {
   if (
     !patched.includes(
       "e.props?.codexWebIsTerminal!==!0&&e.codexWebIsTerminal!==!0",
-    )
+    ) &&
+    patched.includes("function it(e){return de(e)}")
   ) {
     patched = replaceOnce(
       patched,
@@ -226,8 +246,8 @@ export function patchTerminalNewTabMenuSource(source) {
 
   if (!patched.includes("initiator:`side_panel_browser`")) {
     patched = patched.replace(
-      /oe\(([$A-Za-z_][\w$]*),\{browserConversationId:([^,]+),browserHostDisplayName:([^,]+),cwd:([^,]+),initiator:`side_panel_menu`,source:`manual`,target:([^}]+)\}\)/,
-      "oe($1,{browserConversationId:$2,browserTabId:crypto.randomUUID(),browserHostDisplayName:$3,cwd:$4,initiator:`side_panel_browser`,source:`manual`,target:$5})",
+      "initiator:`side_panel_menu`,source:`manual`",
+      "browserTabId:crypto.randomUUID(),initiator:`side_panel_browser`,source:`manual`",
     );
     if (!patched.includes("initiator:`side_panel_browser`")) {
       throw new Error("Browser new tab action not found");
@@ -272,7 +292,16 @@ export function patchKeepMountedTerminalPanelsSource(source) {
     );
   const withHelper = upgradedSource.includes(KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION)
     ? upgradedSource
-    : replaceOnce(
+    : upgradedSource.includes(MODERN_KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION)
+      ? upgradedSource
+      : upgradedSource.includes("function GGt(e){")
+        ? replaceOnce(
+            upgradedSource,
+            "function GGt(e){",
+            `${MODERN_KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION}function GGt(e){`,
+            "App shell tab panel component target not found",
+          )
+        : replaceOnce(
         upgradedSource,
         "var Cn=(0,Z.memo)(function(e){",
         `${KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION}var Cn=(0,Z.memo)(function(e){`,
@@ -288,7 +317,14 @@ export function patchKeepMountedTerminalPanelsSource(source) {
     throw new Error("Right panel children render target not found");
   }
 
-  if (!withRightPanelCache.includes("rightPanelOutletCache.current")) {
+  const hasLegacyRightPanelWrapper =
+    withRightPanelCache.includes("children:[e,l]") ||
+    withRightPanelCache.includes("children:[e,rightPanelOutlet]") ||
+    withRightPanelCache.includes("let o=s(X),l=c(Se),u=c(I),");
+  if (
+    hasLegacyRightPanelWrapper &&
+    !withRightPanelCache.includes("rightPanelOutletCache.current")
+  ) {
     withRightPanelCache = replaceOnce(
       withRightPanelCache,
       "let o=s(X),l=c(Se),u=c(I),",
@@ -303,12 +339,27 @@ export function patchKeepMountedTerminalPanelsSource(source) {
       "children:[e,rightPanelOutlet]",
       "Right panel outlet render target not found",
     );
-  } else if (!withRightPanelCache.includes("children:[e,rightPanelOutlet]")) {
+  } else if (
+    hasLegacyRightPanelWrapper &&
+    !withRightPanelCache.includes("children:[e,rightPanelOutlet]")
+  ) {
     throw new Error("Right panel outlet render target not found");
   }
 
   if (withRightPanelCache.includes("codexWebRenderTerminalPanels(s,u,l,d,a)")) {
     return withRightPanelCache;
+  }
+  if (withRightPanelCache.includes("codexWebRenderTerminalPanels(s,l,c,u,a,h,g)")) {
+    return withRightPanelCache;
+  }
+
+  if (withRightPanelCache.includes("function GGt(e){")) {
+    return replaceOnce(
+      withRightPanelCache,
+      "y=g?(0,CU.jsx)(ZGt,{controller:s,tab:l},u):h?(0,CU.jsx)(`div`,{className:`relative min-h-0 flex-1`,children:a}):(0,CU.jsx)(`div`,{className:`flex min-h-0 flex-1 items-center justify-center p-4 text-center text-sm text-token-text-secondary`,children:(0,CU.jsx)(J,{id:`appShell.tabPanel.worktreeProvisioning`,defaultMessage:`Available when the worktree is ready`,description:`Placeholder shown instead of tab content while a worktree is being provisioned`})})",
+      "y=codexWebRenderTerminalPanels(s,l,c,u,a,h,g)",
+      "Active tab panel render target not found",
+    );
   }
 
   return replaceOnce(
@@ -418,6 +469,13 @@ function findTerminalActionFunctionName(source, terminalOpenerName) {
     );
   }
   return match[1];
+}
+
+function findDirectTerminalActionFunctionName(source) {
+  const pattern =
+    /id:`terminal`[\s\S]{0,220}?\bonSelect:([$A-Za-z_][\w$]*)[\s\S]{0,240}?thread\.sidePanel\.newTab\.terminal\.title/;
+  const match = pattern.exec(source);
+  return match?.[1] ?? null;
 }
 
 function resolveLocalBinding(assetsDir, assetPath, source, localName) {

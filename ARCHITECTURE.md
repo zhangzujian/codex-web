@@ -57,7 +57,6 @@ prettified.
 | `webview-preload.patch`    | adds `<base href="/">` and loads the codex-web preload bundle before the upstream renderer starts.        |
 | `webview-pwa.patch`        | links the web app manifest.                                                                               |
 | `webview-remove-csp.patch` | removes the upstream Electron CSP meta tag so the hosted browser app can load its patched runtime assets. |
-| `webview-style.patch`      | resets the upstream safe header spacing used by desktop chrome.                                           |
 
 dynamic patchers in [./scripts](./scripts) handle bundle shapes that are too
 fragile for a fixed diff. [patch_webview_assets.mjs](./scripts/patch_webview_assets.mjs)

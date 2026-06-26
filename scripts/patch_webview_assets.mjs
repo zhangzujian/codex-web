@@ -351,6 +351,17 @@ export function patchDynamicToolsAutomationAsset(assetsDir) {
     return assetPath;
   }
 
+  const existingAutomationToolAsset = fs
+    .readdirSync(assetsDir)
+    .filter((name) => name.endsWith(".js"))
+    .map((name) => path.join(assetsDir, name))
+    .find((assetPath) =>
+      fs.readFileSync(assetPath, "utf8").includes("automation_update"),
+    );
+  if (existingAutomationToolAsset != null) {
+    return existingAutomationToolAsset;
+  }
+
   throw new Error(`dynamic tools asset not found in ${assetsDir}`);
 }
 

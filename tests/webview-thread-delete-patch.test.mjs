@@ -16,6 +16,13 @@ const threadOverflowMenuSource = [
   "function et(){let t=(0,Qe.c)(195),[O,pt]=(0,$e.useState)(!1),mt=m(Re),zt;let A=zt,Bt;let An;t[112]===Symbol.for(`react.memo_cache_sentinel`)?(An=(0,b.jsx)(_.Separator,{}),t[112]=An):An=t[112];let Q;t[170]!==et||t[171]!==O||t[172]!==N||t[173]!==P||t[174]!==On||t[175]!==L||t[176]!==R||t[177]!==K||t[178]!==q||t[179]!==Y||t[180]!==X||t[181]!==Z?(Q=(0,b.jsxs)(Ee,{open:O,onOpenChange:pt,triggerButton:N,align:et,contentWidth:`menu`,children:[P,On,L,An,R,K,q,Y,X,Z]}),t[170]=et,t[171]=O,t[172]=N,t[173]=P,t[174]=On,t[175]=L,t[176]=R,t[177]=K,t[178]=q,t[179]=Y,t[180]=X,t[181]=Z,t[182]=Q):Q=t[182];let In,$;let Ln;return t[191]!==Q||t[192]!==In||t[193]!==$?(Ln=(0,b.jsxs)(b.Fragment,{children:[Q,In,$]}),t[191]=Q,t[192]=In,t[193]=$,t[194]=Ln):Ln=t[194],Ln}",
 ].join("");
 
+const modernThreadOverflowMenuSource = [
+  "function mt({conversationId:e,cwd:a,archiveNavigation:h=`home`}){",
+  "let v,y,F,E,g,q,G,$,S,N,Re,R;",
+  "return[(0,$.jsx)(G.Item,{onSelect:()=>q(g),LeftIcon:Re,keyboardShortcut:R,children:(0,$.jsx)(S,{...N.archiveThread})}),null,(0,$.jsx)(G.Separator,{})]",
+  "}",
+].join("");
+
 test("thread delete patch adds a confirmed remove chat action below archive", () => {
   assert.doesNotMatch(
     threadOverflowMenuSource,
@@ -47,6 +54,15 @@ test("thread delete patch tolerates renamed thread action import aliases", () =>
   assert.match(patched, /id:`threadHeader\.deleteThread`/);
 });
 
+test("thread delete patch supports modern bundled menu assets", () => {
+  const patched = patchThreadDeleteMenuSource(modernThreadOverflowMenuSource);
+
+  assert.match(patched, /function codexWebDeleteThread/);
+  assert.match(patched, /globalThis\.confirm/);
+  assert.match(patched, /method:`thread\/delete`/);
+  assert.match(patched, /id:`threadHeader\.deleteThread`/);
+});
+
 test("thread delete asset patch locates menu and icon chunks", () => {
   const assetsDir = fs.mkdtempSync(path.join(os.tmpdir(), "thread-delete-"));
 
@@ -67,6 +83,23 @@ test("thread delete asset patch locates menu and icon chunks", () => {
 
     assert.deepEqual(patchWebviewThreadDeleteAssets(assetsDir), [
       path.join(assetsDir, "thread-overflow-menu-DhpM07Ze.js"),
+    ]);
+  } finally {
+    fs.rmSync(assetsDir, { force: true, recursive: true });
+  }
+});
+
+test("thread delete asset patch handles modern menu without icon chunks", () => {
+  const assetsDir = fs.mkdtempSync(path.join(os.tmpdir(), "thread-delete-"));
+
+  try {
+    fs.writeFileSync(
+      path.join(assetsDir, "thread-overflow-menu-modern.js"),
+      modernThreadOverflowMenuSource,
+    );
+
+    assert.deepEqual(patchWebviewThreadDeleteAssets(assetsDir), [
+      path.join(assetsDir, "thread-overflow-menu-modern.js"),
     ]);
   } finally {
     fs.rmSync(assetsDir, { force: true, recursive: true });

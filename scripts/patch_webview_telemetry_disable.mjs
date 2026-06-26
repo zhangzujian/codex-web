@@ -14,40 +14,75 @@ const STATSIG_OPTIONS_FORMATTED =
 export function patchWebviewTelemetryDisableSource(source, assetName = "") {
   let patched = source;
 
-  if (assetName.startsWith("app-main-") || source.includes("function dP({")) {
-    patched = replaceOnceByRegex(
+  if (
+    source.includes("function dP({") ||
+    source.includes("Structured analytics disabled")
+  ) {
+    patched = replaceFirstAvailableByRegex(
       patched,
-      /(\bfunction dP\(\{[\s\S]{0,300}?\b)o\s*=\s*r\s*&&\s*a\s*===\s*`success`\s*&&\s*i\s*===\s*!0/,
-      "$1o=false",
-      /\bfunction dP\(\{[\s\S]{0,300}?\bo\s*=\s*false/,
+      [
+        {
+          pattern:
+            /(\bfunction [$A-Za-z_][\w$]*\(\{\s*appVersion\s*:[\s\S]{0,160}?enabled\s*:[\s\S]{0,60}?\}\)\s*\{[\s\S]{0,320}?[,;]\s*)([$A-Za-z_][\w$]*)\s*=\s*[$A-Za-z_][\w$]*\s*&&\s*[$A-Za-z_][\w$]*\s*===\s*`success`\s*&&\s*[$A-Za-z_][\w$]*\s*===\s*!0/,
+          replacement: "$1$2=false",
+        },
+      ],
+      /\bfunction [$A-Za-z_][\w$]*\(\{\s*appVersion\s*:[\s\S]{0,160}?enabled\s*:[\s\S]{0,60}?\}\)\s*\{[\s\S]{0,320}?[$A-Za-z_][\w$]*\s*=\s*false/,
       "AnalyticsLogger enabled flag",
     );
-    patched = replaceOnceByRegex(
+    patched = replaceFirstAvailableByRegex(
       patched,
-      /async function hP\(e\)\s*\{/,
-      (match) => `${match}return;`,
-      /async function hP\(e\)\s*\{\s*return;/,
+      [
+        {
+          pattern: /async function hP\(e\)\s*\{/,
+          replacement: (match) => `${match}return;`,
+        },
+        {
+          pattern:
+            /async function [$A-Za-z_][\w$]*\(e\)\s*\{\s*try\s*\{\s*switch\s*\(e\.eventKind\)\s*\{\s*case\s*`turn_rating`/,
+          replacement: (match) => match.replace(/\{\s*try/, "{return;try"),
+        },
+      ],
+      /async function [$A-Za-z_][\w$]*\(e\)\s*\{\s*return;\s*(?:try\s*\{\s*switch\s*\(e\.eventKind\)\s*\{\s*case\s*`turn_rating`)?/,
       "Codex analytics submitter",
     );
     patched = replaceStatsigOptions(patched);
-    patched = replaceOnceByRegex(
+    patched = replaceFirstAvailableByRegex(
       patched,
-      /function eF\(e\)\s*\{/,
-      (match) => `${match}return e.children;`,
-      /function eF\(e\)\s*\{\s*return e\.children;/,
+      [
+        {
+          pattern: /function eF\(e\)\s*\{/,
+          replacement: (match) => `${match}return e.children;`,
+        },
+        {
+          pattern:
+            /function [$A-Za-z_][\w$]*\(\{appVersion:[^}]*children:([$A-Za-z_][\w$]*)\}\)\{(?=[\s\S]{0,1800}?StatsigProvider)/,
+          replacement: (match, childrenName) => `${match}return ${childrenName};`,
+        },
+      ],
+      /function [$A-Za-z_][\w$]*\((?:e|\{appVersion:[^}]*children:[$A-Za-z_][\w$]*\})\)\s*\{\s*return (?:e\.children|[$A-Za-z_][\w$]*);/,
       "Statsig provider",
     );
   }
 
   if (
     source.includes("/wham/analytics-events/events") &&
-    source.includes("async function ff")
+    source.includes("async function")
   ) {
-    patched = replaceOnceByRegex(
+    patched = replaceFirstAvailableByRegex(
       patched,
-      /async function ff\(\{[\s\S]{0,300}?\}\)\s*\{/,
-      (match) => `${match}return false;`,
-      /async function ff\(\{[\s\S]{0,300}?\}\)\s*\{\s*return false;/,
+      [
+        {
+          pattern: /async function ff\(\{[\s\S]{0,300}?\}\)\s*\{/,
+          replacement: (match) => `${match}return false;`,
+        },
+        {
+          pattern:
+            /async function [$A-Za-z_][\w$]*\(\{\s*eventType\s*:[\s\S]{0,220}?\}\)\s*\{/,
+          replacement: (match) => `${match}return false;`,
+        },
+      ],
+      /async function [$A-Za-z_][\w$]*\(\{\s*(?:eventType\s*:)?[\s\S]{0,300}?\}\)\s*\{\s*return false;/,
       "usage limit analytics submitter",
     );
   }
@@ -129,20 +164,41 @@ function replaceOnceByRegex(source, pattern, replacement, marker, label) {
   return source.replace(pattern, replacement);
 }
 
+function replaceFirstAvailableByRegex(source, replacements, marker, label) {
+  if (marker.test(source)) {
+    return source;
+  }
+
+  const errors = [];
+  for (const { pattern, replacement } of replacements) {
+    try {
+      return replaceOnceByRegex(source, pattern, replacement, marker, label);
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+
+  throw errors.at(-1) ?? new Error(`Unable to patch ${label}`);
+}
+
 function hasAppMainTelemetryDisable(source) {
   return (
-    /\bfunction dP\(\{[\s\S]{0,300}?\bo\s*=\s*false/.test(source) &&
-    /async function hP\(e\)\s*\{\s*return;/.test(source) &&
+    /\bfunction [$A-Za-z_][\w$]*\(\{\s*appVersion\s*:[\s\S]{0,160}?enabled\s*:[\s\S]{0,60}?\}\)\s*\{[\s\S]{0,320}?[$A-Za-z_][\w$]*\s*=\s*false/.test(
+      source,
+    ) &&
+    /async function [$A-Za-z_][\w$]*\(e\)\s*\{\s*return;/.test(source) &&
     source.includes(
       "overrideAdapter:window.__ELECTRON_SHIM__.overrideAdapter",
     ) &&
     /preventAllNetworkTraffic:(?:!0|true)/.test(source) &&
-    /function eF\(e\)\s*\{\s*return e\.children;/.test(source)
+    /function [$A-Za-z_][\w$]*\((?:e|\{appVersion:[^}]*children:[$A-Za-z_][\w$]*\})\)\s*\{\s*return (?:e\.children|[$A-Za-z_][\w$]*);/.test(
+      source,
+    )
   );
 }
 
 function hasComposerTelemetryDisable(source) {
-  return /async function ff\(\{[\s\S]{0,300}?\}\)\s*\{\s*return false;/.test(
+  return /async function [$A-Za-z_][\w$]*\(\{[\s\S]{0,300}?\}\)\s*\{\s*return false;/.test(
     source,
   );
 }

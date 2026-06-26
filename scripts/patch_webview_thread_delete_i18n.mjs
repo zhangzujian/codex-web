@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ZH_CN_LOCALE_PATTERN = /^zh-CN-[\w-]+\.js$/;
-const LOCALE_EXPORT_PATTERN = /,t=\{([\s\S]*)\};export\{t as default/;
+const LOCALE_EXPORT_PATTERN = /export\{([^}]+)\}/;
 const TRANSLATIONS = Object.freeze({
   "threadHeader.deleteThread": "移除对话",
   "threadHeader.deleteThreadError": "无法移除对话",
@@ -24,20 +24,29 @@ export function patchThreadDeleteZhCnLocaleSource(source) {
     return source;
   }
 
-  const match = LOCALE_EXPORT_PATTERN.exec(source);
-  if (!match) {
+  const defaultExportName = findDefaultExportName(source);
+  if (defaultExportName == null) {
+    throw new Error("Unable to locate zh-CN locale message export");
+  }
+  const assignmentNeedle = `${defaultExportName}={`;
+  const assignmentIndex = source.indexOf(assignmentNeedle);
+  if (assignmentIndex < 0) {
+    throw new Error("Unable to locate zh-CN locale message export");
+  }
+  const objectStart = assignmentIndex + defaultExportName.length + 1;
+  const objectEnd = findObjectEnd(source, objectStart);
+  if (objectEnd == null) {
     throw new Error("Unable to locate zh-CN locale message export");
   }
 
   const insertion =
-    (match[1].trim().length > 0 ? "," : "") +
+    (source.slice(objectStart + 1, objectEnd).trim().length > 0 ? "," : "") +
     missingEntries
       .map(
         ([key, value]) => `${JSON.stringify(key)}:\`${escapeTemplate(value)}\``,
       )
       .join(",");
-  const insertAt = match.index + match[0].indexOf("};export");
-  return source.slice(0, insertAt) + insertion + source.slice(insertAt);
+  return source.slice(0, objectEnd) + insertion + source.slice(objectEnd);
 }
 
 export function patchWebviewThreadDeleteI18nAssets(assetsDir) {
@@ -61,6 +70,55 @@ export function patchWebviewThreadDeleteI18nAssets(assetsDir) {
 
 function escapeTemplate(value) {
   return value.replaceAll("\\", "\\\\").replaceAll("`", "\\`");
+}
+
+function findDefaultExportName(source) {
+  const match = LOCALE_EXPORT_PATTERN.exec(source);
+  if (!match) {
+    return null;
+  }
+  for (const exportSpec of match[1].split(",")) {
+    const aliasMatch = /^\s*([A-Za-z_$][\w$]*)\s+as\s+default\s*$/.exec(
+      exportSpec,
+    );
+    if (aliasMatch) {
+      return aliasMatch[1];
+    }
+  }
+  return null;
+}
+
+function findObjectEnd(source, objectStart) {
+  let depth = 0;
+  let quote = null;
+  let escaped = false;
+
+  for (let index = objectStart; index < source.length; index += 1) {
+    const char = source[index];
+
+    if (quote != null) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'" || char === "`") {
+      quote = char;
+    } else if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return index;
+      }
+    }
+  }
+  return null;
 }
 
 const invokedPath = process.argv[1]

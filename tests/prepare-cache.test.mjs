@@ -18,13 +18,12 @@ import {
   patchBrowserBuildAssets,
 } from "../scripts/patch_browser_build_assets.mjs";
 
-const appVersion = "26.616.81150";
+const appVersion = "26.623.30605";
 const archiveName = `Codex-darwin-arm64-${appVersion}.zip`;
 const appZipPath = `Codex.app/Contents/Resources/app.asar`;
 const appZipDir = `Codex.app/Contents/Resources`;
 const patchNames = [
   "webview-remove-csp.patch",
-  "webview-style.patch",
   "webview-preload.patch",
   "webview-favicon.patch",
   "webview-pwa.patch",
