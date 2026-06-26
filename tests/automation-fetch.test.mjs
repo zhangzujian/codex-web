@@ -227,7 +227,7 @@ test("automation fetch bridge returns empty inbox history", async () => {
 
     assert.deepEqual(fetchBody(messages[0]), {
       items: [],
-      unreadRunCounts: { total: 0, automationIds: [] },
+      unreadRunCounts: { total: 0, automationIds: [], unreadRuns: [] },
     });
   } finally {
     await rm(tempDir, { recursive: true, force: true });
@@ -379,6 +379,7 @@ test("automation fetch bridge runs automations through app-server threads", asyn
     assert.deepEqual(fetchBody(messages[3]).unreadRunCounts, {
       total: 1,
       automationIds: ["automation-1"],
+      unreadRuns: [{ automationId: "automation-1", threadId: "thread-1" }],
     });
   } finally {
     await rm(tempDir, { recursive: true, force: true });
@@ -470,6 +471,7 @@ test("automation dispatch bridge marks inbox items read and unread", async () =>
     assert.deepEqual(fetchBody(messages[2]).unreadRunCounts, {
       total: 0,
       automationIds: [],
+      unreadRuns: [],
     });
 
     await handleAutomationDispatchMessage(
@@ -496,6 +498,7 @@ test("automation dispatch bridge marks inbox items read and unread", async () =>
     assert.deepEqual(fetchBody(messages[3]).unreadRunCounts, {
       total: 1,
       automationIds: ["automation-1"],
+      unreadRuns: [{ automationId: "automation-1", threadId: "thread-1" }],
     });
   } finally {
     await rm(tempDir, { recursive: true, force: true });
@@ -589,6 +592,7 @@ test("automation dispatch bridge marks all automation runs read", async () => {
     assert.deepEqual(fetchBody(messages[4]).unreadRunCounts, {
       total: 0,
       automationIds: [],
+      unreadRuns: [],
     });
   } finally {
     await rm(tempDir, { recursive: true, force: true });
@@ -673,6 +677,7 @@ test("automation dispatch bridge deletes run history for deleted threads", async
     assert.deepEqual(fetchBody(messages[2]).unreadRunCounts, {
       total: 0,
       automationIds: [],
+      unreadRuns: [],
     });
   } finally {
     await rm(tempDir, { recursive: true, force: true });

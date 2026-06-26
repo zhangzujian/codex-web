@@ -841,8 +841,10 @@ function nowMs(environment: AutomationFetchEnvironment): number {
 function unreadRunCounts(items: AutomationInboxItem[]): {
   total: number;
   automationIds: string[];
+  unreadRuns: Array<{ automationId: string; threadId: string }>;
 } {
   const automationIds = new Set<string>();
+  const unreadRuns: Array<{ automationId: string; threadId: string }> = [];
   let total = 0;
   for (const item of items) {
     if (item.readAt != null || !isAutomationRunInboxItem(item)) {
@@ -850,8 +852,9 @@ function unreadRunCounts(items: AutomationInboxItem[]): {
     }
     total += 1;
     automationIds.add(item.automationId);
+    unreadRuns.push({ automationId: item.automationId, threadId: item.threadId });
   }
-  return { total, automationIds: [...automationIds] };
+  return { total, automationIds: [...automationIds], unreadRuns };
 }
 
 function isAutomationRunInboxItem(item: AutomationInboxItem): boolean {

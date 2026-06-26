@@ -606,6 +606,7 @@ function nowMs(environment) {
 }
 function unreadRunCounts(items) {
     const automationIds = new Set();
+    const unreadRuns = [];
     let total = 0;
     for (const item of items) {
         if (item.readAt != null || !isAutomationRunInboxItem(item)) {
@@ -613,8 +614,9 @@ function unreadRunCounts(items) {
         }
         total += 1;
         automationIds.add(item.automationId);
+        unreadRuns.push({ automationId: item.automationId, threadId: item.threadId });
     }
-    return { total, automationIds: [...automationIds] };
+    return { total, automationIds: [...automationIds], unreadRuns };
 }
 function isAutomationRunInboxItem(item) {
     return (item.status === "ACCEPTED" ||
