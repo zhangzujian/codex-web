@@ -90,17 +90,30 @@ export function patchWebviewTurnStreamingAssets(assetsDir) {
     const patched = patchWebviewTurnStreamingSource(source, assetName);
     sawRenderTurnPatch ||= patched.includes(RENDER_TURN_DIRECT);
     sawRenderTurnPatch ||= patched.includes(MODERN_RENDER_TURN_DIRECT);
+    sawRenderTurnPatch ||=
+      /[$A-Za-z_][\w$]*=o\?\?[$A-Za-z_][\w$]*\(a,s\?\?[$A-Za-z_][\w$]*,\{isBackgroundSubagentsEnabled:[$A-Za-z_][\w$]*,preserveServerUserMessages:[$A-Za-z_][\w$]*\}\);let [$A-Za-z_][\w$]*=[$A-Za-z_][\w$]*/.test(
+        patched,
+      );
     sawTurnItemsPatch ||=
       patched.includes(TURN_ITEMS_DIRECT) ||
-      patched.includes(MODERN_TURN_ITEMS_DIRECT);
+      patched.includes(MODERN_TURN_ITEMS_DIRECT) ||
+      /[$A-Za-z_][\w$]*=\(\(\)=>\{let e=[$A-Za-z_][\w$]*\?a\.items:a\.items\.filter\(e=>e\.type!==`subagent-activity`\)/.test(
+        patched,
+      );
     sawTurnComponentPatch ||=
       (assetName.startsWith("local-conversation-turn-") &&
         patched.includes(TURN_COMPONENT_DIRECT_START)) ||
-      patched.includes(MODERN_TURN_COMPONENT_DIRECT_START);
+      patched.includes(MODERN_TURN_COMPONENT_DIRECT_START) ||
+      /[$A-Za-z_][\w$]*=function\(e\)\{[\s\S]{0,2400}?return \(0,[$A-Za-z_][\w$]*\.jsx\)\([$A-Za-z_][\w$]*,\{conversationId:[\s\S]{0,220}?mcpTurn:a,turn:/.test(
+        patched,
+      );
     sawThreadTurnElementPatch ||=
       assetName.startsWith("local-conversation-thread-") &&
       (patched.includes("let L = I,\n    R = (0, $.jsx)(Gt, {") ||
-        patched.includes("let L=I,R=(0,$.jsx)(Gt,{"));
+        patched.includes("let L=I,R=(0,$.jsx)(Gt,{") ||
+        /children:\(0,[$A-Za-z_][\w$]*\.jsx\)\([$A-Za-z_][\w$]*,\{conversationId:[\s\S]{0,240}?turnState:[^,]+,turnRequests:/.test(
+          patched,
+        ));
     sawThreadTurnElementPatch ||= patched.includes(
       "return (0,e3.jsx)(GBn,{conversationId:n,hostId:r,turnSearchKey:i,turnId:a.turnId,mcpTurn:a,turn:ae",
     );
@@ -130,7 +143,10 @@ export function patchWebviewTurnStreamingAssets(assetsDir) {
 function isModernTurnSource(source) {
   return (
     source.includes(MODERN_TURN_COMPONENT_MEMO_START) ||
-    source.includes(MODERN_TURN_COMPONENT_DIRECT_START)
+    source.includes(MODERN_TURN_COMPONENT_DIRECT_START) ||
+    (source.includes("preserveServerUserMessages") &&
+      source.includes("mcpTurn:a,turn:") &&
+      source.includes("subagentActivityItemGroups"))
   );
 }
 
@@ -170,7 +186,97 @@ function patchModernTurnStreamingSource(source) {
     MODERN_TURN_ITEM_KEY_MAP_DIRECT,
     "modern turn item key map memo",
   );
+  patched = replaceModernTurnComponentMemoStart(patched);
+  patched = replaceModernRenderTurnMemo(patched);
+  patched = replaceModernTurnComponentElementCacheDynamic(patched);
+  patched = replaceModernTurnItemsMemoDynamic(patched);
+  patched = replaceModernTurnItemGroupsMemoDynamic(patched);
+  patched = replaceModernTurnItemKeyMapMemoDynamic(patched);
   return patched;
+}
+
+function replaceModernTurnComponentMemoStart(source) {
+  const markerIndex = source.indexOf("mcpTurn:a,turn:");
+  if (markerIndex === -1) {
+    return source;
+  }
+  const match = findLastMatchBefore(
+    source,
+    /([$A-Za-z_][\w$]*)=\(0,([$A-Za-z_][\w$]*)\.memo\)\(function\(e\)\{/g,
+    markerIndex,
+  );
+  if (match == null || match.index == null) {
+    return source;
+  }
+  return (
+    source.slice(0, match.index) +
+    `${match[1]}=function(e){` +
+    source.slice(match.index + match[0].length)
+  );
+}
+
+function replaceModernRenderTurnMemo(source) {
+  return source.replace(
+    /([$A-Za-z_][\w$]*);t\[0\]!==([$A-Za-z_][\w$]*)\|\|t\[1\]!==a\|\|t\[2\]!==([$A-Za-z_][\w$]*)\|\|t\[3\]!==s\|\|t\[4\]!==o\?\(\1=o\?\?([$A-Za-z_][\w$]*)\(a,s\?\?([$A-Za-z_][\w$]*),\{isBackgroundSubagentsEnabled:\2,preserveServerUserMessages:\3\}\),t\[0\]=\2,t\[1\]=a,t\[2\]=\3,t\[3\]=s,t\[4\]=o,t\[5\]=\1\):\1=t\[5\];let ([$A-Za-z_][\w$]*)=\1([,;])/,
+    "$1=o??$4(a,s??$5,{isBackgroundSubagentsEnabled:$2,preserveServerUserMessages:$3});let $6=$1$7",
+  );
+}
+
+function replaceModernTurnComponentElementCacheDynamic(source) {
+  if (/return \(0,[$A-Za-z_][\w$]*\.jsx\)\([$A-Za-z_][\w$]*,\{conversationId:[\s\S]{0,160}?mcpTurn:a,turn:/.test(source)) {
+    return source;
+  }
+
+  const markerIndex = source.indexOf("mcpTurn:a,turn:");
+  if (markerIndex === -1) {
+    return source;
+  }
+  const startMatch = findLastMatchBefore(
+    source,
+    /let ([$A-Za-z_][\w$]*);return/g,
+    markerIndex,
+  );
+  if (startMatch == null) {
+    return source;
+  }
+
+  const cacheVar = startMatch[1];
+  const start = startMatch.index;
+  const jsxStartMarker = `?(${cacheVar}=`;
+  const jsxStart = source.indexOf(jsxStartMarker, start);
+  const jsxEnd = source.indexOf(",t[16]=", jsxStart);
+  const memoEnd = source.indexOf("})}));function", jsxEnd);
+  if (jsxStart === -1 || jsxEnd === -1 || memoEnd === -1) {
+    return source;
+  }
+
+  const jsx = source.slice(jsxStart + jsxStartMarker.length, jsxEnd);
+  return (
+    source.slice(0, start) +
+    `return ${jsx}}}));function` +
+    source.slice(memoEnd + "})}));function".length)
+  );
+}
+
+function replaceModernTurnItemsMemoDynamic(source) {
+  return source.replace(
+    /([$A-Za-z_][\w$]*)=\(0,([$A-Za-z_][\w$]*)\.useMemo\)\(\(\)=>\{let e=([$A-Za-z_][\w$]*)\?a\.items:a\.items\.filter\(e=>e\.type!==`subagent-activity`\);return ([$A-Za-z_][\w$]*)\?([$A-Za-z_][\w$]*)\(e\):e\},\[\3,!1,!1,[$A-Za-z_][\w$]*,\4,a\.items\]\),/,
+    "$1=(()=>{let e=$3?a.items:a.items.filter(e=>e.type!==`subagent-activity`);return $4?$5(e):e})(),",
+  );
+}
+
+function replaceModernTurnItemGroupsMemoDynamic(source) {
+  return source.replace(
+    /(\{userItems:[\s\S]{0,420}?subagentActivityItemGroups:[$A-Za-z_][\w$]*\})=\(0,[$A-Za-z_][\w$]*\.useMemo\)\(\(\)=>([$A-Za-z_][\w$]*)\(([$A-Za-z_][\w$]*),a\.status\),\[\3,a\.status\]\),/,
+    "$1=$2($3,a.status),",
+  );
+}
+
+function replaceModernTurnItemKeyMapMemoDynamic(source) {
+  return source.replace(
+    /([$A-Za-z_][\w$]*)=\(0,[$A-Za-z_][\w$]*\.useMemo\)\(\(\)=>\{let e=new Map;return ([$A-Za-z_][\w$]*)\.forEach\(\(t,n\)=>\{if\(t\.type===`user-message`\)\{e\.set\(t,`\$\{n\}:user`\);return\}t\.type===`assistant-message`&&e\.set\(t,`\$\{n\}:assistant`\)\}\),e\},\[\2\]\)([,;])/,
+    "$1=(()=>{let e=new Map;return $2.forEach((t,n)=>{if(t.type===`user-message`){e.set(t,`${n}:user`);return}t.type===`assistant-message`&&e.set(t,`${n}:assistant`)}),e})()$3",
+  );
 }
 
 function replaceModernTurnComponentElementCache(source) {
@@ -368,6 +474,17 @@ function replaceOnceIfPresent(source, before, after, label) {
     throw new Error(`Expected one ${label}, found multiple`);
   }
   return source.slice(0, first) + after + source.slice(first + before.length);
+}
+
+function findLastMatchBefore(source, pattern, index) {
+  let result = null;
+  for (const match of source.matchAll(pattern)) {
+    if (match.index == null || match.index >= index) {
+      break;
+    }
+    result = match;
+  }
+  return result;
 }
 
 const invokedPath = process.argv[1]

@@ -18,6 +18,8 @@ const KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION =
   "function codexWebRenderTerminalPanels(e,t,n,r,i){if(t==null||!Array.isArray(n)||!n.some(e=>typeof e?.tabId==`string`&&e.tabId.startsWith(`terminal:`)))return t==null?(0,Q.jsx)(`div`,{className:`relative min-h-0 flex-1`,children:i}):(0,Q.jsx)(Cn,{controller:e,tab:t},r);let a=n.filter(e=>e.tabId===t.tabId||typeof e?.tabId==`string`&&e.tabId.startsWith(`terminal:`));return(0,Q.jsx)(Q.Fragment,{children:a.map(n=>{let r=n.tabId===t.tabId;return(0,Q.jsx)(`div`,{className:r?`contents`:`hidden`,children:(0,Q.jsx)(Cn,{controller:e,tab:n},n.tabId)},n.tabId)})})}";
 const MODERN_KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION =
   "function codexWebRenderTerminalPanels(e,t,n,r,i,a,o){if(t==null||!o)return a?(0,CU.jsx)(`div`,{className:`relative min-h-0 flex-1`,children:i}):(0,CU.jsx)(`div`,{className:`flex min-h-0 flex-1 items-center justify-center p-4 text-center text-sm text-token-text-secondary`,children:(0,CU.jsx)(J,{id:`appShell.tabPanel.worktreeProvisioning`,defaultMessage:`Available when the worktree is ready`,description:`Placeholder shown instead of tab content while a worktree is being provisioned`})});if(!Array.isArray(n)||!n.some(e=>typeof e?.tabId==`string`&&e.tabId.startsWith(`terminal:`)))return(0,CU.jsx)(ZGt,{controller:e,tab:t},r);let s=n.filter(e=>e.tabId===t.tabId||typeof e?.tabId==`string`&&e.tabId.startsWith(`terminal:`));return(0,CU.jsx)(CU.Fragment,{children:s.map(n=>{let r=n.tabId===t.tabId;return(0,CU.jsx)(`div`,{className:r?`contents`:`hidden`,children:(0,CU.jsx)(ZGt,{controller:e,tab:n},n.tabId)},n.tabId)})})}";
+const MODERN_TAB_PANEL_RENDER_PATTERN =
+  /([$A-Za-z_][\w$]*)=([$A-Za-z_][\w$]*)\?\(0,([$A-Za-z_][\w$]*)\.jsx\)\(([$A-Za-z_][\w$]*),\{controller:([$A-Za-z_][\w$]*),tab:([$A-Za-z_][\w$]*)\},([$A-Za-z_][\w$]*)\):([$A-Za-z_][\w$]*)\?\(0,\3\.jsx\)\(`div`,\{className:`relative min-h-0 flex-1`,children:([$A-Za-z_][\w$]*)\}\):\(0,\3\.jsx\)\(`div`,\{className:`flex min-h-0 flex-1 items-center justify-center p-4 text-center text-sm text-token-text-secondary`,children:\(0,\3\.jsx\)\(([$A-Za-z_][\w$]*),\{id:`appShell\.tabPanel\.worktreeProvisioning`,defaultMessage:`Available when the worktree is ready`,description:`Placeholder shown instead of tab content while a worktree is being provisioned`\}\)\}\)/;
 const BOTTOM_PANEL_UNMOUNT_CONDITION = "return!o&&!i?null:";
 const BOTTOM_PANEL_KEEP_MOUNTED_CONDITION = "return!o&&!i&&t==null?null:";
 const RIGHT_PANEL_UNMOUNT_CONDITION = "),!g&&!t?null:";
@@ -290,10 +292,15 @@ export function patchKeepMountedTerminalPanelsSource(source) {
       "),!t&&e==null?null:",
       RIGHT_PANEL_KEEP_MOUNTED_CONDITION,
     );
+  const modernPanelPatch = findModernKeepMountedTerminalPanelsPatch(upgradedSource);
   const withHelper = upgradedSource.includes(KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION)
     ? upgradedSource
     : upgradedSource.includes(MODERN_KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION)
       ? upgradedSource
+      : upgradedSource.includes("function codexWebRenderTerminalPanels(")
+        ? upgradedSource
+        : modernPanelPatch != null
+          ? `${upgradedSource.slice(0, modernPanelPatch.functionStart)}${modernPanelPatch.helper}${upgradedSource.slice(modernPanelPatch.functionStart)}`
       : upgradedSource.includes("function GGt(e){")
         ? replaceOnce(
             upgradedSource,
@@ -352,6 +359,20 @@ export function patchKeepMountedTerminalPanelsSource(source) {
   if (withRightPanelCache.includes("codexWebRenderTerminalPanels(s,l,c,u,a,h,g)")) {
     return withRightPanelCache;
   }
+  if (/[$A-Za-z_][\w$]*=codexWebRenderTerminalPanels\(/.test(withRightPanelCache)) {
+    return withRightPanelCache;
+  }
+
+  const modernPanelReplacement =
+    findModernKeepMountedTerminalPanelsPatch(withRightPanelCache);
+  if (modernPanelReplacement != null) {
+    return replaceOnce(
+      withRightPanelCache,
+      modernPanelReplacement.renderSource,
+      modernPanelReplacement.renderReplacement,
+      "Active tab panel render target not found",
+    );
+  }
 
   if (withRightPanelCache.includes("function GGt(e){")) {
     return replaceOnce(
@@ -368,6 +389,74 @@ export function patchKeepMountedTerminalPanelsSource(source) {
     "let _=codexWebRenderTerminalPanels(s,u,l,d,a);",
     "Active tab panel render target not found",
   );
+}
+
+function findModernKeepMountedTerminalPanelsPatch(source) {
+  const match = source.match(MODERN_TAB_PANEL_RENDER_PATTERN);
+  if (match == null || match.index == null) {
+    return null;
+  }
+
+  const [
+    renderSource,
+    assignmentVar,
+    visibleVar,
+    jsxNamespace,
+    panelComponent,
+    controllerVar,
+    activeTabVar,
+    reactKeyVar,
+    workspaceReadyVar,
+    emptyStateVar,
+    placeholderComponent,
+  ] = match;
+  const functionStart = source.lastIndexOf("function ", match.index);
+  if (functionStart === -1) {
+    return null;
+  }
+
+  const tabsVar = findModernTabsVariable(
+    source.slice(functionStart, match.index),
+    controllerVar,
+    activeTabVar,
+    reactKeyVar,
+  );
+  if (tabsVar == null) {
+    return null;
+  }
+
+  return {
+    functionStart,
+    helper: buildModernKeepMountedTerminalPanelsFunction({
+      jsxNamespace,
+      panelComponent,
+      placeholderComponent,
+    }),
+    renderSource,
+    renderReplacement: `${assignmentVar}=codexWebRenderTerminalPanels(${controllerVar},${activeTabVar},${tabsVar},${reactKeyVar},${emptyStateVar},${workspaceReadyVar},${visibleVar})`,
+  };
+}
+
+function findModernTabsVariable(
+  source,
+  controllerVar,
+  activeTabVar,
+  reactKeyVar,
+) {
+  const identifier = "([$A-Za-z_][\\w$]*)";
+  const call = "[$A-Za-z_][\\w$]*";
+  const pattern = new RegExp(
+    `${identifier}=${call}\\(${escapeRegExp(controllerVar)}\\.tabs\\$\\),${escapeRegExp(activeTabVar)}=${call}\\(${escapeRegExp(controllerVar)}\\.activeTab\\$\\),${escapeRegExp(reactKeyVar)}=${call}\\(${escapeRegExp(controllerVar)}\\.activeTabReactKey\\$\\)`,
+  );
+  return source.match(pattern)?.[1] ?? null;
+}
+
+function buildModernKeepMountedTerminalPanelsFunction({
+  jsxNamespace,
+  panelComponent,
+  placeholderComponent,
+}) {
+  return `function codexWebRenderTerminalPanels(e,t,n,r,i,a,o){if(t==null||!o)return a?(0,${jsxNamespace}.jsx)(\`div\`,{className:\`relative min-h-0 flex-1\`,children:i}):(0,${jsxNamespace}.jsx)(\`div\`,{className:\`flex min-h-0 flex-1 items-center justify-center p-4 text-center text-sm text-token-text-secondary\`,children:(0,${jsxNamespace}.jsx)(${placeholderComponent},{id:\`appShell.tabPanel.worktreeProvisioning\`,defaultMessage:\`Available when the worktree is ready\`,description:\`Placeholder shown instead of tab content while a worktree is being provisioned\`})});if(!Array.isArray(n)||!n.some(e=>typeof e?.tabId==\`string\`&&e.tabId.startsWith(\`terminal:\`)))return(0,${jsxNamespace}.jsx)(${panelComponent},{controller:e,tab:t},r);let s=n.filter(e=>e.tabId===t.tabId||typeof e?.tabId==\`string\`&&e.tabId.startsWith(\`terminal:\`));return(0,${jsxNamespace}.jsx)(${jsxNamespace}.Fragment,{children:s.map(n=>{let r=n.tabId===t.tabId;return(0,${jsxNamespace}.jsx)(\`div\`,{className:r?\`contents\`:\`hidden\`,children:(0,${jsxNamespace}.jsx)(${panelComponent},{controller:e,tab:n},n.tabId)},n.tabId)})})}`;
 }
 
 function patchNativeTerminalFontSource(source) {
@@ -545,6 +634,10 @@ function replaceOnce(source, search, replacement, errorMessage) {
     throw new Error(errorMessage);
   }
   return patched;
+}
+
+function escapeRegExp(source) {
+  return source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function splitTopLevel(source, delimiter) {

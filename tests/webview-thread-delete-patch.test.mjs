@@ -23,6 +23,13 @@ const modernThreadOverflowMenuSource = [
   "}",
 ].join("");
 
+const modernThreadOverflowMenuSourceWithDirectArchiveItem = [
+  "function mt({conversationId:e,cwd:i,archiveNavigation:f=`home`,archiveSource:p=`thread_overflow_menu`}){",
+  "let g=l(ee),v=he(),C=re(),Se=_(fe,e),[N,P]=(0,Q.useState)(!1),B,j,k,d,s,te,h,ot,xe,st,K,at,je;",
+  "return(0,$.jsxs)($.Fragment,{children:[(0,$.jsxs)(d,{open:N,onOpenChange:P,triggerButton:(0,$.jsx)(s,{size:`icon`,color:te,className:h??`no-drag`,`aria-label`:ot,children:(0,$.jsx)(xe,{className:st})}),align:`start`,contentWidth:`menu`,children:[(0,$.jsx)(k.Item,{onSelect:()=>K(p),LeftIcon:at,keyboardShortcut:je,children:(0,$.jsx)(j,{...B.archiveThread})}),null,(0,$.jsx)(k.Separator,{})]})]})",
+  "}",
+].join("");
+
 test("thread delete patch adds a confirmed remove chat action below archive", () => {
   assert.doesNotMatch(
     threadOverflowMenuSource,
@@ -61,6 +68,17 @@ test("thread delete patch supports modern bundled menu assets", () => {
   assert.match(patched, /globalThis\.confirm/);
   assert.match(patched, /method:`thread\/delete`/);
   assert.match(patched, /id:`threadHeader\.deleteThread`/);
+});
+
+test("thread delete patch supports modern direct archive menu items", () => {
+  const patched = patchThreadDeleteMenuSource(
+    modernThreadOverflowMenuSourceWithDirectArchiveItem,
+  );
+
+  assert.match(patched, /function codexWebDeleteThread/);
+  assert.match(patched, /method:`thread\/delete`/);
+  assert.match(patched, /id:`threadHeader\.deleteThread`/);
+  assert.match(patched, /children:\[\(0,\$\.jsx\)\(k\.Item,\{onSelect:\(\)=>K\(p\)/);
 });
 
 test("thread delete asset patch locates menu and icon chunks", () => {

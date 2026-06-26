@@ -15,14 +15,33 @@ const MODERN_AUTOMATIONS_NAV_MINIFIED_PATTERN =
 const PATCHED_AUTOMATIONS_NAV = "e\n              ? (0, Z.jsx)(Ca, {";
 const PATCHED_AUTOMATIONS_NAV_MINIFIED = "e?(0,Z.jsx)(Ca,{";
 const PATCHED_MODERN_AUTOMATIONS_NAV_MINIFIED = "t?(0,TN.jsx)(rS,{";
+const CURRENT_AUTOMATIONS_NAV_PATTERN =
+  /([$A-Za-z_][\w$]*)&&![$A-Za-z_][\w$]*&&[$A-Za-z_][\w$]*&&[$A-Za-z_][\w$]*===`codex`\?\(0,([$A-Za-z_][\w$]*)\.jsx\)\(([$A-Za-z_][\w$]*),\{/;
 
 export function patchWebviewAutomationsNavSource(source) {
   if (
     source.includes(PATCHED_AUTOMATIONS_NAV) ||
     source.includes(PATCHED_AUTOMATIONS_NAV_MINIFIED) ||
-    source.includes(PATCHED_MODERN_AUTOMATIONS_NAV_MINIFIED)
+    source.includes(PATCHED_MODERN_AUTOMATIONS_NAV_MINIFIED) ||
+    /(^|[^&$A-Za-z_])[$A-Za-z_][\w$]*\?\(0,[$A-Za-z_][\w$]*\.jsx\)\([$A-Za-z_][\w$]*,\{items:\[\{id:`mark-all-read`/.test(
+      source,
+    )
   ) {
     return source;
+  }
+
+  const currentMatches = [...source.matchAll(new RegExp(CURRENT_AUTOMATIONS_NAV_PATTERN, "g"))];
+  if (currentMatches.length === 1) {
+    const [match, gate, jsxNamespace, menuComponent] = currentMatches[0];
+    return source.replace(
+      match,
+      `${gate}?(0,${jsxNamespace}.jsx)(${menuComponent},{`,
+    );
+  }
+  if (currentMatches.length > 1) {
+    throw new Error(
+      "Expected one Automations navigation condition, found multiple",
+    );
   }
 
   const replacements = [

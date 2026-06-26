@@ -141,15 +141,12 @@ function isModernBrowserSidebarManagerSource(source) {
 function patchModernBrowserPanelIframeSupport(source, alreadyPatched) {
   let patched = ensureModernBrowserPanelHelperBindings(
     fixMalformedModernBrowserPanelHelper(source),
+    findModernBrowserPanelSymbols(source),
   );
+  const symbols = findModernBrowserPanelSymbols(patched);
 
   if (!alreadyPatched) {
-    patched = replaceOnce(
-      patched,
-      "bEe(),PEe=`about:blank`,",
-      `${helperExpression}bEe(),PEe=\`about:blank\`,`,
-      "modern browser panel constants",
-    );
+    patched = patchModernBrowserPanelConstants(patched, symbols);
 
     patched = replaceOnce(
       patched,
@@ -165,53 +162,131 @@ function patchModernBrowserPanelIframeSupport(source, alreadyPatched) {
       "modern retained browser panel host",
     );
 
-    patched = replaceOnce(
-      patched,
-      "this.setAdoptionAttributes(a??null,o??null,s),d.setAttribute(`src`,PEe),l.append(d,u)",
-      "this.setAdoptionAttributes(a??null,o??null,s),codexWebSetBrowserPanelFrameSrc(d,s.length===0?PEe:s),l.append(d,u)",
-      "modern visible browser panel initial URL",
-    );
+    patched = patchModernVisibleBrowserPanelInitialUrl(patched, symbols);
 
-    patched = replaceOnce(
-      patched,
-      "this.webview.setAttribute(`src`,o.length===0?ODe:o),this.container.append(this.webview,this.cursorOverlayHost)",
-      "codexWebSetBrowserPanelFrameSrc(this.webview,o.length===0?ODe:o),this.container.append(this.webview,this.cursorOverlayHost)",
-      "modern retained browser panel initial URL",
-    );
+    patched = patchModernRetainedBrowserPanelInitialUrl(patched, symbols);
 
-    patched = replaceOnce(
-      patched,
-      "this.webview.removeAttribute(zEe),this.webview.removeAttribute(BEe),this.webview.removeAttribute(VEe);return}this.webview.setAttribute(zEe,e),this.webview.setAttribute(BEe,t.toString()),this.webview.setAttribute(VEe,n)}}",
-      "this.webview.removeAttribute(zEe),this.webview.removeAttribute(BEe),this.webview.removeAttribute(VEe),codexWebSetBrowserPanelFrameSrc(this.webview,n.length===0?PEe:n);return}this.webview.setAttribute(zEe,e),this.webview.setAttribute(BEe,t.toString()),this.webview.setAttribute(VEe,n),codexWebSetBrowserPanelFrameSrc(this.webview,n.length===0?PEe:n)}}",
-      "modern browser panel adoption URL updates",
+    patched = patchModernBrowserPanelAdoptionUrlUpdates(patched, symbols);
+  }
+
+  patched = patchModernExistingVisibleBrowserPanelUrlUpdates(patched);
+
+  patched = patchModernExistingRetainedBrowserPanelUrlUpdates(patched, symbols);
+
+  patched = patchModernBrowserPanelSnapshotUrlUpdates(patched);
+
+  return patched;
+}
+
+function findModernBrowserPanelSymbols(source) {
+  const rootIndex = source.indexOf("`data-browser-sidebar-webview-host-root`");
+  const rootPrefix =
+    rootIndex === -1 ? "" : source.slice(Math.max(0, rootIndex - 500), rootIndex);
+  const visibleBlankUrlVar = rootPrefix.match(
+    /([$A-Za-z_][\w$]*)=`about:blank`/,
+  )?.[1];
+  const retainedBlankUrlVar = source.match(
+    /this\.webview\.setAttribute\(`src`,o\.length===0\?([$A-Za-z_][\w$]*):o\),this\.container\.append\(this\.webview,this\.cursorOverlayHost\)/,
+  )?.[1];
+  const adoptionAttributeVars = source.match(
+    /this\.webview\.removeAttribute\(([$A-Za-z_][\w$]*)\),this\.webview\.removeAttribute\(([$A-Za-z_][\w$]*)\),this\.webview\.removeAttribute\(([$A-Za-z_][\w$]*)\);return\}this\.webview\.setAttribute\(\1,e\),this\.webview\.setAttribute\(\2,t\.toString\(\)\),this\.webview\.setAttribute\(\3,n\)\}\}/,
+  );
+
+  if (visibleBlankUrlVar == null) {
+    return null;
+  }
+
+  return {
+    visibleBlankUrlVar,
+    retainedBlankUrlVar,
+    adoptionLeaseVar: adoptionAttributeVars?.[1],
+    adoptedWebContentsIdVar: adoptionAttributeVars?.[2],
+    adoptedInitialUrlVar: adoptionAttributeVars?.[3],
+  };
+}
+
+function patchModernBrowserPanelConstants(source, symbols) {
+  if (symbols != null) {
+    return replaceOnce(
+      source,
+      `${symbols.visibleBlankUrlVar}=\`about:blank\`,`,
+      `${helperExpression}${symbols.visibleBlankUrlVar}=\`about:blank\`,`,
+      "modern browser panel constants",
     );
   }
 
-  patched = replaceOnceIfMissing(
-    patched,
-    "if(l instanceof ES&&l.getPartition()===c)return l.setHostKind(u),l.setPagePersistence(s)&&(this.notifyWebviewHostCreated(e,n,u,s),this.emitChange()),i!=null&&(l.setAdoptionAttributes(i.adoptionLease??null,i.adoptedWebContentsId??null,r),i.adoptionLease!=null&&i.adoptedWebContentsId!=null&&lr.info(`IAB_ADOPTION renderer updated adopted webview`,{safe:{adoptedWebContentsId:i.adoptedWebContentsId,browserTabId:n,conversationId:e,hasInitialUrl:r.length>0},sensitive:{}})),l;",
-    "if(l instanceof ES&&l.getPartition()===c)return l.setHostKind(u),l.setPagePersistence(s)&&(this.notifyWebviewHostCreated(e,n,u,s),this.emitChange()),l.setAdoptionAttributes(i?.adoptionLease??null,i?.adoptedWebContentsId??null,r),i?.adoptionLease!=null&&i.adoptedWebContentsId!=null&&lr.info(`IAB_ADOPTION renderer updated adopted webview`,{safe:{adoptedWebContentsId:i.adoptedWebContentsId,browserTabId:n,conversationId:e,hasInitialUrl:r.length>0},sensitive:{}}),l;",
+  return replaceOnce(
+    source,
+    "bEe(),PEe=`about:blank`,",
+    `${helperExpression}bEe(),PEe=\`about:blank\`,`,
+    "modern browser panel constants",
+  );
+}
+
+function patchModernVisibleBrowserPanelInitialUrl(source, symbols) {
+  const blankUrlVar = symbols?.visibleBlankUrlVar ?? "PEe";
+  return replaceOnce(
+    source,
+    `this.setAdoptionAttributes(a??null,o??null,s),d.setAttribute(\`src\`,${blankUrlVar}),l.append(d,u)`,
+    `this.setAdoptionAttributes(a??null,o??null,s),codexWebSetBrowserPanelFrameSrc(d,s.length===0?${blankUrlVar}:s),l.append(d,u)`,
+    "modern visible browser panel initial URL",
+  );
+}
+
+function patchModernRetainedBrowserPanelInitialUrl(source, symbols) {
+  const blankUrlVar = symbols?.retainedBlankUrlVar ?? "ODe";
+  return replaceOnce(
+    source,
+    `this.webview.setAttribute(\`src\`,o.length===0?${blankUrlVar}:o),this.container.append(this.webview,this.cursorOverlayHost)`,
+    `codexWebSetBrowserPanelFrameSrc(this.webview,o.length===0?${blankUrlVar}:o),this.container.append(this.webview,this.cursorOverlayHost)`,
+    "modern retained browser panel initial URL",
+  );
+}
+
+function patchModernBrowserPanelAdoptionUrlUpdates(source, symbols) {
+  const visibleBlankUrlVar = symbols?.visibleBlankUrlVar ?? "PEe";
+  const adoptionLeaseVar = symbols?.adoptionLeaseVar ?? "zEe";
+  const adoptedWebContentsIdVar = symbols?.adoptedWebContentsIdVar ?? "BEe";
+  const adoptedInitialUrlVar = symbols?.adoptedInitialUrlVar ?? "VEe";
+  return replaceOnce(
+    source,
+    `this.webview.removeAttribute(${adoptionLeaseVar}),this.webview.removeAttribute(${adoptedWebContentsIdVar}),this.webview.removeAttribute(${adoptedInitialUrlVar});return}this.webview.setAttribute(${adoptionLeaseVar},e),this.webview.setAttribute(${adoptedWebContentsIdVar},t.toString()),this.webview.setAttribute(${adoptedInitialUrlVar},n)}}`,
+    `this.webview.removeAttribute(${adoptionLeaseVar}),this.webview.removeAttribute(${adoptedWebContentsIdVar}),this.webview.removeAttribute(${adoptedInitialUrlVar}),codexWebSetBrowserPanelFrameSrc(this.webview,n.length===0?${visibleBlankUrlVar}:n);return}this.webview.setAttribute(${adoptionLeaseVar},e),this.webview.setAttribute(${adoptedWebContentsIdVar},t.toString()),this.webview.setAttribute(${adoptedInitialUrlVar},n),codexWebSetBrowserPanelFrameSrc(this.webview,n.length===0?${visibleBlankUrlVar}:n)}}`,
+    "modern browser panel adoption URL updates",
+  );
+}
+
+function patchModernExistingVisibleBrowserPanelUrlUpdates(source) {
+  return replaceRegexOnceIfMissing(
+    source,
+    /if\(l instanceof ([$A-Za-z_][\w$]*)&&l\.getPartition\(\)===c\)return l\.setHostKind\(u\),l\.setPagePersistence\(s\)&&\(this\.notifyWebviewHostCreated\(e,n,u,s\),this\.emitChange\(\)\),i!=null&&\(l\.setAdoptionAttributes\(i\.adoptionLease\?\?null,i\.adoptedWebContentsId\?\?null,r\),i\.adoptionLease!=null&&i\.adoptedWebContentsId!=null&&([$A-Za-z_][\w$]*)\.info\(`IAB_ADOPTION renderer updated adopted webview`,\{safe:\{adoptedWebContentsId:i\.adoptedWebContentsId,browserTabId:n,conversationId:e,hasInitialUrl:r\.length>0\},sensitive:\{\}\}\)\),l;/,
+    (_match, hostClass, logger) =>
+      `if(l instanceof ${hostClass}&&l.getPartition()===c)return l.setHostKind(u),l.setPagePersistence(s)&&(this.notifyWebviewHostCreated(e,n,u,s),this.emitChange()),l.setAdoptionAttributes(i?.adoptionLease??null,i?.adoptedWebContentsId??null,r),i?.adoptionLease!=null&&i.adoptedWebContentsId!=null&&${logger}.info(\`IAB_ADOPTION renderer updated adopted webview\`,{safe:{adoptedWebContentsId:i.adoptedWebContentsId,browserTabId:n,conversationId:e,hasInitialUrl:r.length>0},sensitive:{}}),l;`,
     "l.setAdoptionAttributes(i?.adoptionLease??null,i?.adoptedWebContentsId??null,r)",
     "modern existing visible browser panel URL updates",
   );
+}
 
-  patched = replaceOnceIfMissing(
-    patched,
+function patchModernExistingRetainedBrowserPanelUrlUpdates(source, symbols) {
+  const blankUrlVar = symbols?.retainedBlankUrlVar ?? "ODe";
+  return replaceOnceIfMissing(
+    source,
     "if(c!=null&&c.getPartition()===s)return c.setHostKind(l),c.setPagePersistence(o)&&(this.notifyWebviewHostCreated(e,t,l,o),this.emitChange()),c;",
-    "if(c!=null&&c.getPartition()===s)return c.setHostKind(l),c.setPagePersistence(o)&&(this.notifyWebviewHostCreated(e,t,l,o),this.emitChange()),codexWebSetBrowserPanelFrameSrc(c.webview,n.length===0?ODe:n),c;",
-    "codexWebSetBrowserPanelFrameSrc(c.webview,n.length===0?ODe:n)",
+    `if(c!=null&&c.getPartition()===s)return c.setHostKind(l),c.setPagePersistence(o)&&(this.notifyWebviewHostCreated(e,t,l,o),this.emitChange()),codexWebSetBrowserPanelFrameSrc(c.webview,n.length===0?${blankUrlVar}:n),c;`,
+    "codexWebSetBrowserPanelFrameSrc(c.webview,",
     "modern existing retained browser panel URL updates",
   );
+}
 
-  patched = replaceOnceIfMissing(
-    patched,
-    "this.snapshots.set(a,i),this.browserUseTabKeys.has(a)&&this.syncBrowserUseTabKeys(e),i.tabType!==p.WEB",
-    "this.snapshots.set(a,i),codexWebSyncBrowserPanelSnapshotUrl(this.webviews.get(a),i),this.browserUseTabKeys.has(a)&&this.syncBrowserUseTabKeys(e),i.tabType!==p.WEB",
+function patchModernBrowserPanelSnapshotUrlUpdates(source) {
+  return replaceRegexOnceIfMissing(
+    source,
+    /this\.snapshots\.set\(a,i\),this\.browserUseTabKeys\.has\(a\)&&this\.syncBrowserUseTabKeys\(e\),i\.tabType!==([$A-Za-z_][\w$]*)\.WEB/,
+    (_match, tabTypeEnum) =>
+      `this.snapshots.set(a,i),codexWebSyncBrowserPanelSnapshotUrl(this.webviews.get(a),i),this.browserUseTabKeys.has(a)&&this.syncBrowserUseTabKeys(e),i.tabType!==${tabTypeEnum}.WEB`,
     "this.snapshots.set(a,i),codexWebSyncBrowserPanelSnapshotUrl(this.webviews.get(a),i)",
     "modern browser panel snapshot URL updates",
   );
-
-  return patched;
 }
 
 function fixMalformedModernBrowserPanelHelper(source) {
@@ -226,12 +301,19 @@ function fixMalformedModernBrowserPanelHelper(source) {
     );
 }
 
-function ensureModernBrowserPanelHelperBindings(source) {
+function ensureModernBrowserPanelHelperBindings(source, symbols = null) {
   if (
     source.includes(helperBindingVarPrefix) ||
-    !source.includes("var PEe,FEe,")
+    (!source.includes("var PEe,FEe,") &&
+      !source.includes(`var ${symbols?.visibleBlankUrlVar},`))
   ) {
     return source;
+  }
+  if (symbols?.visibleBlankUrlVar != null) {
+    return source.replace(
+      `var ${symbols.visibleBlankUrlVar},`,
+      `${helperBindingVarPrefix}${symbols.visibleBlankUrlVar},`,
+    );
   }
   return source.replace("var PEe,FEe,", `${helperBindingVarPrefix}PEe,FEe,`);
 }
@@ -268,6 +350,16 @@ function replaceOnceIfMissing(source, before, after, marker, label) {
     return source;
   }
   return replaceOnce(source, before, after, label);
+}
+
+function replaceRegexOnceIfMissing(source, pattern, replacement, marker, label) {
+  if (source.includes(marker)) {
+    return source;
+  }
+  if (!pattern.test(source)) {
+    throw new Error(`Unable to patch ${label}`);
+  }
+  return source.replace(pattern, replacement);
 }
 
 function replaceFirstAvailable(source, replacements, marker, label) {

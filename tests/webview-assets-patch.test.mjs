@@ -21,7 +21,27 @@ import {
   patchAutomationToolContractSupport,
   patchAutomationArgumentsNormalizationSupport,
   patchAutomationRemoteDefaultHostSupport,
+  checkPatchedJavaScriptFilesSyntax,
 } from "../scripts/patch_webview_assets.mjs";
+
+test("checkPatchedJavaScriptFilesSyntax rejects invalid patched JavaScript", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-web-syntax-"));
+  try {
+    const valid = join(dir, "valid.js");
+    const invalid = join(dir, "invalid.js");
+    const html = join(dir, "index.html");
+    await writeFile(valid, "const ok = 1;\n");
+    await writeFile(invalid, "function broken( { export const nope = 1;\n");
+    await writeFile(html, "<html></html>\n");
+
+    assert.throws(
+      () => checkPatchedJavaScriptFilesSyntax([valid, html, invalid]),
+      /Invalid JavaScript syntax in patched file/,
+    );
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
 
 test("patchRefetchQueriesCancelRefetchSupport keeps refetchQueries from cancelling in-flight fetches by default", () => {
   const source =

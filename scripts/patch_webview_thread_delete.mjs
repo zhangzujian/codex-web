@@ -14,6 +14,31 @@ function patchModernThreadDeleteMenuSource(source) {
   }
 
   let patched = source;
+  if (source.includes("...B.archiveThread")) {
+    const helper =
+      "async function codexWebDeleteThread({conversationId:e,hostId:t,onDeleteStart:n,scope:r,intl:i}){if(e==null||!globalThis.confirm(i.formatMessage({id:`threadHeader.deleteThreadConfirm.body`,defaultMessage:`This will permanently remove this chat from Codex.`,description:`Confirmation body for permanently removing a chat`})))return!1;n?.();try{return await E(`send-cli-request-for-host`,{hostId:t??`local`,method:`thread/delete`,params:{threadId:e}}),!0}catch(e){return r.get(ve).danger(i.formatMessage({id:`threadHeader.deleteThreadError`,defaultMessage:`Failed to remove chat`,description:`Error message shown when deleting a local thread fails`})),!1}}";
+    patched = patched.replace("function mt(", `${helper}function mt(`);
+
+    if (!patched.includes(DELETE_HELPER_NAME)) {
+      throw new Error("Unable to add thread delete helper");
+    }
+
+    const archiveItemPattern =
+      /\(0,\$\.jsx\)\(k\.Item,\{onSelect:\(\)=>K\(p\),LeftIcon:at,keyboardShortcut:je,children:\(0,\$\.jsx\)\(j,\{\.\.\.B\.archiveThread\}\)\}\),null,/;
+    const deleteItem =
+      "(0,$.jsx)(k.Item,{onSelect:()=>{codexWebDeleteThread({conversationId:e,hostId:Se,onDeleteStart:f===`home`?()=>{C(`/`,{replace:!0,state:{focusComposerNonce:Date.now(),prefillCwd:i}})}:void 0,scope:g,intl:v})},LeftIcon:at,children:(0,$.jsx)(j,{id:`threadHeader.deleteThread`,defaultMessage:`Remove chat`,description:`Menu item to permanently remove a local thread`})}),null,";
+    patched = patched.replace(
+      archiveItemPattern,
+      (archiveItem) => `${archiveItem}${deleteItem}`,
+    );
+
+    if (!patched.includes("id:`threadHeader.deleteThread`")) {
+      throw new Error("Unable to add thread delete menu item");
+    }
+
+    return patched;
+  }
+
   const helper =
     "async function codexWebDeleteThread({conversationId:e,hostId:t,onDeleteStart:n,scope:r,intl:i}){if(e==null||!globalThis.confirm(i.formatMessage({id:`threadHeader.deleteThreadConfirm.body`,defaultMessage:`This will permanently remove this chat from Codex.`,description:`Confirmation body for permanently removing a chat`})))return!1;n?.();try{return await d(`send-cli-request-for-host`,{hostId:t??`local`,method:`thread/delete`,params:{threadId:e}}),!0}catch(e){return r.get(je).danger(i.formatMessage({id:`threadHeader.deleteThreadError`,defaultMessage:`Failed to remove chat`,description:`Error message shown when deleting a local thread fails`})),!1}}";
   patched = patched.replace("function mt(", `${helper}function mt(`);

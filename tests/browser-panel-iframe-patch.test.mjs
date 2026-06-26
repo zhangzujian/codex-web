@@ -35,6 +35,16 @@ const modernBrowserSidebarManagerFixture = [
   "let mcp=document.createElement(`webview`);",
 ].join("");
 
+const currentModernBrowserSidebarManagerFixture = [
+  "var b_,x_,S_,C_,w_,T_,E_,D_,M_,Pv,Fv,Iv,Lv,Rv,Uv;",
+  "r_(),a_(),b_=`about:blank`,x_=`data-browser-sidebar-conversation-id`,S_=`data-browser-sidebar-browser-tab-id`,C_=`data-browser-sidebar-webview-host-root`,w_=`data-browser-sidebar-cursor-overlay-host`,T_=`owl-webcontents-adoption-lease`,E_=`owl-webcontents-adopted-web-contents-id`,D_=`data-browser-sidebar-adopted-initial-url`,M_=class{constructor({browserTabId:e,conversationId:t,elementKey:n,hostKind:r,partition:i,adoptionLease:a,adoptedWebContentsId:o,initialUrl:s,pagePersistence:c}){let l=document.createElement(`div`),u=document.createElement(`div`),d=document.createElement(`webview`);this.setAdoptionAttributes(a??null,o??null,s),d.setAttribute(`src`,b_),l.append(d,u)}setAdoptionAttributes(e,t,n){if(this.webview!=null){if(e==null||t==null){this.webview.removeAttribute(T_),this.webview.removeAttribute(E_),this.webview.removeAttribute(D_);return}this.webview.setAttribute(T_,e),this.webview.setAttribute(E_,t.toString()),this.webview.setAttribute(D_,n)}}};",
+  "Pv=`about:blank`,Fv=`data-browser-sidebar-conversation-id`,Iv=`data-browser-sidebar-browser-tab-id`,Lv=`data-browser-sidebar-retained-webview`,Rv=`data-browser-sidebar-cursor-overlay-host`,Uv=class{webview=document.createElement(`webview`);constructor({initialUrl:o}){this.webview.setAttribute(`src`,o.length===0?Pv:o),this.container.append(this.webview,this.cursorOverlayHost)}};",
+  "setSnapshot(e,t,n){this.snapshots.set(a,i),this.browserUseTabKeys.has(a)&&this.syncBrowserUseTabKeys(e),i.tabType!==qi.WEB}",
+  "getWebview(e,...t){if(l instanceof M_&&l.getPartition()===c)return l.setHostKind(u),l.setPagePersistence(s)&&(this.notifyWebviewHostCreated(e,n,u,s),this.emitChange()),i!=null&&(l.setAdoptionAttributes(i.adoptionLease??null,i.adoptedWebContentsId??null,r),i.adoptionLease!=null&&i.adoptedWebContentsId!=null&&Ji.info(`IAB_ADOPTION renderer updated adopted webview`,{safe:{adoptedWebContentsId:i.adoptedWebContentsId,browserTabId:n,conversationId:e,hasInitialUrl:r.length>0},sensitive:{}})),l;}",
+  "getRetainedWebview(e,t,n,r){if(c!=null&&c.getPartition()===s)return c.setHostKind(l),c.setPagePersistence(o)&&(this.notifyWebviewHostCreated(e,t,l,o),this.emitChange()),c;}",
+  "Hi.dispatchMessage(`browser-sidebar-webview-host-created`,{});let mcp=document.createElement(`webview`);",
+].join("");
+
 const parseableModernBrowserSidebarManagerFixture = [
   "let bEe=()=>{},ES=class{},lr={info(){}},p={WEB:`web`},gl={dispatchMessage(){}};",
   "bEe(),PEe=`about:blank`,ODe=`about:blank`,FEe=`data-browser-sidebar-conversation-id`,LEe=`data-browser-sidebar-webview-host-root`;",
@@ -198,6 +208,44 @@ test("patchBrowserPanelIframeSupport patches modern browser sidebar hosts only",
   assert.match(
     patched,
     /this\.snapshots\.set\(a,i\),codexWebSyncBrowserPanelSnapshotUrl\(this\.webviews\.get\(a\),i\)/,
+  );
+  assert.equal(patchBrowserPanelIframeSupport(patched), patched);
+});
+
+test("patchBrowserPanelIframeSupport adapts current modern browser sidebar names", () => {
+  const patched = patchBrowserPanelIframeSupport(
+    currentModernBrowserSidebarManagerFixture,
+  );
+
+  assert.equal(
+    (patched.match(/=codexWebCreateBrowserPanelFrame\(\)/g) ?? []).length,
+    2,
+  );
+  assert.equal(
+    (patched.match(/document\.createElement\(`webview`\)/g) ?? []).length,
+    1,
+    "unrelated MCP webview host should be preserved",
+  );
+  assert.match(patched, /data-codex-web-browser-panel-frame/);
+  assert.match(
+    patched,
+    /codexWebSetBrowserPanelFrameSrc\(d,s\.length===0\?b_:s\)/,
+  );
+  assert.match(
+    patched,
+    /codexWebSetBrowserPanelFrameSrc\(this\.webview,o\.length===0\?Pv:o\)/,
+  );
+  assert.match(
+    patched,
+    /M_&&l\.getPartition\(\)===c\)return .*l\.setAdoptionAttributes\(i\?\.adoptionLease\?\?null,i\?\.adoptedWebContentsId\?\?null,r\)/,
+  );
+  assert.match(
+    patched,
+    /codexWebSetBrowserPanelFrameSrc\(c\.webview,n\.length===0\?Pv:n\)/,
+  );
+  assert.match(
+    patched,
+    /this\.snapshots\.set\(a,i\),codexWebSyncBrowserPanelSnapshotUrl\(this\.webviews\.get\(a\),i\),this\.browserUseTabKeys\.has\(a\)/,
   );
   assert.equal(patchBrowserPanelIframeSupport(patched), patched);
 });

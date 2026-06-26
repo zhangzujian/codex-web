@@ -67,6 +67,9 @@ export function patchWebviewTelemetryDisableSource(source, assetName = "") {
 
   if (
     source.includes("/wham/analytics-events/events") &&
+    (source.includes("codex_usage_limit_banner") ||
+      source.includes("usage limit banner analytics event") ||
+      (source.includes("eventType") && source.includes("limitReason"))) &&
     source.includes("async function")
   ) {
     patched = replaceFirstAvailableByRegex(

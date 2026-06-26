@@ -2,6 +2,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { patchBrowserPanelIframeAssets } from "./patch_browser_panel_iframe.mjs";
 import { patchTerminalSidePanelSupport } from "./patch_terminal_side_panel.mjs";
@@ -116,6 +117,21 @@ export function patchWebviewAssets(assetsDir) {
   ];
 
   return [...new Set(patchedFiles)];
+}
+
+export function checkPatchedJavaScriptFilesSyntax(filePaths) {
+  for (const filePath of [...new Set(filePaths)].filter((filePath) =>
+    filePath.endsWith(".js"),
+  )) {
+    const result = spawnSync(process.execPath, ["--check", filePath], {
+      encoding: "utf8",
+    });
+    if (result.status !== 0) {
+      throw new Error(
+        `Invalid JavaScript syntax in patched file ${filePath}\n${result.stderr || result.stdout}`,
+      );
+    }
+  }
 }
 
 export function patchRefetchQueriesCancelRefetchSupport(source) {
@@ -655,5 +671,6 @@ if (invokedPath === import.meta.url) {
   const assetsDir =
     process.argv[2] ?? path.join(workspaceRoot, "scratch/asar/webview/assets");
   const patchedFiles = patchWebviewAssets(assetsDir);
+  checkPatchedJavaScriptFilesSyntax(patchedFiles);
   console.log(`Patched webview assets in ${patchedFiles.length} file(s)`);
 }

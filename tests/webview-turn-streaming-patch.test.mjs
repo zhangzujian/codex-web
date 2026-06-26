@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
-import { patchWebviewTurnStreamingSource } from "../scripts/patch_webview_turn_streaming.mjs";
+import {
+  patchWebviewTurnStreamingAssets,
+  patchWebviewTurnStreamingSource,
+} from "../scripts/patch_webview_turn_streaming.mjs";
 
 const turnSource = [
   "ne;t[0]!==R||t[1]!==a||t[2]!==L||t[3]!==c||t[4]!==s?(ne=s??A(a,c??Iy,{isBackgroundSubagentsEnabled:R,preserveServerUserMessages:L}),t[0]=R,t[1]=a,t[2]=L,t[3]=c,t[4]=s,t[5]=ne):ne=t[5];let re=ne,",
@@ -13,6 +19,15 @@ const turnComponentSource =
 
 const modernTurnComponentSource =
   "var oVn,sVn=e((()=>{oVn=(0,$4.memo)(function(e){let t=(0,Q4.c)(55),a={turnId:`turn`,status:`complete`},n,r,i,ae,w;let me;return t[16]!==w?(me=(0,e3.jsx)(GBn,{conversationId:n,hostId:r,turnSearchKey:i,turnId:a.turnId,mcpTurn:a,turn:ae}),t[16]=w,t[54]=me):me=t[54],me})}));function n3(){}function after(){}";
+
+const currentModernTurnSource = [
+  "var aQ,m7e=e((()=>{",
+  "aQ=(0,eQ.memo)(function(e){let t=(0,$Z.c)(55),{conversationId:n,hostId:r,turnSearchKey:i,turn:a,turnState:o,turnRequests:s,preserveServerUserMessages:c,isBackgroundSubagentsEnabled:l}=e,R=c===void 0?!1:c,z=l===void 0?!1:l,te;",
+  "t[0]!==z||t[1]!==a||t[2]!==R||t[3]!==s||t[4]!==o?(te=o??or(a,s??f7e,{isBackgroundSubagentsEnabled:z,preserveServerUserMessages:R}),t[0]=z,t[1]=a,t[2]=R,t[3]=s,t[4]=o,t[5]=te):te=t[5];let ne=te;",
+  "let de;return t[16]!==w||t[17]!==u?(de=(0,tQ.jsx)(t7e,{conversationId:n,hostId:r,turnSearchKey:i,turnId:a.turnId,mcpTurn:a,turn:ne}),t[16]=w,t[17]=u,t[54]=de):de=t[54],de})}));",
+  "function t7e({mcpTurn:i,turn:a,isBackgroundSubagentsEnabled:o=!1,startAfterTurnIntro:A=!1,showFullTranscript:R=!1}){let le=(0,eQ.useMemo)(()=>{let e=o?a.items:a.items.filter(e=>e.type!==`subagent-activity`);return A?$5e(e):e},[o,!1,!1,R,A,a.items]),{userItems:J,assistantItem:ue,subagentActivityItemGroups:ke}=(0,eQ.useMemo)(()=>k5e(le,a.status),[le,a.status]),ze=(0,eQ.useMemo)(()=>{let e=new Map;return le.forEach((t,n)=>{if(t.type===`user-message`){e.set(t,`${n}:user`);return}t.type===`assistant-message`&&e.set(t,`${n}:assistant`)}),e},[le]);return ze}",
+  "function oQ(){}",
+].join("");
 
 const threadSource = `let L = I,
     R;
@@ -36,6 +51,9 @@ const threadSource = `let L = I,
 
 const minifiedThreadSource =
   "let L=I,R;t[5]!==_||t[29]!==T||t[32]!==E?(R=(0,$.jsx)(Gt,{conversationId:i,hostId:o,turnSearchKey:k,turn:T,turnState:E,turnRequests:S,preserveServerUserMessages:b}),t[5]=_,t[29]=T,t[32]=E,t[33]=R):R=t[33];let z;";
+
+const currentDirectThreadSource =
+  "function Zb({entry:e}){let{conversationId:n,hostId:i,turnSearchKey:O,turn:w,turnState:T,requests:x,preserveServerUserMessages:y}=e;return Y(()=>{}),(0,tx.jsx)(fs,{children:(0,tx.jsx)(Uc,{conversationId:n,hostId:i,turnSearchKey:O,turn:w,turnState:T,turnRequests:x,preserveServerUserMessages:y})})}";
 
 test("turn streaming patch avoids memoizing mutable turn items", () => {
   const patched = patchWebviewTurnStreamingSource(
@@ -78,6 +96,24 @@ test("turn streaming patch keeps modern turn bundles parseable", () => {
   assert.match(patched, /return \(0,e3\.jsx\)\(GBn,\{conversationId:n/);
   assert.match(patched, /\}\}\)\);function n3/);
   assert.doesNotThrow(() => new Function(patched));
+});
+
+test("turn streaming patch adapts current modern turn bundles", () => {
+  const patched = patchWebviewTurnStreamingSource(currentModernTurnSource);
+
+  assert.match(patched, /aQ=function\(e\)\{/);
+  assert.match(
+    patched,
+    /te=o\?\?or\(a,s\?\?f7e,\{isBackgroundSubagentsEnabled:z,preserveServerUserMessages:R\}\);let ne=te/,
+  );
+  assert.match(patched, /return \(0,tQ\.jsx\)\(t7e,\{conversationId:n/);
+  assert.match(
+    patched,
+    /le=\(\(\)=>\{let e=o\?a\.items:a\.items\.filter\(e=>e\.type!==`subagent-activity`\);return A\?\$5e\(e\):e\}\)\(\)/,
+  );
+  assert.match(patched, /\}=k5e\(le,a\.status\),ze=\(\(\)=>\{let e=new Map/);
+  assert.doesNotThrow(() => new Function(patched));
+  assert.equal(patchWebviewTurnStreamingSource(patched), patched);
 });
 
 test("turn streaming patch removes minified thread turn element cache", () => {
@@ -132,4 +168,19 @@ test("turn streaming patch upgrades previous malformed thread element patch", ()
   assert.match(patched, /R = \(0, \$\.jsx\)\(Gt, \{/);
   assert.match(patched, /\}\);\n  let z;/);
   assert.doesNotThrow(() => new Function(patched));
+});
+
+test("turn streaming asset patch accepts current direct thread turn elements", () => {
+  const assetsDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-web-turn-"));
+  try {
+    fs.writeFileSync(path.join(assetsDir, "app-current-turn.js"), currentModernTurnSource);
+    fs.writeFileSync(
+      path.join(assetsDir, "local-conversation-thread-current.js"),
+      currentDirectThreadSource,
+    );
+
+    assert.doesNotThrow(() => patchWebviewTurnStreamingAssets(assetsDir));
+  } finally {
+    fs.rmSync(assetsDir, { recursive: true, force: true });
+  }
 });

@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { checkPatchedJavaScriptFilesSyntax } from "./patch_webview_assets.mjs";
 
 const SENTRY_INIT_PATTERNS = [
   /(?<prefix>\b[A-Za-z_$][\w$]*\(\{\s*)(?<rest>dsn:[\s\S]{0,300}?environment:[\s\S]{0,300}?release:)/g,
@@ -111,5 +112,6 @@ if (invokedPath === import.meta.url) {
   const workspaceRoot = path.resolve(scriptDir, "..");
   const asarRoot = process.argv[2] ?? path.join(workspaceRoot, "scratch/asar");
   const patchedFiles = patchSentryDisableAssets(asarRoot);
+  checkPatchedJavaScriptFilesSyntax(patchedFiles);
   console.log(`Disabled Sentry in ${patchedFiles.length} file(s)`);
 }

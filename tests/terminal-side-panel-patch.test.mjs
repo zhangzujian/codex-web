@@ -111,6 +111,14 @@ const appShellTabPanelChunk = [
   "var Cn=(0,Z.memo)(function(e){let{controller:n,tab:r}=e;return(0,Q.jsx)(`div`,{role:`tabpanel`,`data-app-shell-tab-panel-controller`:n.panelId,\"data-tab-id\":r.tabId})});",
 ].join("");
 
+const modernAppShellTabPanelChunk = [
+  "function ZF(e){",
+  "let t=(0,eI.c)(23),{afterList:n,afterListSticky:r,beforeList:i,emptyState:a,headerHeight:o,controller:s}=e,c=K(s.tabs$),l=K(s.activeTab$),u=K(s.activeTabReactKey$),d=K(WP),h=d===`ready`,g=l!=null&&(h||l.requiresWorkspaceReady===!1),v=(0,nI.jsx)(HF,{controller:s,tabs:c});",
+  "let y;t[13]!==l||t[14]!==g||t[15]!==u||t[16]!==s||t[17]!==a||t[18]!==h?(y=g?(0,nI.jsx)(iI,{controller:s,tab:l},u):h?(0,nI.jsx)(`div`,{className:`relative min-h-0 flex-1`,children:a}):(0,nI.jsx)(`div`,{className:`flex min-h-0 flex-1 items-center justify-center p-4 text-center text-sm text-token-text-secondary`,children:(0,nI.jsx)(X,{id:`appShell.tabPanel.worktreeProvisioning`,defaultMessage:`Available when the worktree is ready`,description:`Placeholder shown instead of tab content while a worktree is being provisioned`})}),t[13]=l,t[14]=g,t[15]=u,t[16]=s,t[17]=a,t[18]=h,t[19]=y):y=t[19];",
+  "return(0,nI.jsxs)(`div`,{children:[v,y]})}",
+  "var iI=(0,tI.memo)(function({controller:e,tab:t}){return(0,nI.jsx)(`div`,{role:`tabpanel`,`data-app-shell-tab-panel-controller`:e.panelId,\"data-tab-id\":t.tabId,children:t.renderPanel()})});",
+].join("");
+
 const appShellPanelWrapperChunk = [
   "function fr({bottomPanelHeight:e,children:t,clampedBottomPanelHeight:n,mainContentHeight:r,isVisible:i=!1}){let a=s(X),{isMounted:o}=lr({size:n,isVisible:i});return!o&&!i?null:(0,Q.jsx)(`div`,{children:t})}",
   "function kr({children:e,isRightPanelOpen:t,rightPanelWidth:r}){let o=s(X),l=c(Se),u=c(I),{isMounted:g}=lr({size:r,isVisible:t});return Qt(r,`change`,()=>{}),!g&&!t?null:(0,Q.jsx)(`aside`,{children:[e,l]})}",
@@ -383,6 +391,18 @@ test("patchKeepMountedTerminalPanelsSource keeps terminal panels mounted", () =>
   assert.doesNotMatch(patched, /panelId!==`bottom`/);
   assert.doesNotMatch(patched, /inactive/);
   assert.doesNotMatch(patched, /activeTabReactKey\$\).*?t\[12\]!==u/s);
+  assert.equal(patchKeepMountedTerminalPanelsSource(patched), patched);
+});
+
+test("patchKeepMountedTerminalPanelsSource adapts modern app shell tab panels", () => {
+  const patched = patchKeepMountedTerminalPanelsSource(
+    `${appShellPanelWrapperChunk}${appShellRootChunk}${modernAppShellTabPanelChunk}`,
+  );
+
+  assert.match(patched, /function codexWebRenderTerminalPanels/);
+  assert.match(patched, /y=codexWebRenderTerminalPanels\(s,l,c,u,a,h,g\)/);
+  assert.match(patched, /\(0,nI\.jsx\)\(iI,\{controller:e,tab:n\},n\.tabId\)/);
+  assert.match(patched, /\(0,nI\.jsx\)\(X,\{id:`appShell\.tabPanel\.worktreeProvisioning`/);
   assert.equal(patchKeepMountedTerminalPanelsSource(patched), patched);
 });
 
