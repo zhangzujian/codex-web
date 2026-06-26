@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import {
+  deriveStaticContractReview,
   extractRendererAssetStaticProfile,
   extractPreloadRequirements,
   extractPreloadStaticProfile,
@@ -123,6 +124,7 @@ test("generatePreloadHookPatch writes a patch from upstream artifacts", () => {
     );
     const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
     assert.equal(report.patchPath, patchPath);
+    assert.equal(report.staticReview.ok, true);
     assert.equal(report.support.ok, true);
     assert.deepEqual(report.requirements.syncChannels, []);
   } finally {
@@ -388,11 +390,388 @@ test("extractRendererAssetStaticProfile summarizes renderer-side bridge evidence
           "`git`,{type:`worker-request`,request:{method:`availability`}}",
       },
     ],
+    bridgeMethodObjectArgumentFields: [
+      {
+        argIndex: 0,
+        asset: "main.js",
+        fields: [
+          {
+            jsonStringifyObjectKeys: ["hostId"],
+            key: "body",
+            valueShape: { kind: "expression" },
+          },
+          {
+            jsonStringifyObjectKeys: [],
+            key: "requestId",
+            valueShape: { kind: "identifier", name: "i" },
+          },
+          {
+            jsonStringifyObjectKeys: [],
+            key: "type",
+            valueShape: { kind: "string", value: "fetch" },
+          },
+          {
+            jsonStringifyObjectKeys: [],
+            key: "url",
+            valueShape: {
+              kind: "string",
+              value: "vscode://codex/read-config-for-host",
+            },
+          },
+        ],
+        method: "sendMessageFromView",
+      },
+      {
+        argIndex: 0,
+        asset: "main.js",
+        fields: [
+          {
+            jsonStringifyObjectKeys: [],
+            key: "id",
+            valueShape: { kind: "string", value: "copy" },
+          },
+        ],
+        method: "showContextMenu",
+      },
+      {
+        argIndex: 1,
+        asset: "worker.js",
+        fields: [
+          {
+            jsonStringifyObjectKeys: [],
+            key: "request",
+            valueShape: { kind: "object", keys: ["method"] },
+          },
+          {
+            jsonStringifyObjectKeys: [],
+            key: "type",
+            valueShape: { kind: "string", value: "worker-request" },
+          },
+        ],
+        method: "sendWorkerMessageFromView",
+      },
+    ],
+    bridgeReturnUsages: [],
+    eventPayloadKeys: ["key", "type"],
+    mainWorldKeyUsages: [],
     messageEventTypes: ["shared-object-updated"],
     sharedObjectKeys: ["host_config", "remote_connections"],
+    unsupportedBridgeMethodCalls: [],
+    unknownBridgeArguments: [],
     vscodeUrls: ["vscode://codex/read-config-for-host"],
     workerIds: ["git"],
   });
+});
+
+test("extractPreloadStaticProfile derives preload method and IPC contracts", () => {
+  const profile = extractPreloadStaticProfile(
+    "let e=require(`electron`);var h=`codex_desktop:send-message-from-view`,n=`codex_desktop:show-context-menu`,d=`codex_desktop:connect-app-host`;var D={windowType:`main`,sendMessageFromView:async t=>{return await e.ipcRenderer.invoke(h,t)},getPathForFile:t=>e.webUtils.getPathForFile(t)||null,showContextMenu:async t=>e.ipcRenderer.invoke(n,t),usesOwlAppShell:()=>true};e.ipcRenderer.postMessage(d,void 0,[port]);e.contextBridge.exposeInMainWorld(`electronBridge`,D);",
+  );
+
+  assert.deepEqual(profile.electronBridgeContracts, [
+    {
+      async: false,
+      ipcCalls: [],
+      method: "getPathForFile",
+      params: ["t"],
+      processDefines: [],
+      returnKind: "sync",
+      returnShape: { kind: "sync" },
+      webUtilsCalls: ["getPathForFile"],
+    },
+    {
+      async: true,
+      ipcCalls: [
+        {
+          argCount: 2,
+          channel: "codex_desktop:send-message-from-view",
+          handlerPayloadKeys: [],
+          kind: "invoke",
+          payloadShapes: [{ kind: "parameter", name: "t" }],
+          rawArgs: "h,t",
+          transferCount: 0,
+        },
+      ],
+      method: "sendMessageFromView",
+      params: ["t"],
+      processDefines: [],
+      returnKind: "promise",
+      returnShape: { kind: "promise" },
+      webUtilsCalls: [],
+    },
+    {
+      async: true,
+      ipcCalls: [
+        {
+          argCount: 2,
+          channel: "codex_desktop:show-context-menu",
+          handlerPayloadKeys: [],
+          kind: "invoke",
+          payloadShapes: [{ kind: "parameter", name: "t" }],
+          rawArgs: "n,t",
+          transferCount: 0,
+        },
+      ],
+      method: "showContextMenu",
+      params: ["t"],
+      processDefines: [],
+      returnKind: "promise",
+      returnShape: { kind: "promise" },
+      webUtilsCalls: [],
+    },
+    {
+      async: false,
+      ipcCalls: [],
+      method: "usesOwlAppShell",
+      params: [],
+      processDefines: [],
+      returnKind: "boolean",
+      returnShape: { kind: "boolean", value: "true" },
+      webUtilsCalls: [],
+    },
+    {
+      async: false,
+      ipcCalls: [],
+      method: "windowType",
+      params: [],
+      processDefines: [],
+      returnKind: "string",
+      returnShape: { kind: "string", value: "main" },
+      webUtilsCalls: [],
+    },
+  ]);
+  assert.deepEqual(
+    profile.ipcContracts.find(
+      (item) => item.channel === "codex_desktop:connect-app-host",
+    ),
+    {
+      argCount: 3,
+      channel: "codex_desktop:connect-app-host",
+      handlerPayloadKeys: [],
+      kind: "postMessage",
+      payloadShapes: [
+        { kind: "empty", value: "void 0" },
+        { kind: "array", length: 1 },
+      ],
+      rawArgs: "d,void 0,[port]",
+      transferCount: 1,
+    },
+  );
+});
+
+test("extractPreloadStaticProfile resolves preload local return definitions", () => {
+  const profile = extractPreloadStaticProfile(
+    "let e=require(`electron`);var a=`codex_desktop:get-build-flavor`,o=`codex_desktop:get-uses-owl-app-shell`,s=`codex_desktop:get-system-theme-variant`,m=`electron`,v=e.ipcRenderer.sendSync(a),y=e.ipcRenderer.sendSync(o)===!0,b=e.ipcRenderer.sendSync(`codex_desktop:get-shared-object-snapshot`)??{},x=e.ipcRenderer.sendSync(s),S=()=>x,D={windowType:m,getBuildFlavor:()=>v,usesOwlAppShell:()=>y,getSharedObjectSnapshotValue:e=>b[e],getSystemThemeVariant:S,isIntelMacBuild:()=>process.platform===`darwin`&&process.arch===`x64`};e.contextBridge.exposeInMainWorld(`electronBridge`,D);",
+  );
+
+  assert.deepEqual(
+    Object.fromEntries(
+      profile.electronBridgeContracts.map((contract) => [
+        contract.method,
+        contract.returnKind,
+      ]),
+    ),
+    {
+      getBuildFlavor: "sync-ipc",
+      getSharedObjectSnapshotValue: "object-index",
+      getSystemThemeVariant: "sync-ipc",
+      isIntelMacBuild: "boolean",
+      usesOwlAppShell: "boolean",
+      windowType: "string",
+    },
+  );
+  assert.equal(
+    deriveStaticContractReview({
+      rendererAssetProfile: {
+        unknownBridgeArguments: [],
+        unsupportedBridgeMethodCalls: [],
+      },
+      staticProfile: profile,
+    }).ok,
+    true,
+  );
+});
+
+test("extractRendererAssetStaticProfile tracks return, event, global, and unknown contracts", () => {
+  const profile = extractRendererAssetStaticProfile(
+    {
+      "main.js":
+        "const menu=await window.electronBridge.showContextMenu({id:itemId});if(menu.ok)console.log(menu[`label`]);window.electronBridge.getPathForFile(file).then(r=>r.path);if(window.electronBridge.usesOwlAppShell())go();window.codexNative?.ready;window.addEventListener(`message`,event=>{if(event.data.type===`shared-object-updated`)console.log(event.data.key,event.data.value)})",
+    },
+    {
+      allowedBridgeMethods: [
+        "getPathForFile",
+        "showContextMenu",
+        "usesOwlAppShell",
+      ],
+      mainWorldKeys: ["codexNative", "electronBridge"],
+    },
+  );
+
+  assert.deepEqual(profile.bridgeReturnUsages, [
+    {
+      asset: "main.js",
+      assignedTo: null,
+      awaited: false,
+      fieldReads: ["path"],
+      method: "getPathForFile",
+      useKinds: ["promise"],
+    },
+    {
+      asset: "main.js",
+      assignedTo: "menu",
+      awaited: true,
+      fieldReads: ["label", "ok"],
+      method: "showContextMenu",
+      useKinds: ["awaited"],
+    },
+    {
+      asset: "main.js",
+      assignedTo: null,
+      awaited: false,
+      fieldReads: [],
+      method: "usesOwlAppShell",
+      useKinds: ["condition"],
+    },
+  ]);
+  assert.deepEqual(profile.eventPayloadKeys, ["key", "type", "value"]);
+  assert.deepEqual(profile.mainWorldKeyUsages, [
+    { asset: "main.js", key: "codexNative", property: "ready" },
+  ]);
+  assert.deepEqual(profile.unknownBridgeArguments, [
+    {
+      argIndex: 0,
+      asset: "main.js",
+      expression: "file",
+      kind: "identifier",
+      method: "getPathForFile",
+    },
+  ]);
+});
+
+test("extractRendererAssetStaticProfile resolves renderer local argument flow", () => {
+  const profile = extractRendererAssetStaticProfile(
+    {
+      "main.js":
+        "const menuId=`main`,rect={left:1,bottom:2};window.electronBridge.showApplicationMenu(menuId,Math.round(rect.left),Math.round(rect.bottom));const host={postMessage:e=>{let r=e;window.electronBridge.sendMessageFromView(r)}};",
+    },
+    {
+      allowedBridgeMethods: ["sendMessageFromView", "showApplicationMenu"],
+    },
+  );
+
+  assert.deepEqual(profile.unknownBridgeArguments, []);
+  assert.deepEqual(profile.bridgeMethodArgumentShapes, [
+    {
+      argCount: 1,
+      args: [{ kind: "parameter", name: "e" }],
+      method: "sendMessageFromView",
+    },
+    {
+      argCount: 3,
+      args: [
+        { kind: "string", value: "main" },
+        { kind: "number", value: "Math.round(rect.left)" },
+        { kind: "number", value: "Math.round(rect.bottom)" },
+      ],
+      method: "showApplicationMenu",
+    },
+  ]);
+});
+
+test("extractRendererAssetStaticProfile reports bridge calls missing from preload", () => {
+  const profile = extractRendererAssetStaticProfile(
+    {
+      "main.js":
+        "window.electronBridge.showContextMenu({id:`copy`});window.electronBridge.openSecretPanel();",
+    },
+    { allowedBridgeMethods: ["showContextMenu"] },
+  );
+
+  assert.deepEqual(profile.bridgeMethodCalls, [
+    {
+      asset: "main.js",
+      method: "showContextMenu",
+      rawArgs: "{id:`copy`}",
+    },
+  ]);
+  assert.deepEqual(profile.unsupportedBridgeMethodCalls, [
+    {
+      asset: "main.js",
+      method: "openSecretPanel",
+      rawArgs: "",
+    },
+  ]);
+});
+
+test("deriveStaticContractReview summarizes unresolved static contract gaps", () => {
+  assert.deepEqual(
+    deriveStaticContractReview({
+      rendererAssetProfile: {
+        unknownBridgeArguments: [
+          {
+            argIndex: 0,
+            asset: "main.js",
+            expression: "file",
+            kind: "identifier",
+            method: "getPathForFile",
+          },
+        ],
+        unsupportedBridgeMethodCalls: [
+          {
+            asset: "main.js",
+            method: "openSecretPanel",
+            rawArgs: "",
+          },
+        ],
+      },
+      staticProfile: {
+        electronBridgeContracts: [
+          { method: "getBuildFlavor", returnKind: "identifier" },
+          { method: "showContextMenu", returnKind: "promise" },
+        ],
+        ipcContracts: [
+          {
+            channel: "codex_desktop:show-context-menu",
+            kind: "invoke",
+            payloadShapes: [{ kind: "identifier", name: "t" }],
+            rawArgs: "n,t",
+          },
+        ],
+      },
+    }),
+    {
+      ok: false,
+      unknownRendererArguments: [
+        {
+          argIndex: 0,
+          asset: "main.js",
+          expression: "file",
+          kind: "identifier",
+          method: "getPathForFile",
+        },
+      ],
+      unresolvedBridgeReturns: [
+        { method: "getBuildFlavor", returnKind: "identifier" },
+      ],
+      unresolvedIpcPayloads: [
+        {
+          argIndex: 1,
+          channel: "codex_desktop:show-context-menu",
+          kind: "invoke",
+          rawArgs: "n,t",
+          shape: { kind: "identifier", name: "t" },
+        },
+      ],
+      unsupportedBridgeMethodCalls: [
+        {
+          asset: "main.js",
+          method: "openSecretPanel",
+          rawArgs: "",
+        },
+      ],
+    },
+  );
 });
 
 test("extractRendererAssetStaticProfile stops following reassigned bridge aliases", () => {
