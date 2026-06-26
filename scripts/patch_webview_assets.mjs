@@ -3,10 +3,15 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { patchBrowserPanelIframeAsset } from "./patch_browser_panel_iframe.mjs";
+import { patchBrowserPanelIframeAssets } from "./patch_browser_panel_iframe.mjs";
 import { patchTerminalSidePanelSupport } from "./patch_terminal_side_panel.mjs";
+import { patchWebviewAutomationsNavAssets } from "./patch_webview_automations_nav.mjs";
+import { patchWebviewMobileSidebarAssets } from "./patch_webview_mobile_sidebar.mjs";
+import { patchWebviewMobileTabLayoutAssets } from "./patch_webview_mobile_tab_layout.mjs";
+import { patchWebviewTelemetryDisableAssets } from "./patch_webview_telemetry_disable.mjs";
 import { patchWebviewThreadDeleteAssets } from "./patch_webview_thread_delete.mjs";
 import { patchWebviewThreadDeleteI18nAssets } from "./patch_webview_thread_delete_i18n.mjs";
+import { patchWebviewTurnStreamingAssets } from "./patch_webview_turn_streaming.mjs";
 
 const STATSIG_OPTIONS_PATTERN =
   /(\b[$A-Za-z_][\w$]*\s*=\s*)\{\s*networkConfig\s*:\s*\{\s*api\s*:\s*([^,}]+?)\s*,\s*logEventUrl\s*:\s*([^,}]+?)\s*,\s*sdkExceptionUrl\s*:\s*([^,}]+?)\s*,\s*networkOverrideFunc\s*:\s*([^,}]+?)\s*,?\s*\}\s*,?\s*\}/s;
@@ -93,10 +98,15 @@ export function patchWebviewAssets(assetsDir) {
     ...patchWebviewThreadDeleteAssets(assetsDir),
     ...patchWebviewThreadDeleteI18nAssets(assetsDir),
     ...patchTerminalSidePanelSupport(assetsDir),
-    patchBrowserPanelIframeAsset(assetsDir),
+    ...patchBrowserPanelIframeAssets(assetsDir),
     ...patchRefetchQueriesCancelRefetchAsset(assetsDir),
     patchStatsigTelemetryDisableAsset(assetsDir),
     patchStatsigTelemetryFlushDisableAsset(assetsDir),
+    ...patchWebviewTelemetryDisableAssets(assetsDir),
+    ...patchWebviewTurnStreamingAssets(assetsDir),
+    ...patchWebviewAutomationsNavAssets(assetsDir),
+    ...patchWebviewMobileSidebarAssets(assetsDir),
+    ...patchWebviewMobileTabLayoutAssets(assetsDir),
     patchDynamicToolsAutomationAsset(assetsDir),
     ...patchAutomationToolContractAsset(assetsDir),
     patchAutomationRemoteDefaultHostAsset(assetsDir),
@@ -239,7 +249,8 @@ export function patchStatsigTelemetryFlushDisableAsset(assetsDir) {
       const source = fs.readFileSync(assetPath, "utf8");
       return (
         source.includes("_initFlushCoordinator") &&
-        (source.includes("_storeEventToStorage") || source.includes("returnthis"))
+        (source.includes("_storeEventToStorage") ||
+          source.includes("returnthis"))
       );
     });
 
@@ -268,7 +279,9 @@ export function patchDynamicToolsAutomationSupport(source) {
     throw new Error("dynamic tools automation gate not found");
   }
   const onboardingGate =
-    gatedMatch == null ? findLastDynamicToolsFeatureGate(source) ?? "C" : match[4];
+    gatedMatch == null
+      ? (findLastDynamicToolsFeatureGate(source) ?? "C")
+      : match[4];
   const patched = source.replace(
     gatedMatch == null
       ? DYNAMIC_TOOLS_UNGATED_ONBOARDING_PATTERN
@@ -305,7 +318,10 @@ function insertDynamicToolsAutomationTool(source) {
   if (!source.includes("var gr=100")) {
     throw new Error("dynamic tools insertion point not found");
   }
-  return source.replace("var gr=100", `${DYNAMIC_TOOLS_AUTOMATION_TOOL}var gr=100`);
+  return source.replace(
+    "var gr=100",
+    `${DYNAMIC_TOOLS_AUTOMATION_TOOL}var gr=100`,
+  );
 }
 
 export function patchDynamicToolsAutomationAsset(assetsDir) {
@@ -387,15 +403,7 @@ export function patchAutomationArgumentsNormalizationSupport(source) {
   if (PARTIAL_PATCHED_AUTOMATION_ARGUMENTS_SAFE_PARSE_PATTERN.test(patched)) {
     return patched.replace(
       AUTOMATION_ARGUMENTS_INLINE_PARSE_PATTERN,
-      (
-        _match,
-        parsed,
-        schema,
-        params,
-        resultLocal,
-        errorLocal,
-        toolName,
-      ) =>
+      (_match, parsed, schema, params, resultLocal, errorLocal, toolName) =>
         `let ${parsed}=${schema}.safeParse(${buildAutomationArgumentsNormalizerExpression(params, "o")});if(!${parsed}.success){${resultLocal}=${errorLocal}(\`\${${toolName}} received invalid arguments.\`);break}`,
     );
   }
@@ -404,15 +412,7 @@ export function patchAutomationArgumentsNormalizationSupport(source) {
   }
   patched = patched.replace(
     AUTOMATION_ARGUMENTS_SAFE_PARSE_PATTERN,
-    (
-      _match,
-      parsed,
-      schema,
-      params,
-      resultLocal,
-      errorLocal,
-      toolName,
-    ) =>
+    (_match, parsed, schema, params, resultLocal, errorLocal, toolName) =>
       `let ${parsed}=${schema}.safeParse(${buildAutomationArgumentsNormalizerExpression(params, "o")});if(!${parsed}.success){${resultLocal}=${errorLocal}(\`\${${toolName}} received invalid arguments.\`);break}`,
   );
   return patched;
@@ -450,7 +450,9 @@ export function patchAutomationArgumentsNormalizationAsset(assetsDir) {
     return assetPath;
   }
 
-  throw new Error(`automation arguments safeParse asset not found in ${assetsDir}`);
+  throw new Error(
+    `automation arguments safeParse asset not found in ${assetsDir}`,
+  );
 }
 
 export function patchAutomationDefaultModelSupport(source) {
@@ -558,7 +560,10 @@ export function patchAutomationModelPickerAsset(assetsDir) {
 
 export function patchAutomationToolContractSupport(source) {
   let patched = source
-    .replace(AUTOMATION_NATIVE_MODE_PATTERN, "zt([`view`,`create`,`update`,`delete`])")
+    .replace(
+      AUTOMATION_NATIVE_MODE_PATTERN,
+      "zt([`view`,`create`,`update`,`delete`])",
+    )
     .replace(
       AUTOMATION_NATIVE_VIEW_DELETE_ID_PATTERN,
       "if(e.mode===`view`)return;if(e.mode===`delete`){e.id??t.addIssue({code:`custom`,message:`Missing id`,path:[`id`]});return}",
@@ -583,13 +588,16 @@ export function patchAutomationToolContractSupport(source) {
       /,model:e\.model\?\?null,reasoningEffort:e\.reasoningEffort\?\?null(?=,rrule:e\.rrule\?\?``)/g,
       ",...e.model===void 0?{}:{model:e.model},...e.reasoningEffort===void 0?{}:{reasoningEffort:e.reasoningEffort}",
     )
-    .replace(
-      /,model:null,reasoningEffort:null(?=,rrule:e\.rrule\?\?``)/g,
-      "",
-    )
+    .replace(/,model:null,reasoningEffort:null(?=,rrule:e\.rrule\?\?``)/g, "")
     .replace(/Use suggested_create or suggested_update[^`]*\./g, "")
-    .replace(/Model to use for cron automations\./g, "Optional model override for cron automations.")
-    .replace(/Reasoning effort to use for cron automations\.[^`]*/g, "Optional reasoning effort override for cron automations. Do not set model or reasoningEffort unless explicitly requested.");
+    .replace(
+      /Model to use for cron automations\./g,
+      "Optional model override for cron automations.",
+    )
+    .replace(
+      /Reasoning effort to use for cron automations\.[^`]*/g,
+      "Optional reasoning effort override for cron automations. Do not set model or reasoningEffort unless explicitly requested.",
+    );
 
   for (const pattern of AUTOMATION_NATIVE_OPTIONAL_FIELD_PATTERNS) {
     patched = patched.replace(pattern, "");
@@ -607,7 +615,9 @@ export function patchAutomationToolContractAsset(assetsDir) {
       return (
         source.includes("Required for mode=view") ||
         source.includes("Missing reasoningEffort") ||
-        source.includes("model:e.model??null,reasoningEffort:e.reasoningEffort??null") ||
+        source.includes(
+          "model:e.model??null,reasoningEffort:e.reasoningEffort??null",
+        ) ||
         source.includes("Use view to list automations")
       );
     });

@@ -13,8 +13,8 @@ const IFRAME_SANDBOX_SETTER =
 const helperSource =
   "function codexWebCreateBrowserPanelFrame(){let e=document.createElement(`iframe`);return e.setAttribute(`data-codex-web-browser-panel-frame`,`true`),e.setAttribute(`referrerpolicy`,`no-referrer-when-downgrade`),e.setAttribute(`loading`,`eager`),e.isLoading=()=>!1,e.stop=()=>{},e.reload=()=>{try{e.contentWindow?.location.reload()}catch{codexWebSetBrowserPanelFrameSrc(e,e.getAttribute(`src`)??`about:blank`)}},e.goBack=()=>{try{e.contentWindow?.history.back()}catch{}},e.goForward=()=>{try{e.contentWindow?.history.forward()}catch{}},e.canGoBack=()=>!1,e.canGoForward=()=>!1,e.getURL=()=>e.getAttribute(`src`)??`about:blank`,e.loadURL=t=>(codexWebSetBrowserPanelFrameSrc(e,t),Promise.resolve()),e.destroy=()=>{e.dispatchEvent(new Event(`destroyed`)),e.remove()},e.addEventListener(`load`,()=>{codexWebDispatchBrowserPanelFrameEvent(e,`did-attach`),codexWebDispatchBrowserPanelFrameEvent(e,`did-stop-loading`)}),e.addEventListener(`error`,()=>{codexWebDispatchBrowserPanelFrameEvent(e,`did-fail-load`)}),e}function codexWebDispatchBrowserPanelFrameEvent(e,t){e.dispatchEvent(new Event(t))}function codexWebSetBrowserPanelFrameSrc(e,t){let n=t&&t.length>0?t:`about:blank`;e.setAttribute(`src`,n),queueMicrotask(()=>{codexWebDispatchBrowserPanelFrameEvent(e,`did-attach`),codexWebDispatchBrowserPanelFrameEvent(e,`did-stop-loading`)})}function codexWebSyncBrowserPanelSnapshotUrl(e,t){let n=t?.url&&t.url.length>0?t.url:`about:blank`;t?.tabType===`web`&&e?.webview!=null&&e.webview.getAttribute(`src`)!==n&&codexWebSetBrowserPanelFrameSrc(e.webview,n)}";
 
-export function findBrowserSidebarManagerAsset(assetsDir) {
-  const candidates = fs
+export function findBrowserSidebarManagerAssets(assetsDir) {
+  return fs
     .readdirSync(assetsDir)
     .filter(
       (name) =>
@@ -28,20 +28,6 @@ export function findBrowserSidebarManagerAsset(assetsDir) {
         source.includes(WEBVIEW_CREATE)
       );
     });
-
-  if (candidates.length === 0) {
-    throw new Error(`Browser sidebar manager asset not found in ${assetsDir}`);
-  }
-
-  if (candidates.length > 1) {
-    throw new Error(
-      `Multiple browser sidebar manager assets found in ${assetsDir}: ${candidates
-        .map((candidate) => path.basename(candidate))
-        .join(", ")}`,
-    );
-  }
-
-  return candidates[0];
 }
 
 export function patchBrowserPanelIframeSupport(source) {
@@ -134,14 +120,24 @@ export function patchBrowserPanelIframeSupport(source) {
   return patched;
 }
 
-export function patchBrowserPanelIframeAsset(assetsDir) {
-  const assetPath = findBrowserSidebarManagerAsset(assetsDir);
-  const source = fs.readFileSync(assetPath, "utf8");
-  const patched = patchBrowserPanelIframeSupport(source);
-  if (patched !== source) {
-    fs.writeFileSync(assetPath, patched);
+export function patchBrowserPanelIframeAssets(assetsDir) {
+  const assetPaths = findBrowserSidebarManagerAssets(assetsDir);
+
+  if (assetPaths.length === 0) {
+    throw new Error(`Browser sidebar manager asset not found in ${assetsDir}`);
   }
-  return assetPath;
+
+  const patchedFiles = [];
+  for (const assetPath of assetPaths) {
+    const source = fs.readFileSync(assetPath, "utf8");
+    const patched = patchBrowserPanelIframeSupport(source);
+    if (patched !== source) {
+      fs.writeFileSync(assetPath, patched);
+      patchedFiles.push(assetPath);
+    }
+  }
+
+  return patchedFiles;
 }
 
 function replaceOnce(source, before, after, label) {
@@ -190,6 +186,8 @@ if (invokedPath === import.meta.url) {
   const workspaceRoot = path.resolve(scriptDir, "..");
   const assetsDir =
     process.argv[2] ?? path.join(workspaceRoot, "scratch/asar/webview/assets");
-  const assetPath = patchBrowserPanelIframeAsset(assetsDir);
-  console.log(`Patched browser panel iframe support in ${assetPath}`);
+  const patchedFiles = patchBrowserPanelIframeAssets(assetsDir);
+  console.log(
+    `Patched browser panel iframe support in ${patchedFiles.length} file(s)`,
+  );
 }

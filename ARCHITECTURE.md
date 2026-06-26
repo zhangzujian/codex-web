@@ -51,22 +51,31 @@ static patches in [./patches](./patches) are applied by
 [prepare_asar](./scripts/prepare_asar) after the upstream app is extracted and
 prettified.
 
-| patch                                    | purpose                                                                                                           |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `webview-initial-route.patch`            | starts the memory router from the browser URL or shim-provided route and initializes sidebar state from the shim. |
-| `webview-use-atfs-for-local-files.patch` | maps upstream `app://fs` media URLs to codex-web's `/@fs` HTTP route.                                             |
+| patch                      | purpose                                                                                                   |
+| -------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `webview-favicon.patch`    | adds the codex-web favicon to the upstream `index.html`.                                                  |
+| `webview-preload.patch`    | adds `<base href="/">` and loads the codex-web preload bundle before the upstream renderer starts.        |
+| `webview-pwa.patch`        | links the web app manifest.                                                                               |
+| `webview-remove-csp.patch` | removes the upstream Electron CSP meta tag so the hosted browser app can load its patched runtime assets. |
+| `webview-style.patch`      | resets the upstream safe header spacing used by desktop chrome.                                           |
 
 dynamic patchers in [./scripts](./scripts) handle bundle shapes that are too
 fragile for a fixed diff. [patch_webview_assets.mjs](./scripts/patch_webview_assets.mjs)
-runs them during `prepare_asar`; [patch_browser_build_assets.mjs](./scripts/patch_browser_build_assets.mjs)
+runs the webview asset patchers during `prepare_asar`; [patch_browser_build_assets.mjs](./scripts/patch_browser_build_assets.mjs)
 reuses the same set after `vite build` when upstream assets are present.
 
-| patcher                             | purpose                                                                                                                                                          |
-| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `patch_browser_panel_iframe.mjs`    | replaces Electron `<webview>` browser panel hosts with iframe-compatible hosts and URL sync helpers.                                                             |
-| `patch_terminal_side_panel.mjs`     | keeps Terminal entries wired to the upstream native terminal opener and hides desktop-only sidebar navigation controls.                                           |
-| `patch_webview_thread_delete*.mjs`  | adds the local thread delete menu item and its zh-CN strings.                                                                                                    |
-| `patch_webview_assets.mjs`          | runs the dynamic patchers, disables Statsig network traffic at initialization, and fixes one invalid CSS `@property` initial value.                              |
+| patcher                               | purpose                                                                                                                             |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `patch_browser_panel_iframe.mjs`      | replaces Electron `<webview>` browser panel hosts with iframe-compatible hosts and URL sync helpers.                                |
+| `patch_sentry_disable.mjs`            | disables Sentry in upstream shell, worker, and renderer bundles.                                                                    |
+| `patch_terminal_side_panel.mjs`       | keeps Terminal entries wired to the upstream native terminal opener and hides desktop-only sidebar navigation controls.             |
+| `patch_webview_automations_nav.mjs`   | keeps Automations navigation visible in remote/browser host contexts.                                                               |
+| `patch_webview_mobile_sidebar.mjs`    | makes the left sidebar behave as a floating overlay on narrow/touch viewports.                                                      |
+| `patch_webview_mobile_tab_layout.mjs` | reserves space so mobile tab actions and right-panel headers do not overlap.                                                        |
+| `patch_webview_telemetry_disable.mjs` | disables direct analytics helpers not covered by the Statsig network patch.                                                         |
+| `patch_webview_thread_delete*.mjs`    | adds the local thread delete menu item and its zh-CN strings.                                                                       |
+| `patch_webview_turn_streaming.mjs`    | prevents memoized turn rendering from reusing stale streaming turn items.                                                           |
+| `patch_webview_assets.mjs`            | runs the dynamic patchers, disables Statsig network traffic at initialization, and fixes one invalid CSS `@property` initial value. |
 
 to connect the ipc from the renderer process to the main process, we use a
 websocket for most messages intercepting and handing a small handful of messages

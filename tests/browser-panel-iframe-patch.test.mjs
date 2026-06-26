@@ -5,7 +5,8 @@ import path from "node:path";
 import test from "node:test";
 
 import {
-  findBrowserSidebarManagerAsset,
+  findBrowserSidebarManagerAssets,
+  patchBrowserPanelIframeAssets,
   patchBrowserPanelIframeSupport,
 } from "../scripts/patch_browser_panel_iframe.mjs";
 
@@ -21,7 +22,7 @@ const browserSidebarManagerFixture = [
   "if(o!=null)return o.setHostKind(s),o;let c=new G({browserTabId:n",
 ].join("");
 
-test("findBrowserSidebarManagerAsset locates the bundled browser sidebar manager", () => {
+test("findBrowserSidebarManagerAssets locates bundled browser sidebar managers", () => {
   const assetsDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "codex-web-browser-panel-assets-"),
   );
@@ -30,10 +31,40 @@ test("findBrowserSidebarManagerAsset locates the bundled browser sidebar manager
     path.join(assetsDir, "browser-sidebar-manager-test.js"),
     browserSidebarManagerFixture,
   );
+  fs.writeFileSync(
+    path.join(assetsDir, "browser-sidebar-manager-alt.js"),
+    browserSidebarManagerFixture,
+  );
 
-  const assetPath = findBrowserSidebarManagerAsset(assetsDir);
+  const assetPaths = findBrowserSidebarManagerAssets(assetsDir);
 
-  assert.match(path.basename(assetPath), /^browser-sidebar-manager-.+\.js$/);
+  assert.equal(assetPaths.length, 2);
+  for (const assetPath of assetPaths) {
+    assert.match(path.basename(assetPath), /^browser-sidebar-manager-.+\.js$/);
+  }
+});
+
+test("patchBrowserPanelIframeAssets patches every bundled browser sidebar manager", () => {
+  const assetsDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "codex-web-browser-panel-assets-"),
+  );
+  const first = path.join(assetsDir, "browser-sidebar-manager-first.js");
+  const second = path.join(assetsDir, "browser-sidebar-manager-second.js");
+  fs.writeFileSync(first, browserSidebarManagerFixture);
+  fs.writeFileSync(second, browserSidebarManagerFixture);
+
+  const patchedFiles = patchBrowserPanelIframeAssets(assetsDir);
+
+  assert.equal(patchedFiles.length, 2);
+  for (const assetPath of patchedFiles) {
+    const patched = fs.readFileSync(assetPath, "utf8");
+    assert.equal(patched.includes("document.createElement(`webview`)"), false);
+    assert.match(
+      patched,
+      /data-codex-web-browser-panel-frame/,
+      "patched iframe should be discoverable in browser tests",
+    );
+  }
 });
 
 test("patchBrowserPanelIframeSupport replaces Electron webview hosts with iframe-compatible hosts", () => {

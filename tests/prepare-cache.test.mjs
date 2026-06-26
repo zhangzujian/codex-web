@@ -18,13 +18,16 @@ import {
   patchBrowserBuildAssets,
 } from "../scripts/patch_browser_build_assets.mjs";
 
-const appVersion = "26.616.51431";
+const appVersion = "26.616.81150";
 const archiveName = `Codex-darwin-arm64-${appVersion}.zip`;
 const appZipPath = `Codex.app/Contents/Resources/app.asar`;
 const appZipDir = `Codex.app/Contents/Resources`;
 const patchNames = [
-  "webview-initial-route.patch",
-  "webview-use-atfs-for-local-files.patch",
+  "webview-remove-csp.patch",
+  "webview-style.patch",
+  "webview-preload.patch",
+  "webview-favicon.patch",
+  "webview-pwa.patch",
 ];
 
 async function writeExecutable(path, source) {
@@ -56,8 +59,11 @@ function runPrepare({ cacheDir, stubBin, logPath }) {
 
 async function createPrepareAsarFixture() {
   const fixtureDir = await mkdtemp(join(tmpdir(), "codex-web-prepare-asar-"));
+  await mkdir(join(fixtureDir, "assets"), { recursive: true });
   await mkdir(join(fixtureDir, "scripts"), { recursive: true });
   await mkdir(join(fixtureDir, "patches"), { recursive: true });
+  await writeFile(join(fixtureDir, "assets/favicon.svg"), "<svg />");
+  await writeFile(join(fixtureDir, "assets/manifest.json"), "{}");
   await copyFile(
     new URL("../scripts/prepare_asar", import.meta.url),
     join(fixtureDir, "scripts/prepare_asar"),
@@ -285,7 +291,9 @@ exit 0
     prepareLog,
     /node scripts\/patch_webview_assets\.mjs scratch\/asar\/webview\/assets/,
   );
-  await assert.rejects(stat(join(fixtureDir, "scratch/asar/node_modules/node-pty")));
+  await assert.rejects(
+    stat(join(fixtureDir, "scratch/asar/node_modules/node-pty")),
+  );
   await assert.rejects(
     stat(join(fixtureDir, "scratch/asar/node_modules/better-sqlite3")),
   );
@@ -310,10 +318,7 @@ test("package scripts do not expose the static unpacked webview server", async (
     await readFile(new URL("../package.json", import.meta.url), "utf8"),
   );
 
-  assert.equal(
-    packageJson.scripts["launch:unpacked:server"],
-    undefined,
-  );
+  assert.equal(packageJson.scripts["launch:unpacked:server"], undefined);
 });
 
 test("browser build asset patch skips incomplete upstream webview assets", async () => {
