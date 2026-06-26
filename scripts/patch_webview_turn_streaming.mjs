@@ -174,6 +174,7 @@ function patchModernTurnStreamingSource(source) {
 }
 
 function replaceModernTurnComponentElementCache(source) {
+  source = fixMalformedModernTurnComponentElementPatch(source);
   if (
     source.includes(
       "return (0,e3.jsx)(GBn,{conversationId:n,hostId:r,turnSearchKey:i,turnId:a.turnId,mcpTurn:a,turn:ae",
@@ -203,8 +204,31 @@ function replaceModernTurnComponentElementCache(source) {
   const jsx = source.slice(jsxStart + jsxStartMarker.length, jsxEnd);
   return (
     source.slice(0, start) +
-    `return ${jsx}};function` +
+    "return " +
+    jsx +
+    "}}));function" +
     source.slice(blockEnd + "})}));function".length)
+  );
+}
+
+function fixMalformedModernTurnComponentElementPatch(source) {
+  const marker =
+    "return (0,e3.jsx)(GBn,{conversationId:n,hostId:r,turnSearchKey:i,turnId:a.turnId,mcpTurn:a,turn:ae";
+  const markerIndex = source.indexOf(marker);
+  if (markerIndex === -1) {
+    return source;
+  }
+
+  const malformedEnd = source.indexOf("};function", markerIndex);
+  const validEnd = source.indexOf("}));function", markerIndex);
+  if (malformedEnd === -1 || (validEnd !== -1 && validEnd < malformedEnd)) {
+    return source;
+  }
+
+  return (
+    source.slice(0, malformedEnd) +
+    "}}));function" +
+    source.slice(malformedEnd + "};function".length)
   );
 }
 

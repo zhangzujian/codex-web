@@ -11,6 +11,9 @@ const turnSource = [
 const turnComponentSource =
   "var Ny=`var(--conversation-tool-assistant-gap, 8px)`,By=(0,X.memo)(function(e){let t=(0,J.c)(51),ne=A===void 0?!1:A,re=s??U(a,c??Iy,{isBackgroundSubagentsEnabled:L,preserveServerUserMessages:I});let ie=re,foo=1;let pe;return t[16]!==T?(pe=(0,Y.jsx)(Vy,{conversationId:n,hostId:r,turnSearchKey:i,turnId:a.turnId,mcpTurn:a,turn:ie}),t[16]=T,t[50]=pe):pe=t[50],pe});function Vy(){}";
 
+const modernTurnComponentSource =
+  "var oVn,sVn=e((()=>{oVn=(0,$4.memo)(function(e){let t=(0,Q4.c)(55),a={turnId:`turn`,status:`complete`},n,r,i,ae,w;let me;return t[16]!==w?(me=(0,e3.jsx)(GBn,{conversationId:n,hostId:r,turnSearchKey:i,turnId:a.turnId,mcpTurn:a,turn:ae}),t[16]=w,t[54]=me):me=t[54],me})}));function n3(){}function after(){}";
+
 const threadSource = `let L = I,
     R;
   t[5] !== _ ||
@@ -66,6 +69,15 @@ test("turn streaming patch removes outer caches that can reuse stale turn elemen
   assert.doesNotMatch(patchedThread, /t\[29\] !== T/);
   assert.doesNotMatch(patchedThread, /t\[33\]/);
   assert.doesNotThrow(() => new Function(patchedThread));
+});
+
+test("turn streaming patch keeps modern turn bundles parseable", () => {
+  const patched = patchWebviewTurnStreamingSource(modernTurnComponentSource);
+
+  assert.match(patched, /oVn=function\(e\)\{/);
+  assert.match(patched, /return \(0,e3\.jsx\)\(GBn,\{conversationId:n/);
+  assert.match(patched, /\}\}\)\);function n3/);
+  assert.doesNotThrow(() => new Function(patched));
 });
 
 test("turn streaming patch removes minified thread turn element cache", () => {

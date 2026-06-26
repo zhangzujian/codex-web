@@ -35,6 +35,15 @@ const modernBrowserSidebarManagerFixture = [
   "let mcp=document.createElement(`webview`);",
 ].join("");
 
+const parseableModernBrowserSidebarManagerFixture = [
+  "let bEe=()=>{},ES=class{},lr={info(){}},p={WEB:`web`},gl={dispatchMessage(){}};",
+  "bEe(),PEe=`about:blank`,ODe=`about:blank`,FEe=`data-browser-sidebar-conversation-id`,LEe=`data-browser-sidebar-webview-host-root`;",
+  "class VisibleHost{constructor({browserTabId:e,conversationId:t,elementKey:n,hostKind:r,partition:i,adoptionLease:a,adoptedWebContentsId:o,initialUrl:s,pagePersistence:c}){let l=document.createElement(`div`),u=document.createElement(`div`),d=document.createElement(`webview`);this.setAdoptionAttributes(a??null,o??null,s),d.setAttribute(`src`,PEe),l.append(d,u)}setAdoptionAttributes(){}}",
+  "class RetainedHost{webview=document.createElement(`webview`);container={append(){}};cursorOverlayHost={};constructor({initialUrl:o}){this.webview.setAttribute(`src`,o.length===0?ODe:o),this.container.append(this.webview,this.cursorOverlayHost)}setAdoptionAttributes(e,t,n){if(this.webview!=null){if(e==null||t==null){this.webview.removeAttribute(zEe),this.webview.removeAttribute(BEe),this.webview.removeAttribute(VEe);return}this.webview.setAttribute(zEe,e),this.webview.setAttribute(BEe,t.toString()),this.webview.setAttribute(VEe,n)}}}",
+  "class Manager{notifyWebviewHostCreated(){}emitChange(){}syncBrowserUseTabKeys(){}getWebview(e,...t){if(l instanceof ES&&l.getPartition()===c)return l.setHostKind(u),l.setPagePersistence(s)&&(this.notifyWebviewHostCreated(e,n,u,s),this.emitChange()),i!=null&&(l.setAdoptionAttributes(i.adoptionLease??null,i.adoptedWebContentsId??null,r),i.adoptionLease!=null&&i.adoptedWebContentsId!=null&&lr.info(`IAB_ADOPTION renderer updated adopted webview`,{safe:{adoptedWebContentsId:i.adoptedWebContentsId,browserTabId:n,conversationId:e,hasInitialUrl:r.length>0},sensitive:{}})),l;}getRetainedWebview(e,t,n,r){if(c!=null&&c.getPartition()===s)return c.setHostKind(l),c.setPagePersistence(o)&&(this.notifyWebviewHostCreated(e,t,l,o),this.emitChange()),c;}setSnapshot(e,t,n){this.snapshots.set(a,i),this.browserUseTabKeys.has(a)&&this.syncBrowserUseTabKeys(e),i.tabType!==p.WEB}}",
+  "gl.dispatchMessage(`browser-sidebar-webview-host-created`,{});let mcp=document.createElement(`webview`);",
+].join("");
+
 test("findBrowserSidebarManagerAssets locates bundled browser sidebar managers", () => {
   const assetsDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "codex-web-browser-panel-assets-"),
@@ -191,4 +200,12 @@ test("patchBrowserPanelIframeSupport patches modern browser sidebar hosts only",
     /this\.snapshots\.set\(a,i\),codexWebSyncBrowserPanelSnapshotUrl\(this\.webviews\.get\(a\),i\)/,
   );
   assert.equal(patchBrowserPanelIframeSupport(patched), patched);
+});
+
+test("patchBrowserPanelIframeSupport keeps modern browser sidebar bundles parseable", () => {
+  const patched = patchBrowserPanelIframeSupport(
+    parseableModernBrowserSidebarManagerFixture,
+  );
+
+  assert.doesNotThrow(() => new Function(patched));
 });

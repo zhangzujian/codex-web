@@ -12,6 +12,10 @@ const IFRAME_SANDBOX_SETTER =
 
 const helperSource =
   "function codexWebCreateBrowserPanelFrame(){let e=document.createElement(`iframe`);return e.setAttribute(`data-codex-web-browser-panel-frame`,`true`),e.setAttribute(`referrerpolicy`,`no-referrer-when-downgrade`),e.setAttribute(`loading`,`eager`),e.isLoading=()=>!1,e.stop=()=>{},e.reload=()=>{try{e.contentWindow?.location.reload()}catch{codexWebSetBrowserPanelFrameSrc(e,e.getAttribute(`src`)??`about:blank`)}},e.goBack=()=>{try{e.contentWindow?.history.back()}catch{}},e.goForward=()=>{try{e.contentWindow?.history.forward()}catch{}},e.canGoBack=()=>!1,e.canGoForward=()=>!1,e.getURL=()=>e.getAttribute(`src`)??`about:blank`,e.loadURL=t=>(codexWebSetBrowserPanelFrameSrc(e,t),Promise.resolve()),e.destroy=()=>{e.dispatchEvent(new Event(`destroyed`)),e.remove()},e.addEventListener(`load`,()=>{codexWebDispatchBrowserPanelFrameEvent(e,`did-attach`),codexWebDispatchBrowserPanelFrameEvent(e,`did-stop-loading`)}),e.addEventListener(`error`,()=>{codexWebDispatchBrowserPanelFrameEvent(e,`did-fail-load`)}),e}function codexWebDispatchBrowserPanelFrameEvent(e,t){e.dispatchEvent(new Event(t))}function codexWebSetBrowserPanelFrameSrc(e,t){let n=t&&t.length>0?t:`about:blank`;e.setAttribute(`src`,n),queueMicrotask(()=>{codexWebDispatchBrowserPanelFrameEvent(e,`did-attach`),codexWebDispatchBrowserPanelFrameEvent(e,`did-stop-loading`)})}function codexWebSyncBrowserPanelSnapshotUrl(e,t){let n=t?.url&&t.url.length>0?t.url:`about:blank`;t?.tabType===`web`&&e?.webview!=null&&e.webview.getAttribute(`src`)!==n&&codexWebSetBrowserPanelFrameSrc(e.webview,n)}";
+const helperExpression =
+  "codexWebCreateBrowserPanelFrame=function(){let e=document.createElement(`iframe`);return e.setAttribute(`data-codex-web-browser-panel-frame`,`true`),e.setAttribute(`referrerpolicy`,`no-referrer-when-downgrade`),e.setAttribute(`loading`,`eager`),e.isLoading=()=>!1,e.stop=()=>{},e.reload=()=>{try{e.contentWindow?.location.reload()}catch{codexWebSetBrowserPanelFrameSrc(e,e.getAttribute(`src`)??`about:blank`)}},e.goBack=()=>{try{e.contentWindow?.history.back()}catch{}},e.goForward=()=>{try{e.contentWindow?.history.forward()}catch{}},e.canGoBack=()=>!1,e.canGoForward=()=>!1,e.getURL=()=>e.getAttribute(`src`)??`about:blank`,e.loadURL=t=>(codexWebSetBrowserPanelFrameSrc(e,t),Promise.resolve()),e.destroy=()=>{e.dispatchEvent(new Event(`destroyed`)),e.remove()},e.addEventListener(`load`,()=>{codexWebDispatchBrowserPanelFrameEvent(e,`did-attach`),codexWebDispatchBrowserPanelFrameEvent(e,`did-stop-loading`)}),e.addEventListener(`error`,()=>{codexWebDispatchBrowserPanelFrameEvent(e,`did-fail-load`)}),e},codexWebDispatchBrowserPanelFrameEvent=function(e,t){e.dispatchEvent(new Event(t))},codexWebSetBrowserPanelFrameSrc=function(e,t){let n=t&&t.length>0?t:`about:blank`;e.setAttribute(`src`,n),queueMicrotask(()=>{codexWebDispatchBrowserPanelFrameEvent(e,`did-attach`),codexWebDispatchBrowserPanelFrameEvent(e,`did-stop-loading`)})},codexWebSyncBrowserPanelSnapshotUrl=function(e,t){let n=t?.url&&t.url.length>0?t.url:`about:blank`;t?.tabType===`web`&&e?.webview!=null&&e.webview.getAttribute(`src`)!==n&&codexWebSetBrowserPanelFrameSrc(e.webview,n)},";
+const helperBindingVarPrefix =
+  "var codexWebCreateBrowserPanelFrame,codexWebDispatchBrowserPanelFrameEvent,codexWebSetBrowserPanelFrameSrc,codexWebSyncBrowserPanelSnapshotUrl,";
 
 export function findBrowserSidebarManagerAssets(assetsDir) {
   return fs
@@ -135,13 +139,15 @@ function isModernBrowserSidebarManagerSource(source) {
 }
 
 function patchModernBrowserPanelIframeSupport(source, alreadyPatched) {
-  let patched = source;
+  let patched = ensureModernBrowserPanelHelperBindings(
+    fixMalformedModernBrowserPanelHelper(source),
+  );
 
   if (!alreadyPatched) {
     patched = replaceOnce(
       patched,
       "bEe(),PEe=`about:blank`,",
-      `bEe(),${helperSource}PEe=\`about:blank\`,`,
+      `${helperExpression}bEe(),PEe=\`about:blank\`,`,
       "modern browser panel constants",
     );
 
@@ -206,6 +212,28 @@ function patchModernBrowserPanelIframeSupport(source, alreadyPatched) {
   );
 
   return patched;
+}
+
+function fixMalformedModernBrowserPanelHelper(source) {
+  return source
+    .replace(
+      `bEe(),${helperSource}PEe=\`about:blank\`,`,
+      `${helperExpression}bEe(),PEe=\`about:blank\`,`,
+    )
+    .replace(
+      `${helperSource}bEe(),PEe=\`about:blank\`,`,
+      `${helperExpression}bEe(),PEe=\`about:blank\`,`,
+    );
+}
+
+function ensureModernBrowserPanelHelperBindings(source) {
+  if (
+    source.includes(helperBindingVarPrefix) ||
+    !source.includes("var PEe,FEe,")
+  ) {
+    return source;
+  }
+  return source.replace("var PEe,FEe,", `${helperBindingVarPrefix}PEe,FEe,`);
 }
 
 export function patchBrowserPanelIframeAssets(assetsDir) {
