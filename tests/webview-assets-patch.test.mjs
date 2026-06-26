@@ -22,6 +22,7 @@ import {
   patchAutomationArgumentsNormalizationSupport,
   patchAutomationRemoteDefaultHostSupport,
   checkPatchedJavaScriptFilesSyntax,
+  verifyPatchedWebviewAssets,
 } from "../scripts/patch_webview_assets.mjs";
 
 test("checkPatchedJavaScriptFilesSyntax rejects invalid patched JavaScript", async () => {
@@ -37,6 +38,36 @@ test("checkPatchedJavaScriptFilesSyntax rejects invalid patched JavaScript", asy
     assert.throws(
       () => checkPatchedJavaScriptFilesSyntax([valid, html, invalid]),
       /Invalid JavaScript syntax in patched file/,
+    );
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
+test("verifyPatchedWebviewAssets rejects stale patch targets", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-web-assets-verify-"));
+  const asset = join(dir, "query-client-test.js");
+  try {
+    await writeFile(
+      asset,
+      "class QueryClient{refetchQueries(e,t={}){let n={...t,cancelRefetch:t.cancelRefetch??!0};return n}}",
+    );
+
+    assert.throws(
+      () => verifyPatchedWebviewAssets(dir, [asset]),
+      /refetchQueries still defaults cancelRefetch to true/,
+    );
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
+test("verifyPatchedWebviewAssets rejects invalid patched file lists", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-web-assets-verify-"));
+  try {
+    assert.throws(
+      () => verifyPatchedWebviewAssets(dir, [join(tmpdir(), "outside.js")]),
+      /Patched asset is outside/,
     );
   } finally {
     await rm(dir, { force: true, recursive: true });

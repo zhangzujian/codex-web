@@ -116,7 +116,96 @@ export function patchWebviewAssets(assetsDir) {
     ...patchAutomationModelPickerAsset(assetsDir),
   ];
 
-  return [...new Set(patchedFiles)];
+  const uniquePatchedFiles = [...new Set(patchedFiles)];
+  verifyPatchedWebviewAssets(assetsDir, uniquePatchedFiles);
+  return uniquePatchedFiles;
+}
+
+export function verifyPatchedWebviewAssets(assetsDir, patchedFiles) {
+  checkPatchedAssetFileList(assetsDir, patchedFiles);
+  checkPatchedJavaScriptFilesSyntax(patchedFiles);
+  checkPatchedWebviewAssetInvariants(assetsDir);
+}
+
+function checkPatchedAssetFileList(assetsDir, filePaths) {
+  const root = path.resolve(assetsDir);
+  for (const filePath of filePaths) {
+    const resolved = path.resolve(filePath);
+    if (!resolved.startsWith(root + path.sep)) {
+      throw new Error(`Patched asset is outside ${assetsDir}: ${filePath}`);
+    }
+    if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+      throw new Error(`Patched asset does not exist: ${filePath}`);
+    }
+  }
+}
+
+function checkPatchedWebviewAssetInvariants(assetsDir) {
+  const failures = [];
+  for (const filePath of webviewJavaScriptFiles(assetsDir)) {
+    const source = fs.readFileSync(filePath, "utf8");
+    const label = path.relative(assetsDir, filePath);
+    if (
+      source.includes("refetchQueries") &&
+      source.includes("cancelRefetch") &&
+      patternMatches(REFETCH_QUERIES_CANCEL_REFETCH_PATTERN, source)
+    ) {
+      failures.push(
+        `${label}: refetchQueries still defaults cancelRefetch to true`,
+      );
+    }
+    if (patternMatches(STATSIG_OPTIONS_PATTERN, source)) {
+      failures.push(`${label}: Statsig init options still allow network traffic`);
+    }
+    if (patternMatches(STATSIG_DISABLED_STORE_PATTERN, source)) {
+      failures.push(`${label}: disabled Statsig events are still stored`);
+    }
+    if (patternMatches(STATSIG_DISABLED_START_PATTERN, source)) {
+      failures.push(`${label}: disabled Statsig flush loop can still start`);
+    }
+    if (source.includes("returnthis")) {
+      failures.push(`${label}: contains malformed returnthis token`);
+    }
+    const isDynamicToolsAsset =
+      source.includes("automation-host-support") &&
+      source.includes("threadStartKind");
+    if (
+      isDynamicToolsAsset &&
+      (patternMatches(DYNAMIC_TOOLS_AUTOMATION_GATE_PATTERN, source) ||
+        patternMatches(DYNAMIC_TOOLS_UNGATED_ONBOARDING_PATTERN, source))
+    ) {
+      failures.push(`${label}: automation_update tool was not inserted`);
+    }
+    if (patternMatches(AUTOMATION_REMOTE_DEFAULT_HOST_PATTERN, source)) {
+      failures.push(`${label}: automations still reject remote:default`);
+    }
+    if (patternMatches(AUTOMATION_ARGUMENTS_SAFE_PARSE_PATTERN, source)) {
+      failures.push(`${label}: automation arguments are still parsed raw`);
+    }
+    if (
+      patternMatches(AUTOMATION_REQUIRED_MODEL_PATTERN, source) ||
+      patternMatches(AUTOMATION_DRAFT_CRON_MODEL_REQUIRED_PATTERN, source)
+    ) {
+      failures.push(`${label}: cron automations still require an explicit model`);
+    }
+  }
+  if (failures.length > 0) {
+    throw new Error(
+      `Patched webview asset verification failed:\n${failures.join("\n")}`,
+    );
+  }
+}
+
+function patternMatches(pattern, source) {
+  pattern.lastIndex = 0;
+  return pattern.test(source);
+}
+
+function webviewJavaScriptFiles(assetsDir) {
+  return fs
+    .readdirSync(assetsDir)
+    .filter((name) => name.endsWith(".js"))
+    .map((name) => path.join(assetsDir, name));
 }
 
 export function checkPatchedJavaScriptFilesSyntax(filePaths) {
@@ -671,6 +760,5 @@ if (invokedPath === import.meta.url) {
   const assetsDir =
     process.argv[2] ?? path.join(workspaceRoot, "scratch/asar/webview/assets");
   const patchedFiles = patchWebviewAssets(assetsDir);
-  checkPatchedJavaScriptFilesSyntax(patchedFiles);
   console.log(`Patched webview assets in ${patchedFiles.length} file(s)`);
 }
