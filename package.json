@@ -14,6 +14,7 @@
     "prepare": "./scripts/prepare && npm run build:browser && npm run build:server",
     "build": "npm run prepare:asar && npm run build:browser && npm run build:server",
     "adapt:desktop": "node scripts/adapt_desktop_app.mjs",
+    "check:desktop-adaptation": "npm run adapt:desktop -- --prepare --smoke preflight",
     "launch:unpacked": "NODE_ENV=development electron ./scratch/asar --remote-debugging-port=9222",
     "dev:browser": "vite --config vite.browser.config.ts",
     "build:browser": "vite build --config vite.browser.config.ts && node scripts/patch_browser_build_assets.mjs scratch/asar/webview/assets",

@@ -320,6 +320,17 @@ test("build:browser uses the browser build asset patch wrapper", async () => {
   );
 });
 
+test("package exposes the from-zero desktop adaptation check", async () => {
+  const packageJson = JSON.parse(
+    await readFile(new URL("../package.json", import.meta.url), "utf8"),
+  );
+
+  assert.equal(
+    packageJson.scripts["check:desktop-adaptation"],
+    "npm run adapt:desktop -- --prepare --smoke preflight",
+  );
+});
+
 test("package scripts do not expose the static unpacked webview server", async () => {
   const packageJson = JSON.parse(
     await readFile(new URL("../package.json", import.meta.url), "utf8"),

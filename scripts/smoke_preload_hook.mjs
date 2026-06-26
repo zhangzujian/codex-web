@@ -76,6 +76,55 @@ function expectedRuntimeBridgeMethods(bridgeMethods, disabledBridgeMethods) {
   return bridgeMethods.filter((method) => !disabled.has(method));
 }
 
+function bridgeSemanticErrors(bridge, windowType) {
+  const errors = [];
+  const mustBe = (name, expected, actual) => {
+    if (actual !== expected) errors.push(`${name} expected ${expected}`);
+  };
+  const mustType = (name, expected, actual) => {
+    if (typeof actual !== expected) errors.push(`${name} expected ${expected}`);
+  };
+  if ("windowType" in bridge) mustBe("windowType", "electron", bridge.windowType);
+  if ("getBuildFlavor" in bridge) {
+    mustType("getBuildFlavor()", "string", bridge.getBuildFlavor());
+  }
+  if ("getSentryInitOptions" in bridge) {
+    const value = bridge.getSentryInitOptions();
+    if (!value || typeof value !== "object") {
+      errors.push("getSentryInitOptions() expected object");
+    } else {
+      mustType("getSentryInitOptions().appVersion", "string", value.appVersion);
+      mustType("getSentryInitOptions().enabled", "boolean", value.enabled);
+    }
+  }
+  if ("getSharedObjectSnapshotValue" in bridge) {
+    const hostConfig = bridge.getSharedObjectSnapshotValue("host_config");
+    if (!hostConfig || typeof hostConfig !== "object") {
+      errors.push("getSharedObjectSnapshotValue(host_config) expected object");
+    } else {
+      mustType(
+        "getSharedObjectSnapshotValue(host_config).id",
+        "string",
+        hostConfig.id,
+      );
+    }
+  }
+  if ("getSystemThemeVariant" in bridge) {
+    mustType("getSystemThemeVariant()", "string", bridge.getSystemThemeVariant());
+  }
+  if ("isDeviceCheckSupported" in bridge) {
+    mustType("isDeviceCheckSupported()", "boolean", bridge.isDeviceCheckSupported());
+  }
+  if ("isIntelMacBuild" in bridge) {
+    mustType("isIntelMacBuild()", "boolean", bridge.isIntelMacBuild());
+  }
+  if ("usesOwlAppShell" in bridge) {
+    mustType("usesOwlAppShell()", "boolean", bridge.usesOwlAppShell());
+  }
+  if (windowType !== "electron") errors.push("codexWindowType expected electron");
+  return errors;
+}
+
 function runVmPreloadSmoke({
   bridgeMethods,
   disabledBridgeMethods,
@@ -196,9 +245,13 @@ function runVmPreloadSmoke({
     disabledBridgeMethods,
   );
   const missing = expected.filter((method) => !bridgeKeys.includes(method));
-  if (missing.length > 0 || window.codexWindowType !== "electron") {
+  const semanticErrors =
+    window.electronBridge && typeof window.electronBridge === "object"
+      ? bridgeSemanticErrors(window.electronBridge, window.codexWindowType)
+      : ["electronBridge expected object"];
+  if (missing.length > 0 || semanticErrors.length > 0) {
     throw new Error(
-      `vm preload mismatch; missing: ${missing.join(", ") || "none"}`,
+      `vm preload mismatch; missing: ${missing.join(", ") || "none"}; semantics: ${semanticErrors.join(", ") || "ok"}`,
     );
   }
   return {
@@ -206,6 +259,7 @@ function runVmPreloadSmoke({
     codexWindowType: window.codexWindowType,
     disabledBridgeMethods,
     registeredWindowListeners: [...listeners.keys()].sort(),
+    semanticChecks: "ok",
   };
 }
 
@@ -375,10 +429,42 @@ async function runRuntimeSmoke({
           await new Promise((resolve) => setTimeout(resolve, 100));
         }
         const bridge = globalThis.electronBridge;
+        const errors = [];
+        const mustBe = (name, expected, actual) => {
+          if (actual !== expected) errors.push(name + " expected " + expected);
+        };
+        const mustType = (name, expected, actual) => {
+          if (typeof actual !== expected) errors.push(name + " expected " + expected);
+        };
+        if (bridge && typeof bridge === "object") {
+          if ("windowType" in bridge) mustBe("windowType", "electron", bridge.windowType);
+          if ("getBuildFlavor" in bridge) mustType("getBuildFlavor()", "string", bridge.getBuildFlavor());
+          if ("getSentryInitOptions" in bridge) {
+            const value = bridge.getSentryInitOptions();
+            if (!value || typeof value !== "object") errors.push("getSentryInitOptions() expected object");
+            else {
+              mustType("getSentryInitOptions().appVersion", "string", value.appVersion);
+              mustType("getSentryInitOptions().enabled", "boolean", value.enabled);
+            }
+          }
+          if ("getSharedObjectSnapshotValue" in bridge) {
+            const hostConfig = bridge.getSharedObjectSnapshotValue("host_config");
+            if (!hostConfig || typeof hostConfig !== "object") errors.push("getSharedObjectSnapshotValue(host_config) expected object");
+            else mustType("getSharedObjectSnapshotValue(host_config).id", "string", hostConfig.id);
+          }
+          if ("getSystemThemeVariant" in bridge) mustType("getSystemThemeVariant()", "string", bridge.getSystemThemeVariant());
+          if ("isDeviceCheckSupported" in bridge) mustType("isDeviceCheckSupported()", "boolean", bridge.isDeviceCheckSupported());
+          if ("isIntelMacBuild" in bridge) mustType("isIntelMacBuild()", "boolean", bridge.isIntelMacBuild());
+          if ("usesOwlAppShell" in bridge) mustType("usesOwlAppShell()", "boolean", bridge.usesOwlAppShell());
+        } else {
+          errors.push("electronBridge expected object");
+        }
+        if (globalThis.codexWindowType !== "electron") errors.push("codexWindowType expected electron");
         return {
           bridgeKeys: bridge && typeof bridge === "object" ? Object.keys(bridge).sort() : [],
           hasBridge: !!bridge,
-          hasCodexWindowType: "codexWindowType" in globalThis
+          hasCodexWindowType: "codexWindowType" in globalThis,
+          semanticErrors: errors
         };
       })()`;
     let result;
@@ -403,9 +489,9 @@ async function runRuntimeSmoke({
     const missing = expected.filter(
       (method) => !result.bridgeKeys.includes(method),
     );
-    if (!result.hasBridge || missing.length > 0) {
+    if (!result.hasBridge || missing.length > 0 || result.semanticErrors.length > 0) {
       throw new Error(
-        `runtime electronBridge mismatch; missing: ${missing.join(", ")}`,
+        `runtime electronBridge mismatch; missing: ${missing.join(", ") || "none"}; semantics: ${result.semanticErrors.join(", ") || "ok"}`,
       );
     }
     return result;

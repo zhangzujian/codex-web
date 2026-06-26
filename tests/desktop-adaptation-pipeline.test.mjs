@@ -109,3 +109,34 @@ test("adaptDesktopApp generates report, enforces gate, and runs preflight smoke"
     fs.rmSync(dir, { force: true, recursive: true });
   }
 });
+
+test("adaptDesktopApp rejects simulated upstream renderer bridge drift", async () => {
+  const { asarDir, dir } = makeAsarFixture();
+  const patchPath = path.join(dir, "webview-preload.patch");
+  const reportPath = path.join(dir, "preload-hook-report.json");
+  fs.writeFileSync(
+    path.join(asarDir, ".vite", "build", "preload.js"),
+    'let e=require("electron");var D={openPath:()=>null};e.contextBridge.exposeInMainWorld("electronBridge",D);',
+  );
+  fs.writeFileSync(
+    path.join(asarDir, "webview", "assets", "main.js"),
+    "window.electronBridge.openSecretPanel();",
+  );
+
+  try {
+    await assert.rejects(
+      adaptDesktopApp({
+        asarDir,
+        buildBrowser: false,
+        patchPath,
+        prepare: false,
+        reportPath,
+        runTests: false,
+        smoke: "preflight",
+      }),
+      /unsupportedBridgeMethodCalls: 1/,
+    );
+  } finally {
+    fs.rmSync(dir, { force: true, recursive: true });
+  }
+});
