@@ -5,3 +5,4 @@ sentry
 .playwright-cli/
 .worktrees/
 certs/
+output/
