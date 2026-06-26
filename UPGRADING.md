@@ -17,7 +17,7 @@ get the `scratch` directory to a known state by running the following
 
 ```bash
 rm -rf scratch scratch-backup # remove existing past scratch directories to start from clean state
-DEV=1 nix develop --command yarn run prepare:asar 
+DEV=1 nix develop --command yarn run prepare:asar
 mv scratch scratch-backup
 ```
 
@@ -32,10 +32,61 @@ there are a few places to update next.
 1. `appVersion` in default.nix and `hash` in `codexZip`.
 2. `APP_VERSION` in ./scripts/prepare
 
+## from-zero adaptation pipeline
+
+for a fresh upstream artifact, prefer the single entry point:
+
+```bash
+HOSTED_CODEX_APP_ZIP=/path/to/Codex.zip npm run adapt:desktop -- --prepare --smoke runtime
+```
+
+or, when the zip path should be passed explicitly:
+
+```bash
+npm run adapt:desktop -- --zip /path/to/Codex.zip --smoke runtime
+```
+
+the pipeline does the following:
+
+1. unpacks the upstream app with `scripts/prepare_asar`.
+2. generates `patches/webview-preload.patch` and
+   `scratch/preload-hook-report.json` from the upstream artifacts.
+3. fails if `support.ok` or `staticReview.ok` is not true.
+4. builds browser assets, including `webview/assets/preload.js`.
+5. runs the focused patch/static tests.
+6. runs the preload smoke probe.
+
+runtime smoke loads the generated `webview/index.html` in an Electron renderer
+and checks the preload bridge over CDP. on Linux, it needs `DISPLAY`,
+`WAYLAND_DISPLAY`, or an xvfb wrapper.
+in a non-graphical environment, run the same gate with preflight smoke:
+
+```bash
+npm run adapt:desktop -- --smoke preflight
+```
+
+`--smoke preflight` still verifies the generated preload report, patched
+`webview/index.html`, generated `webview/assets/preload.js`, and executes that
+preload bundle in a VM with browser/Electron shims. it does not launch Electron.
+use `--smoke runtime` before calling the upgrade complete.
+
+the report gate is intentionally strict. if it fails, inspect:
+
+```bash
+node -e 'const r=require("./scratch/preload-hook-report.json"); console.log(r.support, r.staticReview)'
+```
+
+all static review arrays must be empty:
+
+- `unknownRendererArguments`
+- `unresolvedBridgeReturns`
+- `unresolvedIpcPayloads`
+- `unsupportedBridgeMethodCalls`
+
 then temporarily comment out the patch lines in ./scripts/prepare_asar and run
 
 ```bash
-DEV=1 nix develop --command yarn run prepare:asar 
+DEV=1 nix develop --command yarn run prepare:asar
 cp -r scratch scratch-new-version-unmodified
 ```
 
@@ -57,9 +108,9 @@ point to the new version.
 
 now we have a few folders
 
-* `scratch-backup`: patches applied on top of old version of Codex Desktop
-* `scratch-new-version-unmodified`: plain extracted new version of Codex Desktop
-* `scratch`: working copy we will be modifying
+- `scratch-backup`: patches applied on top of old version of Codex Desktop
+- `scratch-new-version-unmodified`: plain extracted new version of Codex Desktop
+- `scratch`: working copy we will be modifying
 
 now carefully look at the patches in `patches/` and how they were applied in
 `scratch-backup` and bring the changes over to `scratch`. apply them directly
@@ -77,7 +128,7 @@ once that is done, uncomment the patch lines in `scripts/prepare_asar` and run
 ```bash
 mv scratch scratch-patched-inplace
 rm -rf scratch
-DEV=1 nix develop --command yarn run prepare:asar 
+DEV=1 nix develop --command yarn run prepare:asar
 ```
 
 then diff `./scratch-patched-inplace` with the resulting `./scratch` to validate

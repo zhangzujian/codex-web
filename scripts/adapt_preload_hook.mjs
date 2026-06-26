@@ -1522,7 +1522,7 @@ function printResult(result) {
       console.log(`${key}: ${values.length}`);
     }
   }
-  if (!result.support.ok) {
+  if (!result.support.ok || !result.staticReview.ok) {
     process.exitCode = 1;
     return;
   }
