@@ -11,6 +11,10 @@ const MOBILE_VIEWPORT_HAS_TOUCH =
 const MOBILE_VIEWPORT_IS_NARROW =
   `(${MOBILE_VIEWPORT_WIDTH}<=Ur||${MOBILE_VIEWPORT_HAS_TOUCH}&&${MOBILE_VIEWPORT_WIDTH}<=1440)`;
 const MOBILE_RIGHT_PANEL_OPEN = `p&&${MOBILE_VIEWPORT_IS_NARROW}`;
+const CURRENT_MOBILE_VIEWPORT_IS_NARROW =
+  `(${MOBILE_VIEWPORT_WIDTH}<=tz||${MOBILE_VIEWPORT_HAS_TOUCH}&&${MOBILE_VIEWPORT_WIDTH}<=1440)`;
+const CURRENT_MOBILE_RIGHT_PANEL_OPEN =
+  `h&&${CURRENT_MOBILE_VIEWPORT_IS_NARROW}`;
 const LEGACY_MOBILE_VIEWPORT_WIDTH =
   "Math.min(window.innerWidth,window.visualViewport?.width??window.innerWidth)";
 const LEGACY_MOBILE_VIEWPORT_IS_NARROW =
@@ -118,6 +122,12 @@ const APP_SHELL_LAYOUT_MARKERS = [
   "app-shell-left-panel",
   "rightPanelAnimatedWidth",
 ];
+const CURRENT_APP_SHELL_LAYOUT_MARKERS = [
+  "function HR({bottomPanelSlot:",
+  "app-shell-left-panel",
+  "rightPanelAnimatedWidth",
+  "app-shell-main-content-viewport",
+];
 
 function replaceOnce(source, patternOrPatterns, replacement, description) {
   if (source.includes(replacement)) {
@@ -177,6 +187,10 @@ function pickAppShellCandidate(candidates, assetsDir) {
 }
 
 export function patchWebviewMobileSidebarSource(source) {
+  if (isCurrentWebviewMobileSidebarSource(source)) {
+    return patchCurrentWebviewMobileSidebarSource(source);
+  }
+
   let patched = source;
   patched = replaceOnce(
     patched,
@@ -230,15 +244,25 @@ export function patchWebviewMobileSidebarSource(source) {
 }
 
 export function patchWebviewMobileSidebarAssets(assetsDir) {
+  const assetNames = fs.readdirSync(assetsDir);
+  const appShellNames = assetNames.filter((name) =>
+    /^app-shell-[\w-]+\.js$/.test(name),
+  );
+  const candidateNames = appShellNames.length > 0 ? appShellNames : assetNames;
   const candidates = fs
     .readdirSync(assetsDir)
-    .filter((name) => /^app-shell-[\w-]+\.js$/.test(name))
+    .filter((name) => candidateNames.includes(name))
+    .filter((name) => name.endsWith(".js"))
     .map((name) => {
       const filePath = path.join(assetsDir, name);
       return { filePath, source: fs.readFileSync(filePath, "utf8") };
     })
-    .filter(({ source }) =>
-      APP_SHELL_LAYOUT_MARKERS.every((marker) => source.includes(marker)),
+    .filter(
+      ({ source }) =>
+        APP_SHELL_LAYOUT_MARKERS.every((marker) => source.includes(marker)) ||
+        CURRENT_APP_SHELL_LAYOUT_MARKERS.every((marker) =>
+          source.includes(marker),
+        ),
     );
 
   if (candidates.length === 0) {
@@ -259,6 +283,84 @@ export function patchWebviewMobileSidebarAssets(assetsDir) {
 
   fs.writeFileSync(assetPath, patched);
   return [assetPath];
+}
+
+function patchCurrentWebviewMobileSidebarSource(source) {
+  if (!isCurrentWebviewMobileSidebarSource(source)) {
+    return source;
+  }
+  if (
+    source.includes(`z=kt(${MOBILE_VIEWPORT_WIDTH}),`) &&
+    source.includes(MOBILE_VIEWPORT_HAS_TOUCH)
+  ) {
+    return source;
+  }
+
+  let patched = source;
+  patched = replaceCurrentOnce(
+    patched,
+    "z=kt(window.innerWidth),",
+    `z=kt(${MOBILE_VIEWPORT_WIDTH}),`,
+    "current shell width source",
+  );
+  patched = replaceCurrentOnce(
+    patched,
+    "j=p&&E,",
+    `j=p&&E&&!${CURRENT_MOBILE_VIEWPORT_IS_NARROW},`,
+    "current docked left panel condition",
+  );
+  patched = replaceCurrentOnce(
+    patched,
+    "wR({isFullWidth:y,mainContentWidth:ie})",
+    `wR({isFullWidth:y||${CURRENT_MOBILE_RIGHT_PANEL_OPEN},mainContentWidth:y||${CURRENT_MOBILE_RIGHT_PANEL_OPEN}?z:ie})`,
+    "current right panel width source",
+  );
+  patched = replaceCurrentOnce(
+    patched,
+    "let t=e<=tz,n=e<=nz",
+    `let t=e<=tz||${MOBILE_VIEWPORT_HAS_TOUCH}&&${MOBILE_VIEWPORT_WIDTH}<=1440,n=e<=nz||${MOBILE_VIEWPORT_HAS_TOUCH}&&${MOBILE_VIEWPORT_WIDTH}<=1440`,
+    "current resize narrow thresholds",
+  );
+  patched = replaceCurrentOnce(
+    patched,
+    "className:k(`app-shell-main-content-viewport relative flex min-h-0 min-w-0 flex-col`,y?`w-0 flex-none overflow-hidden`:`flex-1`)",
+    `className:k(\`app-shell-main-content-viewport relative flex min-h-0 min-w-0 flex-col\`,(y||${CURRENT_MOBILE_RIGHT_PANEL_OPEN})?\`w-0 flex-none overflow-hidden\`:\`flex-1\`)`,
+    "current main content full-width class",
+  );
+  patched = replaceCurrentOnce(
+    patched,
+    "ve&&!E&&!l&&!L&&(0,QR.jsx)(UR,{floatingLeftPanelWidth:I,isApplicationMenuBarEnabled:C,isVisible:O&&!E&&!L,leftPanelWidth:F,leftPanel:f,shouldUseReducedMotion:D,onOpenSidebar:()=>{fm(i,!0,{animate:!1})}})",
+    `ve&&(!E||${CURRENT_MOBILE_VIEWPORT_IS_NARROW})&&!l&&!L&&!${CURRENT_MOBILE_RIGHT_PANEL_OPEN}&&(0,QR.jsx)(UR,{floatingLeftPanelWidth:I,isApplicationMenuBarEnabled:C,isVisible:(O&&!${CURRENT_MOBILE_VIEWPORT_IS_NARROW}||E&&${CURRENT_MOBILE_VIEWPORT_IS_NARROW})&&!L,leftPanelWidth:F,leftPanel:f,shouldUseReducedMotion:D,onOpenSidebar:()=>{fm(i,!(E&&${CURRENT_MOBILE_VIEWPORT_IS_NARROW}),{animate:!1})}})`,
+    "current floating left panel condition",
+  );
+  return patched;
+}
+
+function isCurrentWebviewMobileSidebarSource(source) {
+  return CURRENT_APP_SHELL_LAYOUT_MARKERS.every((marker) =>
+    source.includes(marker),
+  );
+}
+
+function replaceCurrentOnce(source, pattern, replacement, description) {
+  if (source.includes(replacement)) {
+    return source;
+  }
+  const first = source.indexOf(pattern);
+  if (first === -1) {
+    throw new Error(`Unable to patch mobile sidebar ${description}`);
+  }
+  const second = source.indexOf(pattern, first + pattern.length);
+  if (second !== -1) {
+    throw new Error(
+      `Expected one mobile sidebar ${description} target, found multiple`,
+    );
+  }
+  return (
+    source.slice(0, first) +
+    replacement +
+    source.slice(first + pattern.length)
+  );
 }
 
 const invokedPath = process.argv[1]

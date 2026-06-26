@@ -47,6 +47,10 @@ function pickAppShellTabStripCandidate(candidates, assetsDir) {
 }
 
 export function patchWebviewMobileTabLayoutSource(source) {
+  if (isCurrentWebviewMobileTabLayoutSource(source)) {
+    return patchCurrentWebviewMobileTabLayoutSource(source);
+  }
+
   let patched = source;
 
   if (!patched.includes(PATCHED_TAB_STRIP_STYLE)) {
@@ -145,9 +149,15 @@ export function patchWebviewMobileTabLayoutSource(source) {
 }
 
 export function patchWebviewMobileTabLayoutAssets(assetsDir) {
+  const assetNames = fs.readdirSync(assetsDir);
+  const appShellNames = assetNames.filter((name) =>
+    /^app-shell-[\w-]+\.js$/.test(name),
+  );
+  const candidateNames = appShellNames.length > 0 ? appShellNames : assetNames;
   const candidates = fs
     .readdirSync(assetsDir)
-    .filter((name) => /^app-shell-[\w-]+\.js$/.test(name))
+    .filter((name) => candidateNames.includes(name))
+    .filter((name) => name.endsWith(".js"))
     .map((name) => {
       const filePath = path.join(assetsDir, name);
       return { filePath, source: fs.readFileSync(filePath, "utf8") };
@@ -174,6 +184,32 @@ export function patchWebviewMobileTabLayoutAssets(assetsDir) {
 
   fs.writeFileSync(assetPath, patched);
   return [assetPath];
+}
+
+function patchCurrentWebviewMobileTabLayoutSource(source) {
+  if (!isCurrentWebviewMobileTabLayoutSource(source)) {
+    return source;
+  }
+  if (source.includes("paddingInlineEnd:")) {
+    return source;
+  }
+
+  const pattern =
+    /([$A-Za-z_][\w$]*)=\{scrollPaddingInlineEnd:([$A-Za-z_][\w$]*)\}/;
+  if (!pattern.test(source)) {
+    return source;
+  }
+  return source.replace(
+    pattern,
+    "$1={scrollPaddingInlineEnd:$2,paddingInlineEnd:$2}",
+  );
+}
+
+function isCurrentWebviewMobileTabLayoutSource(source) {
+  return (
+    source.includes("data-app-shell-tab-strip-controller") &&
+    source.includes("react.memo_cache_sentinel")
+  );
 }
 
 const invokedPath = process.argv[1]
