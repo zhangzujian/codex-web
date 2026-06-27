@@ -23,6 +23,8 @@ import {
   patchAutomationRemoteDefaultHostSupport,
   patchSettingsAllSettingsSectionFiltersAsset,
   patchSettingsAllSettingsSectionFiltersSupport,
+  patchAppHeaderNavigationButtonsRenderAsset,
+  patchAppHeaderNavigationButtonsRenderSupport,
   checkPatchedJavaScriptFilesSyntax,
   verifyPatchedWebviewAssets,
 } from "../scripts/patch_webview_assets.mjs";
@@ -105,6 +107,39 @@ test("verifyPatchedWebviewAssets checks syntax for every webview JavaScript asse
     );
   } finally {
     await rm(dir, { force: true, recursive: true });
+  }
+});
+
+test("patchAppHeaderNavigationButtonsRenderSupport stops rendering app header history buttons", () => {
+  const source =
+    "viewTransitionName:`sidebar-trigger`,onClick:w});let N=(0,mL.jsx)(dL,{ariaLabel:k,onClick:uL});let R=(0,mL.jsx)(dL,{ariaLabel:P,onClick:lL});let z=(0,mL.jsx)(Kn,{children:(0,mL.jsxs)(mL.Fragment,{children:[N,R]})});let B;return t[44]!==O||t[45]!==z?(B=(0,mL.jsxs)(`div`,{className:`flex items-center gap-1`,children:[O,z]}),t[44]=O,t[45]=z,t[46]=B):B=t[46],B}function lL(){return Hn(`navigateForward`,`sidebar_forward`)}function uL(){return Hn(`navigateBack`,`sidebar_back`)}";
+  const patched = patchAppHeaderNavigationButtonsRenderSupport(source);
+
+  assert.match(patched, /children:\[O\]\}/);
+  assert.match(patched, /children:\[N,R\]/);
+  assert.doesNotMatch(patched, /children:\[O,z\]/);
+  assert.equal(patchAppHeaderNavigationButtonsRenderSupport(patched), patched);
+});
+
+test("patchAppHeaderNavigationButtonsRenderAsset patches the app shell chunk", async () => {
+  const assetsDir = await mkdtemp(join(tmpdir(), "codex-web-assets-"));
+  const appShell = join(assetsDir, "app-shell.js");
+  const unrelated = join(assetsDir, "other.js");
+  try {
+    await writeFile(
+      appShell,
+      "viewTransitionName:`sidebar-trigger`,onClick:w});let N=(0,mL.jsx)(dL,{ariaLabel:k,onClick:uL});let R=(0,mL.jsx)(dL,{ariaLabel:P,onClick:lL});let z=(0,mL.jsx)(Kn,{children:(0,mL.jsxs)(mL.Fragment,{children:[N,R]})});let B;return t[44]!==O||t[45]!==z?(B=(0,mL.jsxs)(`div`,{className:`flex items-center gap-1`,children:[O,z]}),t[44]=O,t[45]=z,t[46]=B):B=t[46],B}function lL(){return Hn(`navigateForward`,`sidebar_forward`)}function uL(){return Hn(`navigateBack`,`sidebar_back`)}",
+    );
+    await writeFile(unrelated, "viewTransitionName:`sidebar-trigger`");
+
+    assert.equal(patchAppHeaderNavigationButtonsRenderAsset(assetsDir), appShell);
+    assert.match(
+      await readFile(appShell, "utf8"),
+      /children:\[O\]\}/,
+    );
+    assert.equal(await readFile(unrelated, "utf8"), "viewTransitionName:`sidebar-trigger`");
+  } finally {
+    await rm(assetsDir, { force: true, recursive: true });
   }
 });
 

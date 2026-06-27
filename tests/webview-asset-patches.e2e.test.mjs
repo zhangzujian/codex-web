@@ -94,6 +94,14 @@ const PATCH_TARGETS = [
       "window.visualViewport?.width??window.innerWidth,window.screen?.width??window.innerWidth",
     ],
   },
+  {
+    name: "app header does not render desktop history navigation buttons",
+    positive: [
+      "viewTransitionName:`sidebar-trigger`",
+      "sidebar_back",
+      "sidebar_forward",
+    ],
+  },
 ];
 
 function loadPlaywright() {
@@ -308,6 +316,28 @@ async function assertSettingsConnectionsRuntime(page) {
   });
 }
 
+function assertAppHeaderNavigationButtonsRenderPatch(sources) {
+  const appShellAsset = sources.find(({ text }) =>
+    [
+      "viewTransitionName:`sidebar-trigger`",
+      "sidebar_back",
+      "sidebar_forward",
+    ].every((marker) => text.includes(marker)),
+  );
+  assert.ok(appShellAsset, "served app shell asset should contain header controls");
+
+  assert.match(
+    appShellAsset.text,
+    /viewTransitionName:`sidebar-trigger`[\s\S]{0,3600}?className:`flex items-center gap-1`,children:\[[$A-Za-z_][\w$]*\]\}/,
+    `${appShellAsset.name}: header should render sidebar trigger only`,
+  );
+  assert.doesNotMatch(
+    appShellAsset.text,
+    /viewTransitionName:`sidebar-trigger`[\s\S]{0,3600}?className:`flex items-center gap-1`,children:\[[$A-Za-z_][\w$]*,[$A-Za-z_][\w$]*\]\}/,
+    `${appShellAsset.name}: stale header history button group render`,
+  );
+}
+
 async function assertNonRemoteRuntimeShims(page, expectedTerminalFont) {
   const runtime = await page.evaluate(() => ({
     appSessionId: window.electronBridge?.getAppSessionId(),
@@ -354,7 +384,7 @@ test(
       .readdirSync(assetsDir)
       .filter((name) => name.endsWith(".js"))
       .sort();
-    assert.ok(assetNames.length > 0, "prepared webview assets should exist");
+    assert.ok(assetNames.length > 0, "prepared webview JavaScript assets should exist");
     checkPatchedJavaScriptFilesSyntax(
       assetNames.map((name) => path.join(assetsDir, name)),
     );
@@ -390,6 +420,7 @@ test(
 
       const sources = await fetchServedAssetSources(page, assetNames);
       assertSettingsAllSettingsAssetPatch(sources);
+      assertAppHeaderNavigationButtonsRenderPatch(sources);
       const combinedSource = sources
         .map(({ name, text }) => `\n/* ${name} */\n${text}`)
         .join("\n");

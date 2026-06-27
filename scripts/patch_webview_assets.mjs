@@ -113,6 +113,10 @@ const SETTINGS_HOST_SPECIFIC_SECTION_ALLOWLIST_PATTERN =
   /(\b[$A-Za-z_][\w$]*=\[(?=[^\]]*`profile`)(?=[^\]]*`agent`)(?=[^\]]*`mcp-settings`)(?=[^\]]*`hooks-settings`)(?=[^\]]*`data-controls`)(?![^\]]*`connections`)[^\]]*`hooks-settings`)([^\]]*\],[$A-Za-z_][\w$]*=`agent`)/;
 const PATCHED_SETTINGS_HOST_SPECIFIC_SECTION_ALLOWLIST_PATTERN =
   /\b[$A-Za-z_][\w$]*=\[(?=[^\]]*`profile`)(?=[^\]]*`agent`)(?=[^\]]*`mcp-settings`)(?=[^\]]*`hooks-settings`)(?=[^\]]*`data-controls`)(?=[^\]]*`connections`)[^\]]*\],[$A-Za-z_][\w$]*=`agent`/;
+const APP_HEADER_NAVIGATION_BUTTONS_RENDER_PATTERN =
+  /(viewTransitionName:`sidebar-trigger`[\s\S]{0,3600}?className:`flex items-center gap-1`,children:\[)([$A-Za-z_][\w$]*),([$A-Za-z_][\w$]*)(\]\})/;
+const PATCHED_APP_HEADER_NAVIGATION_BUTTONS_RENDER_PATTERN =
+  /viewTransitionName:`sidebar-trigger`[\s\S]{0,3600}?className:`flex items-center gap-1`,children:\[[$A-Za-z_][\w$]*\]\}/;
 
 export function patchWebviewAssets(assetsDir) {
   const patchedFiles = [
@@ -128,6 +132,7 @@ export function patchWebviewAssets(assetsDir) {
     ...patchWebviewAutomationsNavAssets(assetsDir),
     ...patchWebviewMobileSidebarAssets(assetsDir),
     ...patchWebviewMobileTabLayoutAssets(assetsDir),
+    patchAppHeaderNavigationButtonsRenderAsset(assetsDir),
     patchSettingsAllSettingsSectionFiltersAsset(assetsDir),
     patchDynamicToolsAutomationAsset(assetsDir),
     ...patchAutomationToolContractAsset(assetsDir),
@@ -866,6 +871,42 @@ export function patchSettingsAllSettingsSectionFiltersAsset(assetsDir) {
 
 export function patchSettingsConnectionsAllSettingsAsset(assetsDir) {
   return patchSettingsAllSettingsSectionFiltersAsset(assetsDir);
+}
+
+export function patchAppHeaderNavigationButtonsRenderSupport(source) {
+  if (PATCHED_APP_HEADER_NAVIGATION_BUTTONS_RENDER_PATTERN.test(source)) {
+    return source;
+  }
+  if (!APP_HEADER_NAVIGATION_BUTTONS_RENDER_PATTERN.test(source)) {
+    throw new Error("app header navigation button render target not found");
+  }
+  return source.replace(
+    APP_HEADER_NAVIGATION_BUTTONS_RENDER_PATTERN,
+    "$1$2$4",
+  );
+}
+
+export function patchAppHeaderNavigationButtonsRenderAsset(assetsDir) {
+  const candidates = webviewJavaScriptFiles(assetsDir).filter((assetPath) => {
+    const source = fs.readFileSync(assetPath, "utf8");
+    return (
+      source.includes("viewTransitionName:`sidebar-trigger`") &&
+      source.includes("sidebar_back") &&
+      source.includes("sidebar_forward")
+    );
+  });
+
+  if (candidates.length === 0) {
+    throw new Error(`app header shell asset not found in ${assetsDir}`);
+  }
+
+  const assetPath = candidates[0];
+  const source = fs.readFileSync(assetPath, "utf8");
+  const patched = patchAppHeaderNavigationButtonsRenderSupport(source);
+  if (patched !== source) {
+    fs.writeFileSync(assetPath, patched);
+  }
+  return assetPath;
 }
 
 const invokedPath = process.argv[1]
