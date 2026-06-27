@@ -270,6 +270,28 @@ function assertSettingsAllSettingsAssetPatch(sources) {
   );
 }
 
+function assertSettingsArchivedChatsAssetPatch(sources) {
+  const dataControlsAsset = sources.find(({ text }) =>
+    [
+      "settings.dataControls.archivedChats.empty",
+      "queryKey:[`archived-threads`,",
+      "localThreads:",
+    ].every((marker) => text.includes(marker)),
+  );
+
+  assert.ok(dataControlsAsset, "served data controls asset should contain archived chats");
+  assert.match(
+    dataControlsAsset.text,
+    /\([$A-Za-z_][\w$]*===`local`\|\|[$A-Za-z_][\w$]*===`remote:default`\)\?[$A-Za-z_][\w$]*:\[\]/,
+    `${dataControlsAsset.name}: default remote should show local archived chats`,
+  );
+  assert.doesNotMatch(
+    dataControlsAsset.text,
+    /\blet\s+[$A-Za-z_][\w$]*=[$A-Za-z_][\w$]*===`local`\?[$A-Za-z_][\w$]*:\[\](?=,)/,
+    `${dataControlsAsset.name}: stale local-only archived chats guard`,
+  );
+}
+
 async function assertRemoteDefaultRuntime(page, expectedSshHost) {
   const runtime = await page.evaluate(() => ({
     injectedSshHost: window.__CODEX_WEB_REMOTE_SSH_HOST__,
@@ -443,6 +465,7 @@ test(
 
       const sources = await fetchServedAssetSources(page, assetNames);
       assertSettingsAllSettingsAssetPatch(sources);
+      assertSettingsArchivedChatsAssetPatch(sources);
       assertAppHeaderNavigationButtonsRenderPatch(sources);
       assertStatsigNoopClientOverridePatch(sources);
       const combinedSource = sources

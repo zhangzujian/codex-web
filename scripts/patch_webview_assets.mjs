@@ -120,6 +120,15 @@ const SETTINGS_HOST_SPECIFIC_SECTION_ALLOWLIST_PATTERN =
   /(\b[$A-Za-z_][\w$]*=\[(?=[^\]]*`profile`)(?=[^\]]*`agent`)(?=[^\]]*`mcp-settings`)(?=[^\]]*`hooks-settings`)(?=[^\]]*`data-controls`)(?![^\]]*`connections`)[^\]]*`hooks-settings`)([^\]]*\],[$A-Za-z_][\w$]*=`agent`)/;
 const PATCHED_SETTINGS_HOST_SPECIFIC_SECTION_ALLOWLIST_PATTERN =
   /\b[$A-Za-z_][\w$]*=\[(?=[^\]]*`profile`)(?=[^\]]*`agent`)(?=[^\]]*`mcp-settings`)(?=[^\]]*`hooks-settings`)(?=[^\]]*`data-controls`)(?=[^\]]*`connections`)[^\]]*\],[$A-Za-z_][\w$]*=`agent`/;
+const SETTINGS_ARCHIVED_CHATS_LOCAL_THREADS_PATTERN =
+  /(\blet\s+[$A-Za-z_][\w$]*=)([$A-Za-z_][\w$]*)===`local`\?([$A-Za-z_][\w$]*):\[\](?=,)/;
+const PATCHED_SETTINGS_ARCHIVED_CHATS_LOCAL_THREADS_PATTERN =
+  /(\blet\s+[$A-Za-z_][\w$]*=)\(([$A-Za-z_][\w$]*)===`local`\|\|\2===`remote:default`\)\?([$A-Za-z_][\w$]*):\[\](?=,)/;
+const SETTINGS_ARCHIVED_CHATS_ASSET_MARKERS = [
+  "settings.dataControls.archivedChats.empty",
+  "queryKey:[`archived-threads`,",
+  "localThreads:",
+];
 const APP_HEADER_NAVIGATION_BUTTONS_RENDER_PATTERN =
   /(viewTransitionName:`sidebar-trigger`[\s\S]{0,3600}?className:`flex items-center gap-1`,children:\[)([$A-Za-z_][\w$]*),([$A-Za-z_][\w$]*)(\]\})/;
 const PATCHED_APP_HEADER_NAVIGATION_BUTTONS_RENDER_PATTERN =
@@ -142,6 +151,7 @@ export function patchWebviewAssets(assetsDir) {
     patchStatsigNoopClientOverrideAsset(assetsDir),
     patchAppHeaderNavigationButtonsRenderAsset(assetsDir),
     patchSettingsAllSettingsSectionFiltersAsset(assetsDir),
+    patchSettingsArchivedChatsRemoteDefaultAsset(assetsDir),
     patchDynamicToolsAutomationAsset(assetsDir),
     ...patchAutomationToolContractAsset(assetsDir),
     patchAutomationRemoteDefaultHostAsset(assetsDir),
@@ -935,6 +945,44 @@ export function patchSettingsAllSettingsSectionFiltersAsset(assetsDir) {
 
 export function patchSettingsConnectionsAllSettingsAsset(assetsDir) {
   return patchSettingsAllSettingsSectionFiltersAsset(assetsDir);
+}
+
+export function patchSettingsArchivedChatsRemoteDefaultSupport(source) {
+  if (PATCHED_SETTINGS_ARCHIVED_CHATS_LOCAL_THREADS_PATTERN.test(source)) {
+    return source;
+  }
+  if (!SETTINGS_ARCHIVED_CHATS_LOCAL_THREADS_PATTERN.test(source)) {
+    throw new Error("settings archived chats local thread source not found");
+  }
+  return source.replace(
+    SETTINGS_ARCHIVED_CHATS_LOCAL_THREADS_PATTERN,
+    (_match, prefix, hostId, localThreads) =>
+      `${prefix}(${hostId}===\`local\`||${hostId}===\`remote:default\`)?${localThreads}:[]`,
+  );
+}
+
+export function patchSettingsArchivedChatsRemoteDefaultAsset(assetsDir) {
+  const candidates = fs
+    .readdirSync(assetsDir)
+    .filter((name) => name.endsWith(".js"))
+    .map((name) => path.join(assetsDir, name))
+    .filter((assetPath) => {
+      const source = fs.readFileSync(assetPath, "utf8");
+      return SETTINGS_ARCHIVED_CHATS_ASSET_MARKERS.every((marker) =>
+        source.includes(marker),
+      );
+    });
+
+  for (const assetPath of candidates) {
+    const source = fs.readFileSync(assetPath, "utf8");
+    const patched = patchSettingsArchivedChatsRemoteDefaultSupport(source);
+    if (patched !== source) {
+      fs.writeFileSync(assetPath, patched);
+    }
+    return assetPath;
+  }
+
+  throw new Error(`settings archived chats asset not found in ${assetsDir}`);
 }
 
 export function patchAppHeaderNavigationButtonsRenderSupport(source) {

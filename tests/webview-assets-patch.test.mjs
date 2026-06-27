@@ -25,6 +25,8 @@ import {
   patchAutomationRemoteDefaultHostSupport,
   patchSettingsAllSettingsSectionFiltersAsset,
   patchSettingsAllSettingsSectionFiltersSupport,
+  patchSettingsArchivedChatsRemoteDefaultAsset,
+  patchSettingsArchivedChatsRemoteDefaultSupport,
   patchAppHeaderNavigationButtonsRenderAsset,
   patchAppHeaderNavigationButtonsRenderSupport,
   checkPatchedJavaScriptFilesSyntax,
@@ -284,6 +286,38 @@ test("patchSettingsAllSettingsSectionFiltersAsset locates the settings grouping 
     const patched = await readFile(settings, "utf8");
     assert.match(patched, /case`connections`:return i;case`usage`:/);
     assert.match(patched, /lr=\[[^\]]*`hooks-settings`,`connections`/);
+  } finally {
+    await rm(assetsDir, { force: true, recursive: true });
+  }
+});
+
+test("patchSettingsArchivedChatsRemoteDefaultSupport shows local archives for default remote", () => {
+  const source =
+    "function Pt(){let t=`remote:default`,s=[{id:`archived-thread`}],u=[];let o=t===`local`?s:[],E=ut({cloudTasks:u,localThreads:o})}";
+
+  const patched = patchSettingsArchivedChatsRemoteDefaultSupport(source);
+
+  assert.match(patched, /\(t===`local`\|\|t===`remote:default`\)\?s:\[\]/);
+  assert.equal(patchSettingsArchivedChatsRemoteDefaultSupport(patched), patched);
+});
+
+test("patchSettingsArchivedChatsRemoteDefaultAsset locates the data controls chunk", async () => {
+  const assetsDir = await mkdtemp(join(tmpdir(), "codex-web-assets-"));
+  const dataControls = join(assetsDir, "data-controls-test.js");
+  try {
+    await writeFile(
+      dataControls,
+      "settings.dataControls.archivedChats.empty;queryKey:[`archived-threads`,t];function Pt(){let t=`remote:default`,s=[{id:`archived-thread`}],u=[];let o=t===`local`?s:[],E=ut({cloudTasks:u,localThreads:o})}",
+    );
+
+    assert.equal(
+      patchSettingsArchivedChatsRemoteDefaultAsset(assetsDir),
+      dataControls,
+    );
+    assert.match(
+      await readFile(dataControls, "utf8"),
+      /\(t===`local`\|\|t===`remote:default`\)\?s:\[\]/,
+    );
   } finally {
     await rm(assetsDir, { force: true, recursive: true });
   }
