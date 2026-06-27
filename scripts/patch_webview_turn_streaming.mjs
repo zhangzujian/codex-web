@@ -200,18 +200,14 @@ function replaceModernTurnComponentMemoStart(source) {
   if (markerIndex === -1) {
     return source;
   }
-  const match = findLastMatchBefore(
-    source,
-    /([$A-Za-z_][\w$]*)=\(0,([$A-Za-z_][\w$]*)\.memo\)\(function\(e\)\{/g,
-    markerIndex,
-  );
-  if (match == null || match.index == null) {
+  const match = findLastTurnComponentStartBefore(source, markerIndex);
+  if (match == null || match.kind === "direct") {
     return source;
   }
   return (
     source.slice(0, match.index) +
-    `${match[1]}=function(e){` +
-    source.slice(match.index + match[0].length)
+    `${match.name}=function(e){` +
+    source.slice(match.index + match.text.length)
   );
 }
 
@@ -483,6 +479,24 @@ function findLastMatchBefore(source, pattern, index) {
       break;
     }
     result = match;
+  }
+  return result;
+}
+
+function findLastTurnComponentStartBefore(source, index) {
+  let result = null;
+  const pattern =
+    /([$A-Za-z_][\w$]*)=\(0,([$A-Za-z_][\w$]*)\.memo\)\(function\(e\)\{|([$A-Za-z_][\w$]*)=function\(e\)\{/g;
+  for (const match of source.matchAll(pattern)) {
+    if (match.index == null || match.index >= index) {
+      break;
+    }
+    result = {
+      index: match.index,
+      kind: match[1] == null ? "direct" : "memo",
+      name: match[1] ?? match[3],
+      text: match[0],
+    };
   }
   return result;
 }

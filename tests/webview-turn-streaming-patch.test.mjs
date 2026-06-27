@@ -116,6 +116,16 @@ test("turn streaming patch adapts current modern turn bundles", () => {
   assert.equal(patchWebviewTurnStreamingSource(patched), patched);
 });
 
+test("turn streaming patch stays idempotent when unrelated memos precede an already patched turn component", () => {
+  const patchedOnce = patchWebviewTurnStreamingSource(currentModernTurnSource);
+  const source = patchedOnce.replace(
+    "aQ=function(e){",
+    "TXe=(0,Hq.memo)(function(e){return (0,Hq.jsx)(Hq.Fragment,{children:e.items})});function DXe(){}aQ=function(e){",
+  );
+
+  assert.equal(patchWebviewTurnStreamingSource(source), source);
+});
+
 test("turn streaming patch removes minified thread turn element cache", () => {
   const patched = patchWebviewTurnStreamingSource(
     minifiedThreadSource,
