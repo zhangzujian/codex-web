@@ -23,6 +23,17 @@ const appShellSource = [
   "})",
   "}",
 ].join("");
+const currentV2AppShellSource = [
+  "function jpn({bottomPanelSlot:e,children:t,leftPanelSlot:n,rightPanelSlot:r}){",
+  "let f=(n??(l?d.current:void 0))?.children,p=f!=null,m=e!=null,h=r!=null,g=(0,dq.useRef)(!1),_=(0,dq.useRef)(!1),v=Nn(zC),y=Nn(WC),T=Nn(nw),E=Nn(Vu),D=Nn(Jpn),O=y===`thread-edge-scroll`,k=p&&T,A=O&&C&&!v,j=y===`full-bleed`;",
+  "let N=rg(kWe()),P=og(N,e=>`${Math.max(0,e-Wpn*2)}px`),{isMounted:F,animatedSize:I}=$K({animation:Nn(cw),size:N,isVisible:k}),L=rg(window.innerWidth),R=rg(window.innerHeight-46);",
+  "let te=og([L,I],([e,t])=>Math.max(0,e-t)),{rightPanelAnimatedWidth:ne,rightPanelWidth:re,rightPanelWidthRatio:K,widthMode:ie}=gpn({isFullWidth:v,mainContentWidth:te});",
+  "let me=Rr(({width:e})=>{L.set(e);let t=e<=Vpn,n=e<=Hpn,r=t!==g.current,a=n!==_.current;});",
+  "return fe&&!T&&!l&&!F&&(0,fq.jsx)(Mpn,{floatingLeftPanelWidth:P,isApplicationMenuBarEnabled:S,isVisible:D&&!T&&!F,leftPanelWidth:N,leftPanel:f,shouldUseReducedMotion:E,onOpenSidebar:()=>{ZC(i,!0,{animate:!1})}}),",
+  "(0,fq.jsx)(`div`,{className:`app-shell-left-panel`,children:f}),",
+  "(0,fq.jsx)(`div`,{className:Y(`app-shell-main-content-viewport relative flex min-h-0 min-w-0 flex-col`,v?`w-0 flex-none overflow-hidden`:`flex-1`)}),",
+  "rightPanelAnimatedWidth}",
+].join("");
 
 const mobileViewportWidthPattern =
   /Math\.min\(window\.innerWidth,window\.visualViewport\?\.width\?\?window\.innerWidth,window\.screen\?\.width\?\?window\.innerWidth\)/;
@@ -54,6 +65,22 @@ test("mobile sidebar patch treats touch physical-width phones as narrow without 
   const patched = patchWebviewMobileSidebarSource(appShellSource);
 
   assert.match(patched, /navigator\?\.maxTouchPoints>0/);
+});
+
+test("mobile sidebar patch supports the current jpn app shell layout", () => {
+  const patched = patchWebviewMobileSidebarSource(currentV2AppShellSource);
+
+  assert.match(patched, mobileViewportWidthPattern);
+  assert.match(patched, /navigator\?\.maxTouchPoints>0/);
+  assert.match(patched, /gpn\(\{isFullWidth:v\|\|h&&\(Math\.min/);
+  assert.match(patched, /mainContentWidth:v\|\|h&&\(Math\.min[\s\S]*\?L:te/);
+  assert.match(patched, /k=p&&T&&!\(Math\.min/);
+  assert.match(patched, /fe&&\(!T\|\|\(Math\.min[\s\S]*\)\)&&!l&&!F&&!\(h&&\(Math\.min/);
+  assert.match(
+    patched,
+    /className:Y\(`app-shell-main-content-viewport relative flex min-h-0 min-w-0 flex-col`,\(v\|\|h&&\(Math\.min/,
+  );
+  assert.equal(patchWebviewMobileSidebarSource(patched), patched);
 });
 
 test("mobile sidebar patch is idempotent", () => {

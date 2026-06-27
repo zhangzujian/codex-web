@@ -251,7 +251,7 @@ function assertSettingsAllSettingsAssetPatch(sources) {
     [
       "settings.hostDropdown.allSettings",
       "groupSettingsSections:!0",
-      "Ge.filter",
+      ".filter(",
       "case`connections`",
     ].every((marker) => text.includes(marker)),
   );
