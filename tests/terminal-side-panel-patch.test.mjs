@@ -86,11 +86,11 @@ const nativeTerminalChunk = [
   "function Z(e,t){return e.ctrlKey&&!e.shiftKey&&!e.altKey&&!e.metaKey&&e.key.toLowerCase()===t}",
   "function create(){let f=new be.Terminal({allowTransparency:!0,cursorStyle:`bar`,fontSize:P.current,allowProposedApi:!0,cursorBlink:!0,fontFamily:N.current,letterSpacing:0,lineHeight:1.2,theme:me(t)})}",
   "function update(e){let b=N.current,x=P.current;e.options.fontFamily=b,e.options.fontSize=x}",
-  "function terminal(){f.attachCustomKeyEventHandler(e=>oe({event:e,sendText:e=>write(e)}));return {\"data-codex-terminal\":!0}}",
+  'function terminal(){f.attachCustomKeyEventHandler(e=>oe({event:e,sendText:e=>write(e)}));return {"data-codex-terminal":!0}}',
 ].join("");
 
 const legacyTerminalNativeShortcutFunction =
-  "function codexWebInstallNativeTerminalShortcut(e){let t=globalThis;if(t.codexWebNativeTerminalShortcutHandler)document.removeEventListener(`keydown`,t.codexWebNativeTerminalShortcutHandler,!0);let n=t.codexWebNativeTerminalShortcutHandler=t=>{let n=t.target instanceof Element?t.target:null,r=document.activeElement instanceof Element?document.activeElement:null,i=n?.closest(`[role=\"tabpanel\"]`)??r?.closest(`[role=\"tabpanel\"]`);if((t.ctrlKey||t.metaKey)&&!t.altKey&&!t.shiftKey&&t.code===`KeyW`&&i!=null){t.preventDefault();return}if(t.defaultPrevented)return;if(t.ctrlKey&&!t.metaKey&&!t.altKey&&!t.shiftKey&&t.code===`Backquote`){t.preventDefault();e()}};document.addEventListener(`keydown`,n,!0)}";
+  'function codexWebInstallNativeTerminalShortcut(e){let t=globalThis;if(t.codexWebNativeTerminalShortcutHandler)document.removeEventListener(`keydown`,t.codexWebNativeTerminalShortcutHandler,!0);let n=t.codexWebNativeTerminalShortcutHandler=t=>{let n=t.target instanceof Element?t.target:null,r=document.activeElement instanceof Element?document.activeElement:null,i=n?.closest(`[role="tabpanel"]`)??r?.closest(`[role="tabpanel"]`);if((t.ctrlKey||t.metaKey)&&!t.altKey&&!t.shiftKey&&t.code===`KeyW`&&i!=null){t.preventDefault();return}if(t.defaultPrevented)return;if(t.ctrlKey&&!t.metaKey&&!t.altKey&&!t.shiftKey&&t.code===`Backquote`){t.preventDefault();e()}};document.addEventListener(`keydown`,n,!0)}';
 
 const appShellNavigationChunk = [
   "function $n(e){",
@@ -108,7 +108,7 @@ const appShellTabPanelChunk = [
   "let _;t[12]!==u||t[13]!==d||t[14]!==s||t[15]!==a?(_=u==null?(0,Q.jsx)(`div`,{className:`relative min-h-0 flex-1`,children:a}):(0,Q.jsx)(Cn,{controller:s,tab:u},d),t[12]=u,t[13]=d,t[14]=s,t[15]=a,t[16]=_):_=t[16];",
   "let v;return t[17]!==g||t[18]!==_?(v=(0,Q.jsxs)(`div`,{children:[g,_]}),t[17]=g,t[18]=_,t[19]=v):v=t[19],v}",
   "function Sn(e,t){return t!==-1}",
-  "var Cn=(0,Z.memo)(function(e){let{controller:n,tab:r}=e;return(0,Q.jsx)(`div`,{role:`tabpanel`,`data-app-shell-tab-panel-controller`:n.panelId,\"data-tab-id\":r.tabId})});",
+  'var Cn=(0,Z.memo)(function(e){let{controller:n,tab:r}=e;return(0,Q.jsx)(`div`,{role:`tabpanel`,`data-app-shell-tab-panel-controller`:n.panelId,"data-tab-id":r.tabId})});',
 ].join("");
 
 const modernAppShellTabPanelChunk = [
@@ -116,7 +116,7 @@ const modernAppShellTabPanelChunk = [
   "let t=(0,eI.c)(23),{afterList:n,afterListSticky:r,beforeList:i,emptyState:a,headerHeight:o,controller:s}=e,c=K(s.tabs$),l=K(s.activeTab$),u=K(s.activeTabReactKey$),d=K(WP),h=d===`ready`,g=l!=null&&(h||l.requiresWorkspaceReady===!1),v=(0,nI.jsx)(HF,{controller:s,tabs:c});",
   "let y;t[13]!==l||t[14]!==g||t[15]!==u||t[16]!==s||t[17]!==a||t[18]!==h?(y=g?(0,nI.jsx)(iI,{controller:s,tab:l},u):h?(0,nI.jsx)(`div`,{className:`relative min-h-0 flex-1`,children:a}):(0,nI.jsx)(`div`,{className:`flex min-h-0 flex-1 items-center justify-center p-4 text-center text-sm text-token-text-secondary`,children:(0,nI.jsx)(X,{id:`appShell.tabPanel.worktreeProvisioning`,defaultMessage:`Available when the worktree is ready`,description:`Placeholder shown instead of tab content while a worktree is being provisioned`})}),t[13]=l,t[14]=g,t[15]=u,t[16]=s,t[17]=a,t[18]=h,t[19]=y):y=t[19];",
   "return(0,nI.jsxs)(`div`,{children:[v,y]})}",
-  "var iI=(0,tI.memo)(function({controller:e,tab:t}){return(0,nI.jsx)(`div`,{role:`tabpanel`,`data-app-shell-tab-panel-controller`:e.panelId,\"data-tab-id\":t.tabId,children:t.renderPanel()})});",
+  'var iI=(0,tI.memo)(function({controller:e,tab:t}){return(0,nI.jsx)(`div`,{role:`tabpanel`,`data-app-shell-tab-panel-controller`:e.panelId,"data-tab-id":t.tabId,children:t.renderPanel()})});',
 ].join("");
 
 const appShellPanelWrapperChunk = [
@@ -143,16 +143,16 @@ const openInPrimaryIconChunk = [
 
 function readActualAppShellSource() {
   const assetsDir = path.join(process.cwd(), "scratch/asar/webview/assets");
-  const assetName = fs
-    .readdirSync(assetsDir)
-    .find((name) => {
-      if (!name.endsWith(".js")) {
-        return false;
-      }
-      return fs
-        .readFileSync(path.join(assetsDir, name), "utf8")
-        .includes("bottomPanelSlot:e,children:t,leftPanelSlot:n,rightPanelSlot:r");
-    });
+  const assetName = fs.readdirSync(assetsDir).find((name) => {
+    if (!name.endsWith(".js")) {
+      return false;
+    }
+    return fs
+      .readFileSync(path.join(assetsDir, name), "utf8")
+      .includes(
+        "bottomPanelSlot:e,children:t,leftPanelSlot:n,rightPanelSlot:r",
+      );
+  });
   assert.ok(assetName, "app shell source asset should exist in scratch");
   return fs.readFileSync(path.join(assetsDir, assetName), "utf8");
 }
@@ -172,8 +172,41 @@ test("findTerminalSidePanelAsset follows the public re-export to the source chun
 
   const result = findTerminalSidePanelAsset(assetsDir);
 
-  assert.equal(path.basename(result.assetPath), "thread-side-panel-tabs-source.js");
+  assert.equal(
+    path.basename(result.assetPath),
+    "thread-side-panel-tabs-source.js",
+  );
   assert.equal(result.functionName, "rm");
+});
+
+test("findTerminalSidePanelAsset rejects duplicate public exports", () => {
+  const assetsDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "codex-web-terminal-duplicate-export-assets-"),
+  );
+  fs.writeFileSync(
+    path.join(assetsDir, "thread-side-panel-tabs-entry-a.js"),
+    reexportChunk,
+  );
+  fs.writeFileSync(
+    path.join(assetsDir, "thread-side-panel-tabs-entry-b.js"),
+    reexportChunk.replace(
+      "thread-side-panel-tabs-source.js",
+      "thread-side-panel-tabs-source-b.js",
+    ),
+  );
+  fs.writeFileSync(
+    path.join(assetsDir, "thread-side-panel-tabs-source.js"),
+    sourceChunk,
+  );
+  fs.writeFileSync(
+    path.join(assetsDir, "thread-side-panel-tabs-source-b.js"),
+    sourceChunk,
+  );
+
+  assert.throws(
+    () => findTerminalSidePanelAsset(assetsDir),
+    /Expected one openSessionSandboxSidePanel export/,
+  );
 });
 
 test("patchTerminalActionSource keeps Terminal on the native desktop opener", () => {
@@ -247,10 +280,7 @@ test("patchTerminalActionSource replaces legacy native shortcut patches", () => 
 test("patchNativeTerminalCtrlWSource keeps Ctrl+W inside the terminal", () => {
   const patched = patchNativeTerminalCtrlWSource(nativeTerminalChunk);
 
-  assert.match(
-    patched,
-    /if\(Z\(t,`w`\)\)return J\(t\),i\(`\\x17`\),!1;/,
-  );
+  assert.match(patched, /if\(Z\(t,`w`\)\)return J\(t\),i\(`\\x17`\),!1;/);
   assert.equal(patchNativeTerminalCtrlWSource(patched), patched);
 });
 
@@ -302,6 +332,31 @@ test("findTerminalActionAsset finds the side panel Terminal action importer", ()
 
   assert.equal(path.basename(result.assetPath), "thread-app-shell-chrome.js");
   assert.equal(result.terminalActionFunctionName, "Pe");
+});
+
+test("findTerminalActionAsset rejects duplicate Terminal action candidates", () => {
+  const assetsDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "codex-web-terminal-duplicate-action-assets-"),
+  );
+  const sourcePath = path.join(assetsDir, "thread-side-panel-tabs-source.js");
+  fs.writeFileSync(sourcePath, sourceChunk);
+  fs.writeFileSync(
+    path.join(assetsDir, "thread-app-shell-chrome-a.js"),
+    sidePanelActionChunk,
+  );
+  fs.writeFileSync(
+    path.join(assetsDir, "thread-app-shell-chrome-b.js"),
+    sidePanelActionChunk,
+  );
+
+  assert.throws(
+    () =>
+      findTerminalActionAsset(assetsDir, {
+        assetPath: sourcePath,
+        functionName: "rm",
+      }),
+    /Expected one terminal side panel action asset/,
+  );
 });
 
 test("findTerminalActionAsset supports modern direct Terminal actions", () => {
@@ -378,13 +433,13 @@ test("patchKeepMountedTerminalPanelsSource keeps terminal panels mounted", () =>
   assert.match(patched, /function codexWebRenderTerminalPanels/);
   assert.match(patched, /return!o&&!i&&t==null\?null:/);
   assert.match(patched, /,!t&&e==null&&rightPanelOutlet==null\?null:/);
-  assert.match(patched, /rightPanelOutletCache\.current=l\?\?rightPanelOutletCache\.current/);
-  assert.match(patched, /children:\[e,rightPanelOutlet\]/);
-  assert.match(patched, /children:r\?\.children/);
   assert.match(
     patched,
-    /let _=codexWebRenderTerminalPanels\(s,u,l,d,a\);/,
+    /rightPanelOutletCache\.current=l\?\?rightPanelOutletCache\.current/,
   );
+  assert.match(patched, /children:\[e,rightPanelOutlet\]/);
+  assert.match(patched, /children:r\?\.children/);
+  assert.match(patched, /let _=codexWebRenderTerminalPanels\(s,u,l,d,a\);/);
   assert.match(patched, /startsWith\(`terminal:`\)/);
   assert.match(patched, /className:r\?`contents`:`hidden`/);
   assert.match(patched, /\(Cn,\{controller:e,tab:n\},n\.tabId\)/);
@@ -402,7 +457,10 @@ test("patchKeepMountedTerminalPanelsSource adapts modern app shell tab panels", 
   assert.match(patched, /function codexWebRenderTerminalPanels/);
   assert.match(patched, /y=codexWebRenderTerminalPanels\(s,l,c,u,a,h,g\)/);
   assert.match(patched, /\(0,nI\.jsx\)\(iI,\{controller:e,tab:n\},n\.tabId\)/);
-  assert.match(patched, /\(0,nI\.jsx\)\(X,\{id:`appShell\.tabPanel\.worktreeProvisioning`/);
+  assert.match(
+    patched,
+    /\(0,nI\.jsx\)\(X,\{id:`appShell\.tabPanel\.worktreeProvisioning`/,
+  );
   assert.equal(patchKeepMountedTerminalPanelsSource(patched), patched);
 });
 
@@ -430,16 +488,17 @@ test("patchTerminalSidePanelSupport keeps sidebar Terminal native without patchi
   );
   const patchedPaths = patchTerminalSidePanelSupport(assetsDir);
 
-  assert.deepEqual(patchedPaths, [actionPath, nativeTerminalPath, appShellPath]);
+  assert.deepEqual(patchedPaths, [
+    actionPath,
+    nativeTerminalPath,
+    appShellPath,
+  ]);
   assert.equal(fs.readFileSync(sourcePath, "utf8"), sourceChunk);
   assert.doesNotMatch(
     fs.readFileSync(actionPath, "utf8"),
     /codexWebInstallTerminalBrowserShortcut/,
   );
-  assert.match(
-    fs.readFileSync(nativeTerminalPath, "utf8"),
-    /i\(`\\x17`\)/,
-  );
+  assert.match(fs.readFileSync(nativeTerminalPath, "utf8"), /i\(`\\x17`\)/);
   assert.match(
     fs.readFileSync(actionPath, "utf8"),
     /\{id:`terminal`,Icon:Md,onSelect:Re,keyboardShortcut:ne,title:/,
@@ -463,4 +522,35 @@ test("patchTerminalSidePanelSupport keeps sidebar Terminal native without patchi
     /!t&&e==null&&rightPanelOutlet==null\?null:/,
   );
   assert.match(fs.readFileSync(appShellPath, "utf8"), /rightPanelOutletCache/);
+});
+
+test("patchTerminalSidePanelSupport rejects Terminal action patches that miss the command shortcut", () => {
+  const assetsDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "codex-web-terminal-stale-action-assets-"),
+  );
+  fs.writeFileSync(
+    path.join(assetsDir, "thread-side-panel-tabs-entry.js"),
+    reexportChunk,
+  );
+  fs.writeFileSync(
+    path.join(assetsDir, "thread-side-panel-tabs-source.js"),
+    sourceChunk,
+  );
+  fs.writeFileSync(
+    path.join(assetsDir, "thread-app-shell-chrome.js"),
+    sidePanelActionChunk,
+  );
+  fs.writeFileSync(
+    path.join(assetsDir, "thread-page-bottom-panel-state.js"),
+    nativeTerminalChunk,
+  );
+  fs.writeFileSync(
+    path.join(assetsDir, "app-shell.js"),
+    `${appShellPanelWrapperChunk}${appShellRootChunk}${appShellTabPanelChunk}`,
+  );
+
+  assert.throws(
+    () => patchTerminalSidePanelSupport(assetsDir),
+    /Terminal command registration target not found/,
+  );
 });

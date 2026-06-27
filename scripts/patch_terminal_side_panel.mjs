@@ -11,6 +11,8 @@ const TERMINAL_NATIVE_SHORTCUT_FUNCTION_PATTERN =
   /function codexWebInstallNativeTerminalShortcut\(e\)\{let t=globalThis;if\(t\.codexWebNativeTerminalShortcutHandler\)document\.removeEventListener\(`keydown`,t\.codexWebNativeTerminalShortcutHandler,!0\);let n=t\.codexWebNativeTerminalShortcutHandler=t=>\{[^]*?\};document\.addEventListener\(`keydown`,n,!0\)\}/g;
 const TERMINAL_BROWSER_SHORTCUT_FUNCTION =
   "function codexWebInstallTerminalBrowserShortcut(e){let t=globalThis;if(t.codexWebTerminalBrowserShortcutHandler)document.removeEventListener(`keydown`,t.codexWebTerminalBrowserShortcutHandler,!0);let n=t.codexWebTerminalBrowserShortcutHandler=t=>{if(t.ctrlKey&&!t.metaKey&&!t.altKey&&!t.shiftKey&&t.code===`Backquote`){t.preventDefault();e()}};document.addEventListener(`keydown`,n,!0)}";
+const TERMINAL_COMMAND_REGISTRATION_PATTERN =
+  /([$A-Za-z_][\w$]*)\(`toggleTerminal`,([$A-Za-z_][\w$]*)\);(?!codexWebInstallNativeTerminalShortcut)/;
 const TERMINAL_CTRL_W_PATCH = "if(Z(t,`w`))return J(t),i(`\\x17`),!1;";
 const LEGACY_KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION =
   "function codexWebRenderBottomTerminalPanels(e,t,n,r,i){if(e.panelId!==`bottom`||t==null||!Array.isArray(n)||!n.some(e=>typeof e?.tabId==`string`&&e.tabId.startsWith(`terminal:`)))return t==null?(0,Q.jsx)(`div`,{className:`relative min-h-0 flex-1`,children:i}):(0,Q.jsx)(Cn,{controller:e,tab:t},r);let a=n.filter(e=>e.tabId===t.tabId||typeof e?.tabId==`string`&&e.tabId.startsWith(`terminal:`));return(0,Q.jsx)(Q.Fragment,{children:a.map(n=>{let r=n.tabId===t.tabId;return(0,Q.jsx)(`div`,{className:r?`contents`:`hidden`,children:(0,Q.jsx)(Cn,{controller:e,tab:n},n.tabId)},n.tabId)})})}";
@@ -46,6 +48,7 @@ export function findTerminalActionAsset(assetsDir, terminalPatchTarget) {
     terminalSource,
     terminalPatchTarget.functionName,
   );
+  const matches = [];
   const candidates = fs
     .readdirSync(assetsDir)
     .filter((name) => name.endsWith(".js"))
@@ -67,26 +70,32 @@ export function findTerminalActionAsset(assetsDir, terminalPatchTarget) {
       const terminalActionFunctionName =
         findDirectTerminalActionFunctionName(source);
       if (terminalActionFunctionName != null) {
-        return {
+        matches.push({
           assetPath,
           terminalActionFunctionName,
-        };
+        });
       }
       continue;
     }
 
-    return {
+    matches.push({
       assetPath,
       terminalActionFunctionName: findTerminalActionFunctionName(
         source,
         importedSpecifier.local,
       ),
-    };
+    });
   }
 
-  throw new Error(
-    `Unable to find terminal side panel action asset in ${assetsDir}`,
-  );
+  if (matches.length !== 1) {
+    throw new Error(
+      matches.length === 0
+        ? `Unable to find terminal side panel action asset in ${assetsDir}`
+        : `Expected one terminal side panel action asset, found ${matches.length}`,
+    );
+  }
+
+  return matches[0];
 }
 
 function findNativeTerminalAsset(assetsDir) {
@@ -134,10 +143,7 @@ export function patchTerminalActionSource(
   let patched = source
     .replace(TERMINAL_NATIVE_SHORTCUT_FUNCTION_PATTERN, "")
     .replace(TERMINAL_BROWSER_SHORTCUT_FUNCTION, "")
-    .replace(
-      /;codexWebInstallTerminalBrowserShortcut\(\(\)=>\{[^}]*\}\)/g,
-      "",
-    )
+    .replace(/;codexWebInstallTerminalBrowserShortcut\(\(\)=>\{[^}]*\}\)/g, "")
     .replace(
       /;codexWebInstallTerminalBrowserShortcut\([$A-Za-z_][\w$]*\)/g,
       "",
@@ -148,10 +154,24 @@ export function patchTerminalActionSource(
     browserPatchedActionPattern,
     `$1${terminalActionFunctionName}$2`,
   );
-  return patchTerminalCommandNativeShortcutSource(patched);
+  patched = patchTerminalCommandNativeShortcutSource(patched);
+  if (!patched.includes("codexWebInstallNativeTerminalShortcut(")) {
+    throw new Error("Terminal native shortcut was not installed");
+  }
+  if (patched.includes("codexWebInstallTerminalBrowserShortcut")) {
+    throw new Error("Terminal browser shortcut patch was not removed");
+  }
+  return patched;
 }
 
 function patchTerminalCommandNativeShortcutSource(source) {
+  if (
+    !source.includes("codexWebInstallNativeTerminalShortcut(") &&
+    !TERMINAL_COMMAND_REGISTRATION_PATTERN.test(source)
+  ) {
+    throw new Error("Terminal command registration target not found");
+  }
+
   if (
     source.includes("codexWebInstallNativeTerminalShortcut(") &&
     !source.includes(TERMINAL_NATIVE_SHORTCUT_FUNCTION)
@@ -159,9 +179,7 @@ function patchTerminalCommandNativeShortcutSource(source) {
     return `${TERMINAL_NATIVE_SHORTCUT_FUNCTION}${source}`;
   }
 
-  const commandRegistrationPattern =
-    /([$A-Za-z_][\w$]*)\(`toggleTerminal`,([$A-Za-z_][\w$]*)\);(?!codexWebInstallNativeTerminalShortcut)/;
-  if (!commandRegistrationPattern.test(source)) {
+  if (!TERMINAL_COMMAND_REGISTRATION_PATTERN.test(source)) {
     return source;
   }
 
@@ -170,7 +188,7 @@ function patchTerminalCommandNativeShortcutSource(source) {
     : `${TERMINAL_NATIVE_SHORTCUT_FUNCTION}${source}`;
 
   return patched.replace(
-    commandRegistrationPattern,
+    TERMINAL_COMMAND_REGISTRATION_PATTERN,
     "$1(`toggleTerminal`,$2);codexWebInstallNativeTerminalShortcut($2);",
   );
 }
@@ -280,20 +298,26 @@ export function patchKeepMountedTerminalPanelsSource(source) {
       LEGACY_KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION,
       KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION,
     )
-    .replace(/codexWebRenderBottomTerminalPanels/g, "codexWebRenderTerminalPanels")
+    .replace(
+      /codexWebRenderBottomTerminalPanels/g,
+      "codexWebRenderTerminalPanels",
+    )
     .replace("`${n.tabId}:${r?`active`:`inactive`}`", "n.tabId")
-    .replace(BOTTOM_PANEL_UNMOUNT_CONDITION, BOTTOM_PANEL_KEEP_MOUNTED_CONDITION)
+    .replace(
+      BOTTOM_PANEL_UNMOUNT_CONDITION,
+      BOTTOM_PANEL_KEEP_MOUNTED_CONDITION,
+    )
     .replace(RIGHT_PANEL_UNMOUNT_CONDITION, RIGHT_PANEL_KEEP_MOUNTED_CONDITION)
     .replace(
       RIGHT_PANEL_LEGACY_KEEP_MOUNTED_CONDITION,
       RIGHT_PANEL_KEEP_MOUNTED_CONDITION,
     )
-    .replace(
-      "),!t&&e==null?null:",
-      RIGHT_PANEL_KEEP_MOUNTED_CONDITION,
-    );
-  const modernPanelPatch = findModernKeepMountedTerminalPanelsPatch(upgradedSource);
-  const withHelper = upgradedSource.includes(KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION)
+    .replace("),!t&&e==null?null:", RIGHT_PANEL_KEEP_MOUNTED_CONDITION);
+  const modernPanelPatch =
+    findModernKeepMountedTerminalPanelsPatch(upgradedSource);
+  const withHelper = upgradedSource.includes(
+    KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION,
+  )
     ? upgradedSource
     : upgradedSource.includes(MODERN_KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION)
       ? upgradedSource
@@ -301,19 +325,19 @@ export function patchKeepMountedTerminalPanelsSource(source) {
         ? upgradedSource
         : modernPanelPatch != null
           ? `${upgradedSource.slice(0, modernPanelPatch.functionStart)}${modernPanelPatch.helper}${upgradedSource.slice(modernPanelPatch.functionStart)}`
-      : upgradedSource.includes("function GGt(e){")
-        ? replaceOnce(
-            upgradedSource,
-            "function GGt(e){",
-            `${MODERN_KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION}function GGt(e){`,
-            "App shell tab panel component target not found",
-          )
-        : replaceOnce(
-        upgradedSource,
-        "var Cn=(0,Z.memo)(function(e){",
-        `${KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION}var Cn=(0,Z.memo)(function(e){`,
-        "App shell tab panel component target not found",
-      );
+          : upgradedSource.includes("function GGt(e){")
+            ? replaceOnce(
+                upgradedSource,
+                "function GGt(e){",
+                `${MODERN_KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION}function GGt(e){`,
+                "App shell tab panel component target not found",
+              )
+            : replaceOnce(
+                upgradedSource,
+                "var Cn=(0,Z.memo)(function(e){",
+                `${KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION}var Cn=(0,Z.memo)(function(e){`,
+                "App shell tab panel component target not found",
+              );
 
   let withRightPanelCache = withHelper
     .replace(RIGHT_PANEL_REF_CACHE_PATCH, "")
@@ -356,10 +380,14 @@ export function patchKeepMountedTerminalPanelsSource(source) {
   if (withRightPanelCache.includes("codexWebRenderTerminalPanels(s,u,l,d,a)")) {
     return withRightPanelCache;
   }
-  if (withRightPanelCache.includes("codexWebRenderTerminalPanels(s,l,c,u,a,h,g)")) {
+  if (
+    withRightPanelCache.includes("codexWebRenderTerminalPanels(s,l,c,u,a,h,g)")
+  ) {
     return withRightPanelCache;
   }
-  if (/[$A-Za-z_][\w$]*=codexWebRenderTerminalPanels\(/.test(withRightPanelCache)) {
+  if (
+    /[$A-Za-z_][\w$]*=codexWebRenderTerminalPanels\(/.test(withRightPanelCache)
+  ) {
     return withRightPanelCache;
   }
 
@@ -515,6 +543,7 @@ export function patchTerminalSidePanelSupport(assetsDir) {
 }
 
 function resolvePublicExport(assetsDir, publicName) {
+  const matches = [];
   const candidates = fs
     .readdirSync(assetsDir)
     .filter((name) => name.endsWith(".js"))
@@ -530,11 +559,21 @@ function resolvePublicExport(assetsDir, publicName) {
       if (specifier.exported !== publicName) {
         continue;
       }
-      return resolveLocalBinding(assetsDir, assetPath, source, specifier.local);
+      matches.push(
+        resolveLocalBinding(assetsDir, assetPath, source, specifier.local),
+      );
     }
   }
 
-  throw new Error(`Unable to find ${publicName} export in ${assetsDir}`);
+  if (matches.length !== 1) {
+    throw new Error(
+      matches.length === 0
+        ? `Unable to find ${publicName} export in ${assetsDir}`
+        : `Expected one ${publicName} export, found ${matches.length}`,
+    );
+  }
+
+  return matches[0];
 }
 
 function findExportedName(source, localName) {
@@ -550,14 +589,17 @@ function findExportedName(source, localName) {
 function findTerminalActionFunctionName(source, terminalOpenerName) {
   const pattern = new RegExp(
     `\\b([$A-Za-z_][\\w$]*)\\s*=\\s*\\(\\)\\s*=>\\s*\\{\\s*${escapeRegex(terminalOpenerName)}\\s*\\(`,
+    "g",
   );
-  const match = pattern.exec(source);
-  if (!match) {
+  const matches = [...source.matchAll(pattern)];
+  if (matches.length !== 1) {
     throw new Error(
-      `Unable to find terminal action wrapper for ${terminalOpenerName}`,
+      matches.length === 0
+        ? `Unable to find terminal action wrapper for ${terminalOpenerName}`
+        : `Expected one terminal action wrapper for ${terminalOpenerName}, found ${matches.length}`,
     );
   }
-  return match[1];
+  return matches[0][1];
 }
 
 function findDirectTerminalActionFunctionName(source) {
