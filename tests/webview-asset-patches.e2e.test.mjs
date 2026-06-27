@@ -338,6 +338,29 @@ function assertAppHeaderNavigationButtonsRenderPatch(sources) {
   );
 }
 
+function assertStatsigNoopClientOverridePatch(sources) {
+  const statsigAsset = sources.find(({ text }) =>
+    text.includes("Attempting to retrieve a StatsigClient but none was set."),
+  );
+  assert.ok(statsigAsset, "served Statsig asset should contain noop client fallback");
+
+  assert.match(
+    statsigAsset.text,
+    /function codexWebStatsigNoopClient\(e\)/,
+    `${statsigAsset.name}: noop Statsig client wrapper should be present`,
+  );
+  assert.match(
+    statsigAsset.text,
+    /codexWebStatsigNoopClient\([$A-Za-z_][\w$]*\.NoopEvaluationsClient\)/,
+    `${statsigAsset.name}: noop Statsig client should route through browser overrides`,
+  );
+  assert.doesNotMatch(
+    statsigAsset.text,
+    /\(.*?\.Log\.warn\(`Attempting to retrieve a StatsigClient but none was set\.`\),\s*[$A-Za-z_][\w$]*\.NoopEvaluationsClient\s*\)/,
+    `${statsigAsset.name}: stale noop Statsig fallback`,
+  );
+}
+
 async function assertNonRemoteRuntimeShims(page, expectedTerminalFont) {
   const runtime = await page.evaluate(() => ({
     appSessionId: window.electronBridge?.getAppSessionId(),
@@ -421,6 +444,7 @@ test(
       const sources = await fetchServedAssetSources(page, assetNames);
       assertSettingsAllSettingsAssetPatch(sources);
       assertAppHeaderNavigationButtonsRenderPatch(sources);
+      assertStatsigNoopClientOverridePatch(sources);
       const combinedSource = sources
         .map(({ name, text }) => `\n/* ${name} */\n${text}`)
         .join("\n");

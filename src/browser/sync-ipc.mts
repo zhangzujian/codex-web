@@ -22,6 +22,21 @@ export type SharedObjectSnapshot = {
   statsig_default_enable_features: Record<string, boolean>;
 };
 
+type BrowserLocalFetchEnvironment = {
+  locale: string;
+  getSetting: (key: string) => unknown;
+  setSetting: (key: string, value: unknown) => void;
+};
+
+type FetchResponseMessage = {
+  type: "fetch-response";
+  requestId: string;
+  responseType: "success";
+  status: number;
+  headers: Record<string, string>;
+  bodyJsonString: string;
+};
+
 export const REMOTE_DEFAULT_HOST_ID = "remote:default";
 export const LOCAL_HOST_CONFIG = {
   id: "local",
@@ -118,8 +133,66 @@ export function isReadConfigForHostFetchMessage(
   }
 }
 
+export function localBrowserFetchResponse(
+  message: unknown,
+  env: BrowserLocalFetchEnvironment,
+): FetchResponseMessage | null {
+  if (
+    !isRecord(message) ||
+    message.type !== "fetch" ||
+    typeof message.requestId !== "string" ||
+    typeof message.url !== "string"
+  ) {
+    return null;
+  }
+
+  let url: URL;
+  try {
+    url = new URL(message.url);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "vscode:" || url.hostname !== "codex") {
+    return null;
+  }
+
+  if (url.pathname === "/locale-info") {
+    return fetchResponse(message.requestId, {
+      ideLocale: env.locale,
+      systemLocale: env.locale,
+    });
+  }
+
+  if (url.pathname === "/get-settings") {
+    const values = Object.fromEntries(readStoredSettingEntries(env));
+    return fetchResponse(message.requestId, {
+      configuredValues: values,
+      values,
+    });
+  }
+
+  if (url.pathname === "/get-setting") {
+    const { key } = readFetchParams(message.body);
+    return typeof key === "string"
+      ? fetchResponse(message.requestId, { value: env.getSetting(key) ?? null })
+      : null;
+  }
+
+  if (url.pathname === "/set-setting") {
+    const { key, value } = readFetchParams(message.body);
+    if (typeof key !== "string") {
+      return null;
+    }
+    env.setSetting(key, value ?? null);
+    return fetchResponse(message.requestId, { value: value ?? null });
+  }
+
+  return null;
+}
+
 export function normalizeReadConfigForHostFetchResponse(
   message: unknown,
+  locale?: string,
 ): unknown {
   if (
     !isRecord(message) ||
@@ -142,12 +215,20 @@ export function normalizeReadConfigForHostFetchResponse(
   }
 
   const features = isRecord(body.config.features) ? body.config.features : {};
+  const localeConfig =
+    typeof locale === "string" && locale.trim().length > 0
+      ? {
+          ideLocale: body.config.ideLocale ?? locale,
+          systemLocale: body.config.systemLocale ?? locale,
+        }
+      : {};
   return {
     ...message,
     bodyJsonString: JSON.stringify({
       ...body,
       config: {
         ...body.config,
+        ...localeConfig,
         features: {
           ...features,
           remote_connections: true,
@@ -164,6 +245,37 @@ function isSettingsRoute(route: string | undefined): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function fetchResponse(requestId: string, body: unknown): FetchResponseMessage {
+  return {
+    type: "fetch-response",
+    requestId,
+    responseType: "success",
+    status: 200,
+    headers: {},
+    bodyJsonString: JSON.stringify(body),
+  };
+}
+
+function readFetchParams(body: unknown): Record<string, unknown> {
+  if (typeof body !== "string") {
+    return {};
+  }
+  try {
+    const parsed: unknown = JSON.parse(body);
+    return isRecord(parsed) && isRecord(parsed.params) ? parsed.params : {};
+  } catch {
+    return {};
+  }
+}
+
+function readStoredSettingEntries(env: BrowserLocalFetchEnvironment) {
+  return ["localeOverride"]
+    .map((key) => [key, env.getSetting(key)] as const)
+    .filter((entry): entry is readonly [string, NonNullable<unknown>] =>
+      entry[1] != null,
+    );
 }
 
 function remoteDefaultConnection() {
@@ -209,6 +321,7 @@ function sharedObjectSnapshot(route?: string): SharedObjectSnapshot {
       remote_ssh_connections: true,
       memories: false,
       realtime_conversation: false,
+      enable_i18n: true,
     },
   };
 }

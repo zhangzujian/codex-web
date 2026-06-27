@@ -11,6 +11,8 @@ import {
   patchStatsigTelemetryFlushDisableAsset,
   patchStatsigTelemetryFlushDisableSupport,
   patchStatsigTelemetryDisableSupport,
+  patchStatsigNoopClientOverrideAsset,
+  patchStatsigNoopClientOverrideSupport,
   patchDynamicToolsAutomationAsset,
   patchDynamicToolsAutomationSupport,
   patchAutomationDefaultModelAsset,
@@ -328,6 +330,39 @@ test("patchStatsigTelemetryFlushDisableAsset patches the Statsig SDK chunk", asy
 
   assert.equal(patchStatsigTelemetryFlushDisableAsset(assetsDir), sdk);
   assert.doesNotMatch(await readFile(sdk, "utf8"), /_storeEventToStorage\(n\)/);
+});
+
+test("patchStatsigNoopClientOverrideSupport routes noop Statsig through browser overrides", () => {
+  const source =
+    "import{a as x}from './x.js';var qRe=i((e=>{function a(){let{client:e,renderVersion:a,isLoading:o}=(0,t.useContext)(i.default),s=(0,t.useMemo)(()=>(0,r.isNoopClient)(e)?(n.Log.warn(`Attempting to retrieve a StatsigClient but none was set.`),r.NoopEvaluationsClient):e,[e,a]);return s}}));";
+
+  const patched = patchStatsigNoopClientOverrideSupport(source);
+
+  assert.match(patched, /function codexWebStatsigNoopClient\(e\)/);
+  assert.match(
+    patched,
+    /codexWebStatsigNoopClient\(r\.NoopEvaluationsClient\)/,
+  );
+  assert.match(patched, /getDynamicConfigOverride/);
+  assert.match(patched, /getLayerOverride/);
+  assert.match(patched, /getGateOverride/);
+  assert.equal(patchStatsigNoopClientOverrideSupport(patched), patched);
+});
+
+test("patchStatsigNoopClientOverrideAsset patches the Statsig runtime chunk", async () => {
+  const assetsDir = await mkdtemp(join(tmpdir(), "codex-web-assets-"));
+  const runtime = join(assetsDir, "app-runtime-test.js");
+
+  await writeFile(
+    runtime,
+    "var qRe=i((e=>{function a(){let{client:e,renderVersion:a,isLoading:o}=(0,t.useContext)(i.default),s=(0,t.useMemo)(()=>(0,r.isNoopClient)(e)?(n.Log.warn(`Attempting to retrieve a StatsigClient but none was set.`),r.NoopEvaluationsClient):e,[e,a]);return s}}));",
+  );
+
+  assert.equal(patchStatsigNoopClientOverrideAsset(assetsDir), runtime);
+  assert.match(
+    await readFile(runtime, "utf8"),
+    /codexWebStatsigNoopClient\(r\.NoopEvaluationsClient\)/,
+  );
 });
 
 test("patchStatsigTelemetryDisableAsset accepts already patched formatted assets", async () => {

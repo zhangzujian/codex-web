@@ -18,6 +18,7 @@ import {
   handleSyncIpc,
   hostConfigForRoute,
   isReadConfigForHostFetchMessage,
+  localBrowserFetchResponse,
   normalizeReadConfigForHostFetchResponse,
   normalizeSharedObjectUpdateForRoute,
 } from "./sync-ipc.mts";
@@ -152,6 +153,7 @@ const readConfigForHostRequestIds = new Set<string>();
 const rendererListeners = new Map<string, Set<IpcListener>>();
 const virtualPorts = new Map<string, MessagePort>();
 let currentMemoryPath = "/";
+const BROWSER_SETTING_PREFIX = "codex-web:setting:";
 
 export function emitRendererEvent(
   channel: string,
@@ -197,9 +199,32 @@ function normalizeRendererMessageForView(message: unknown): unknown {
   }
   if (message.type === "fetch-response") {
     readConfigForHostRequestIds.delete(message.requestId);
-    return normalizeReadConfigForHostFetchResponse(message);
+    return normalizeReadConfigForHostFetchResponse(message, navigator.language);
   }
   return message;
+}
+
+function browserSettingStorageKey(key: string): string {
+  return `${BROWSER_SETTING_PREFIX}${key}`;
+}
+
+function getBrowserSetting(key: string): unknown {
+  try {
+    const value = localStorage.getItem(browserSettingStorageKey(key));
+    return value == null ? undefined : JSON.parse(value);
+  } catch {
+    return undefined;
+  }
+}
+
+function setBrowserSetting(key: string, value: unknown): void {
+  try {
+    if (value == null) {
+      localStorage.removeItem(browserSettingStorageKey(key));
+    } else {
+      localStorage.setItem(browserSettingStorageKey(key), JSON.stringify(value));
+    }
+  } catch {}
 }
 
 function handleIncomingMessage(message: MainToRendererMessage): void {
@@ -531,6 +556,20 @@ installBrowserFileDropUploadBridge({ getPathForFile, uploadFiles });
 export const ipcRenderer = {
   invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     if (channel === "codex_desktop:message-from-view" && args.length === 1) {
+      const localFetchResponse = localBrowserFetchResponse(args[0], {
+        locale: navigator.language,
+        getSetting: getBrowserSetting,
+        setSetting: setBrowserSetting,
+      });
+      if (localFetchResponse) {
+        window.setTimeout(() => {
+          window.dispatchEvent(
+            new MessageEvent("message", { data: localFetchResponse }),
+          );
+        }, 0);
+        return Promise.resolve(undefined);
+      }
+
       if (isReadConfigForHostFetchMessage(args[0])) {
         readConfigForHostRequestIds.add(args[0].requestId);
       }

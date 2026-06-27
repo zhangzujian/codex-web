@@ -26,6 +26,13 @@ const STATSIG_DISABLED_STALE_RETURN_PATTERN =
   /if\(this\._loggingEnabled===`disabled`\)return(?=this\._initFlushCoordinator\(\))/g;
 const STATSIG_DISABLED_START_PATTERN =
   /(start\(\)\{let [$A-Za-z_][\w$]*=\(0,[$A-Za-z_][\w$]*\._isServerEnv\)\(\);)(?!if\(this\._loggingEnabled===`disabled`\)return;)/;
+const STATSIG_NOOP_CLIENT_PATTERN =
+  /\(\s*([$A-Za-z_][\w$]*)\.Log\.warn\(`Attempting to retrieve a StatsigClient but none was set\.`\),\s*([$A-Za-z_][\w$]*)\.NoopEvaluationsClient\s*\)/;
+const PATCHED_STATSIG_NOOP_CLIENT_PATTERN =
+  /codexWebStatsigNoopClient\(\s*[$A-Za-z_][\w$]*\.NoopEvaluationsClient\s*\)/;
+const STATSIG_NOOP_CLIENT_HELPER_NAME = "codexWebStatsigNoopClient";
+const STATSIG_NOOP_CLIENT_HELPER =
+  "function codexWebStatsigNoopClient(e){return new Proxy(e,{get(t,n,r){if(n===`getDynamicConfig`)return(n,r)=>{let i=t.getDynamicConfig(n,r);return window.__ELECTRON_SHIM__?.overrideAdapter?.getDynamicConfigOverride?.(i)??i};if(n===`getLayer`)return(n,r)=>{let i=t.getLayer(n,r);return window.__ELECTRON_SHIM__?.overrideAdapter?.getLayerOverride?.(i)??i};if(n===`getFeatureGate`)return(n,r)=>{let i=t.getFeatureGate(n,r);return window.__ELECTRON_SHIM__?.overrideAdapter?.getGateOverride?.(i)??i};if(n===`checkGate`)return(n,r)=>{let i=t.checkGate(n,r);return window.__ELECTRON_SHIM__?.overrideAdapter?.getGateOverride?.({name:n,value:i})?.value??i};return Reflect.get(t,n,r)}})}";
 const REFETCH_QUERIES_CANCEL_REFETCH_PATTERN =
   /(refetchQueries\s*\([^)]*\)\s*\{[\s\S]*?\bcancelRefetch\s*:\s*[$A-Za-z_][\w$]*\.cancelRefetch\s*\?\?\s*)(!0|true)/s;
 const PATCHED_REFETCH_QUERIES_CANCEL_REFETCH_PATTERN =
@@ -132,6 +139,7 @@ export function patchWebviewAssets(assetsDir) {
     ...patchWebviewAutomationsNavAssets(assetsDir),
     ...patchWebviewMobileSidebarAssets(assetsDir),
     ...patchWebviewMobileTabLayoutAssets(assetsDir),
+    patchStatsigNoopClientOverrideAsset(assetsDir),
     patchAppHeaderNavigationButtonsRenderAsset(assetsDir),
     patchSettingsAllSettingsSectionFiltersAsset(assetsDir),
     patchDynamicToolsAutomationAsset(assetsDir),
@@ -189,6 +197,9 @@ function checkPatchedWebviewAssetInvariants(assetsDir) {
     if (patternMatches(STATSIG_DISABLED_START_PATTERN, source)) {
       failures.push(`${label}: disabled Statsig flush loop can still start`);
     }
+    if (patternMatches(STATSIG_NOOP_CLIENT_PATTERN, source)) {
+      failures.push(`${label}: Statsig noop client ignores browser overrides`);
+    }
     if (source.includes("returnthis")) {
       failures.push(`${label}: contains malformed returnthis token`);
     }
@@ -238,6 +249,19 @@ function checkPatchedWebviewAssetInvariants(assetsDir) {
 function patternMatches(pattern, source) {
   pattern.lastIndex = 0;
   return pattern.test(source);
+}
+
+function insertAfterImports(source, insertion) {
+  if (source.includes(`function ${STATSIG_NOOP_CLIENT_HELPER_NAME}(`)) {
+    return source;
+  }
+  const imports = /^(?:\s*import[\s\S]*?;\s*)+/.exec(source);
+  if (!imports) {
+    return `${insertion};${source}`;
+  }
+  return `${source.slice(0, imports[0].length)}${insertion};${source.slice(
+    imports[0].length,
+  )}`;
 }
 
 function webviewJavaScriptFiles(assetsDir) {
@@ -437,6 +461,46 @@ export function patchStatsigTelemetryFlushDisableAsset(assetsDir) {
   }
 
   throw new Error(`Statsig SDK asset not found in ${assetsDir}`);
+}
+
+export function patchStatsigNoopClientOverrideSupport(source) {
+  if (PATCHED_STATSIG_NOOP_CLIENT_PATTERN.test(source)) {
+    return source.includes(`function ${STATSIG_NOOP_CLIENT_HELPER_NAME}(`)
+      ? source
+      : insertAfterImports(source, STATSIG_NOOP_CLIENT_HELPER);
+  }
+  if (!STATSIG_NOOP_CLIENT_PATTERN.test(source)) {
+    throw new Error("Statsig noop client fallback not found");
+  }
+  const patched = source.replace(
+    STATSIG_NOOP_CLIENT_PATTERN,
+    (_match, log, statsig) =>
+      `(${log}.Log.warn(\`Attempting to retrieve a StatsigClient but none was set.\`),${STATSIG_NOOP_CLIENT_HELPER_NAME}(${statsig}.NoopEvaluationsClient))`,
+  );
+  return insertAfterImports(patched, STATSIG_NOOP_CLIENT_HELPER);
+}
+
+export function patchStatsigNoopClientOverrideAsset(assetsDir) {
+  const candidates = fs
+    .readdirSync(assetsDir)
+    .filter((name) => name.endsWith(".js"))
+    .map((name) => path.join(assetsDir, name))
+    .filter((assetPath) =>
+      fs
+        .readFileSync(assetPath, "utf8")
+        .includes("Attempting to retrieve a StatsigClient but none was set."),
+    );
+
+  for (const assetPath of candidates) {
+    const source = fs.readFileSync(assetPath, "utf8");
+    const patched = patchStatsigNoopClientOverrideSupport(source);
+    if (patched !== source) {
+      fs.writeFileSync(assetPath, patched);
+    }
+    return assetPath;
+  }
+
+  throw new Error(`Statsig noop client asset not found in ${assetsDir}`);
 }
 
 export function patchDynamicToolsAutomationSupport(source) {

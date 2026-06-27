@@ -14,6 +14,7 @@ import {
 import {
   handleSyncIpc,
   hostConfigForRoute,
+  localBrowserFetchResponse,
   isReadConfigForHostFetchMessage,
   normalizeReadConfigForHostFetchResponse,
   normalizeSharedObjectUpdateForRoute,
@@ -401,6 +402,16 @@ test("handleSyncIpc serves the synchronous preload channels used by Codex", () =
   );
 });
 
+test("browser shared object snapshot enables i18n without Statsig", () => {
+  const snapshot = handleSyncIpc("codex_desktop:get-shared-object-snapshot", {
+    appVersion: "1.2.3",
+    buildFlavor: "prod",
+    getSystemThemeVariant: () => "dark",
+  });
+
+  assert.equal(snapshot.statsig_default_enable_features.enable_i18n, true);
+});
+
 test("settings routes expose local host_config so Connections stays visible", () => {
   const env = {
     appVersion: "1.2.3",
@@ -493,25 +504,30 @@ test("read-config-for-host fetch responses expose browser remote connection feat
     true,
   );
 
-  const response = normalizeReadConfigForHostFetchResponse({
-    type: "fetch-response",
-    requestId: "request-1",
-    responseType: "success",
-    status: 200,
-    bodyJsonString: JSON.stringify({
-      config: {
-        model: "gpt-5",
-        features: {
-          existing: true,
-          remote_connections: false,
+  const response = normalizeReadConfigForHostFetchResponse(
+    {
+      type: "fetch-response",
+      requestId: "request-1",
+      responseType: "success",
+      status: 200,
+      bodyJsonString: JSON.stringify({
+        config: {
+          model: "gpt-5",
+          features: {
+            existing: true,
+            remote_connections: false,
+          },
         },
-      },
-    }),
-  });
+      }),
+    },
+    "zh-CN",
+  );
 
   assert.deepEqual(JSON.parse(response.bodyJsonString), {
     config: {
+      ideLocale: "zh-CN",
       model: "gpt-5",
+      systemLocale: "zh-CN",
       features: {
         existing: true,
         remote_connections: true,
@@ -522,25 +538,90 @@ test("read-config-for-host fetch responses expose browser remote connection feat
 });
 
 test("read-config-for-host fetch responses add missing feature maps", () => {
-  const response = normalizeReadConfigForHostFetchResponse({
-    type: "fetch-response",
-    requestId: "request-2",
-    responseType: "success",
-    status: 200,
-    bodyJsonString: JSON.stringify({
-      config: {
-        model: "gpt-5",
-      },
-    }),
-  });
+  const response = normalizeReadConfigForHostFetchResponse(
+    {
+      type: "fetch-response",
+      requestId: "request-2",
+      responseType: "success",
+      status: 200,
+      bodyJsonString: JSON.stringify({
+        config: {
+          model: "gpt-5",
+        },
+      }),
+    },
+    "zh-CN",
+  );
 
   assert.deepEqual(JSON.parse(response.bodyJsonString), {
     config: {
+      ideLocale: "zh-CN",
       model: "gpt-5",
+      systemLocale: "zh-CN",
       features: {
         remote_connections: true,
         remote_ssh_connections: true,
       },
+    },
+  });
+});
+
+test("browser local fetch responses expose locale info", () => {
+  const response = localBrowserFetchResponse(
+    {
+      type: "fetch",
+      requestId: "locale-1",
+      method: "POST",
+      url: "vscode://codex/locale-info",
+    },
+    {
+      locale: "zh-CN",
+      getSetting: () => undefined,
+      setSetting: () => {},
+    },
+  );
+
+  assert.deepEqual(JSON.parse(response.bodyJsonString), {
+    ideLocale: "zh-CN",
+    systemLocale: "zh-CN",
+  });
+});
+
+test("browser local fetch responses persist settings", () => {
+  const settings = new Map();
+  const env = {
+    locale: "zh-CN",
+    getSetting: (key) => settings.get(key),
+    setSetting: (key, value) => settings.set(key, value),
+  };
+
+  localBrowserFetchResponse(
+    {
+      type: "fetch",
+      requestId: "set-1",
+      method: "POST",
+      url: "vscode://codex/set-setting",
+      body: JSON.stringify({ params: { key: "localeOverride", value: "zh-CN" } }),
+    },
+    env,
+  );
+
+  const response = localBrowserFetchResponse(
+    {
+      type: "fetch",
+      requestId: "settings-1",
+      method: "POST",
+      url: "vscode://codex/get-settings",
+    },
+    env,
+  );
+
+  assert.deepEqual(JSON.parse(response.bodyJsonString), {
+    configuredValues: {
+      localeOverride: "zh-CN",
+    },
+    values: {
+      localeOverride: "zh-CN",
     },
   });
 });
