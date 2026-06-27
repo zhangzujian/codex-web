@@ -106,6 +106,21 @@ test("verifyPatchedWebviewAssets rejects stale patch targets", async () => {
   }
 });
 
+test("verifyPatchedWebviewAssets ignores generated preload bundle invariants", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-web-assets-verify-"));
+  const preload = join(dir, "preload.js");
+  try {
+    await writeFile(
+      preload,
+      "class QueryClient{refetchQueries(e,t={}){let n={...t,cancelRefetch:t.cancelRefetch??!0};return n}}",
+    );
+
+    assert.doesNotThrow(() => verifyPatchedWebviewAssets(dir, [preload]));
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
 test("verifyPatchedWebviewAssets rejects invalid patched file lists", async () => {
   const dir = await mkdtemp(join(tmpdir(), "codex-web-assets-verify-"));
   try {

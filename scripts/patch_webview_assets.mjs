@@ -187,6 +187,9 @@ function checkPatchedWebviewAssetInvariants(assetsDir) {
   for (const filePath of webviewJavaScriptFiles(assetsDir)) {
     const source = fs.readFileSync(filePath, "utf8");
     const label = path.relative(assetsDir, filePath);
+    if (path.basename(filePath) === "preload.js") {
+      continue;
+    }
     if (
       source.includes("refetchQueries") &&
       source.includes("cancelRefetch") &&
