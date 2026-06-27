@@ -514,6 +514,9 @@ function normalizeRemoteDefaultMcpResult(request, result) {
     if (request.method === "developer-instructions") {
         return normalizeDeveloperInstructionsResult(result);
     }
+    if (request.method === "config/read") {
+        return exposeRemoteConnectionConfigFeatures(normalizeRemoteDefaultPayload(result));
+    }
     if (request.method === "get-global-state" && isRecord(result)) {
         const key = isRecord(request.params) ? request.params.key : null;
         if (key === "REMOTE_PROJECTS") {
@@ -541,6 +544,23 @@ function normalizeRemoteDefaultMcpResult(request, result) {
         }
     }
     return normalizeRemoteDefaultPayload(result);
+}
+function exposeRemoteConnectionConfigFeatures(result) {
+    if (!isRecord(result) || !isRecord(result.config)) {
+        return result;
+    }
+    const features = isRecord(result.config.features) ? result.config.features : {};
+    return {
+        ...result,
+        config: {
+            ...result.config,
+            features: {
+                ...features,
+                remote_connections: true,
+                remote_ssh_connections: true,
+            },
+        },
+    };
 }
 function normalizeDeveloperInstructionsResult(result) {
     if (!isRecord(result) || typeof result.instructions !== "string") {

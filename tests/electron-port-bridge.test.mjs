@@ -122,6 +122,48 @@ test("renderer shared-object updates expose the default remote host", () => {
   assert.equal(messages[4].args[0].value, null);
 });
 
+test("config reads expose browser remote connection features", () => {
+  const messages = captureRendererMessages();
+  const window = new BrowserWindow();
+  const bridge = globalThis.__codexElectronIpcBridge;
+
+  bridge.handleRendererSend("codex_desktop:message-from-view", [
+    {
+      type: "mcp-request",
+      hostId: "remote:default",
+      request: {
+        jsonrpc: "2.0",
+        id: "config-request",
+        method: "config/read",
+        params: { includeLayers: true },
+      },
+    },
+  ]);
+  window.webContents.send("codex_desktop:message-for-view", {
+    type: "mcp-response",
+    hostId: "local",
+    message: {
+      jsonrpc: "2.0",
+      id: "config-request",
+      result: {
+        config: {
+          model: "gpt-5",
+          features: {
+            existing: true,
+            remote_connections: false,
+          },
+        },
+      },
+    },
+  });
+
+  assert.deepEqual(messages[0].args[0].message.result.config.features, {
+    existing: true,
+    remote_connections: true,
+    remote_ssh_connections: true,
+  });
+});
+
 test("mcp responses present local projects and projectless threads as default remote", () => {
   const messages = captureRendererMessages();
   const window = new BrowserWindow();

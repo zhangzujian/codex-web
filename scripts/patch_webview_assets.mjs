@@ -109,6 +109,10 @@ const SETTINGS_ALL_SETTINGS_SECTION_FILTER_PATCHES = [
       `case\`connections\`:return ${featureGate}`,
   },
 ];
+const SETTINGS_HOST_SPECIFIC_SECTION_ALLOWLIST_PATTERN =
+  /(\b[$A-Za-z_][\w$]*=\[(?=[^\]]*`profile`)(?=[^\]]*`agent`)(?=[^\]]*`mcp-settings`)(?=[^\]]*`hooks-settings`)(?=[^\]]*`data-controls`)(?![^\]]*`connections`)[^\]]*`hooks-settings`)([^\]]*\],[$A-Za-z_][\w$]*=`agent`)/;
+const PATCHED_SETTINGS_HOST_SPECIFIC_SECTION_ALLOWLIST_PATTERN =
+  /\b[$A-Za-z_][\w$]*=\[(?=[^\]]*`profile`)(?=[^\]]*`agent`)(?=[^\]]*`mcp-settings`)(?=[^\]]*`hooks-settings`)(?=[^\]]*`data-controls`)(?=[^\]]*`connections`)[^\]]*\],[$A-Za-z_][\w$]*=`agent`/;
 
 export function patchWebviewAssets(assetsDir) {
   const patchedFiles = [
@@ -203,6 +207,14 @@ function checkPatchedWebviewAssetInvariants(assetsDir) {
       if (patternMatches(patch.stale, source)) {
         failures.push(`${label}: All settings still hides ${patch.name}`);
       }
+    }
+    if (
+      SETTINGS_SECTION_FILTER_ASSET_MARKERS.every((marker) =>
+        source.includes(marker),
+      ) &&
+      !patternMatches(PATCHED_SETTINGS_HOST_SPECIFIC_SECTION_ALLOWLIST_PATTERN, source)
+    ) {
+      failures.push(`${label}: host-specific settings still hide Connections`);
     }
     if (
       patternMatches(AUTOMATION_REQUIRED_MODEL_PATTERN, source) ||
@@ -811,6 +823,15 @@ export function patchSettingsAllSettingsSectionFiltersSupport(source) {
       throw new Error(`settings ${patch.name} visibility guard not found`);
     }
     patched = patched.replace(patch.stale, patch.replacement);
+  }
+  if (!PATCHED_SETTINGS_HOST_SPECIFIC_SECTION_ALLOWLIST_PATTERN.test(patched)) {
+    if (!SETTINGS_HOST_SPECIFIC_SECTION_ALLOWLIST_PATTERN.test(patched)) {
+      throw new Error("settings host-specific section allowlist not found");
+    }
+    patched = patched.replace(
+      SETTINGS_HOST_SPECIFIC_SECTION_ALLOWLIST_PATTERN,
+      "$1,`connections`$2",
+    );
   }
   return patched;
 }

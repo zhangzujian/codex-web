@@ -255,6 +255,11 @@ function assertSettingsAllSettingsAssetPatch(sources) {
     /case`connections`:return [$A-Za-z_][\w$]*&&![$A-Za-z_][\w$]*(?=;case`usage`:)/,
     `${settingsAsset.name}: stale All settings Connections guard`,
   );
+  assert.match(
+    settingsAsset.text,
+    /[$A-Za-z_][\w$]*=\[(?=[^\]]*`profile`)(?=[^\]]*`agent`)(?=[^\]]*`mcp-settings`)(?=[^\]]*`hooks-settings`)(?=[^\]]*`data-controls`)(?=[^\]]*`connections`)[^\]]*\],[$A-Za-z_][\w$]*=`agent`/,
+    `${settingsAsset.name}: Connections should pass host-specific settings filtering`,
+  );
 }
 
 async function assertRemoteDefaultRuntime(page, expectedSshHost) {

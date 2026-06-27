@@ -221,10 +221,11 @@ test("patchStatsigTelemetryDisableAsset skips unrelated Statsig SDK chunks", asy
 
 test("patchSettingsAllSettingsSectionFiltersSupport keeps Connections visible in All settings", () => {
   const source =
-    "function sr(){let r=Gt(),i=ye(),y=Ge.filter(e=>{switch(e.slug){case`connections`:return i&&!r;case`usage`:return p}})}";
+    "var lr,ur;lr=[`profile`,`agent`,`personalization`,`mcp-settings`,`hooks-settings`,`local-environments`,`worktrees`,`data-controls`],ur=`agent`;function sr(){let r=Gt(),i=ye(),y=Ge.filter(e=>{switch(e.slug){case`connections`:return i&&!r;case`usage`:return p}})}";
   const patched = patchSettingsAllSettingsSectionFiltersSupport(source);
 
   assert.match(patched, /case`connections`:return i;case`usage`:/);
+  assert.match(patched, /lr=\[[^\]]*`hooks-settings`,`connections`/);
   assert.equal(patchSettingsAllSettingsSectionFiltersSupport(patched), patched);
 });
 
@@ -239,14 +240,13 @@ test("patchSettingsAllSettingsSectionFiltersAsset locates the settings grouping 
     );
     await writeFile(
       settings,
-      "settings.hostDropdown.allSettings;groupSettingsSections:!0;Ge.filter(e=>{switch(e.slug){case`connections`:return i&&!r;case`usage`:return p}})",
+      "settings.hostDropdown.allSettings;groupSettingsSections:!0;var lr,ur;lr=[`profile`,`agent`,`personalization`,`mcp-settings`,`hooks-settings`,`local-environments`,`worktrees`,`data-controls`],ur=`agent`;Ge.filter(e=>{switch(e.slug){case`connections`:return i&&!r;case`usage`:return p}})",
     );
 
     assert.equal(patchSettingsAllSettingsSectionFiltersAsset(assetsDir), settings);
-    assert.match(
-      await readFile(settings, "utf8"),
-      /case`connections`:return i;case`usage`:/,
-    );
+    const patched = await readFile(settings, "utf8");
+    assert.match(patched, /case`connections`:return i;case`usage`:/);
+    assert.match(patched, /lr=\[[^\]]*`hooks-settings`,`connections`/);
   } finally {
     await rm(assetsDir, { force: true, recursive: true });
   }
