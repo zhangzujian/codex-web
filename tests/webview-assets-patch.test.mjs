@@ -264,7 +264,7 @@ test("patchSettingsAllSettingsSectionFiltersSupport keeps Connections visible in
   const patched = patchSettingsAllSettingsSectionFiltersSupport(source);
 
   assert.match(patched, /case`connections`:return i;case`usage`:/);
-  assert.match(patched, /lr=\[[^\]]*`hooks-settings`,`connections`/);
+  assert.doesNotMatch(patched, /lr=\[[^\]]*`connections`/);
   assert.equal(patchSettingsAllSettingsSectionFiltersSupport(patched), patched);
 });
 
@@ -285,7 +285,7 @@ test("patchSettingsAllSettingsSectionFiltersAsset locates the settings grouping 
     assert.equal(patchSettingsAllSettingsSectionFiltersAsset(assetsDir), settings);
     const patched = await readFile(settings, "utf8");
     assert.match(patched, /case`connections`:return i;case`usage`:/);
-    assert.match(patched, /lr=\[[^\]]*`hooks-settings`,`connections`/);
+    assert.doesNotMatch(patched, /lr=\[[^\]]*`connections`/);
   } finally {
     await rm(assetsDir, { force: true, recursive: true });
   }

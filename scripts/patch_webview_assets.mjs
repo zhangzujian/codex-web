@@ -118,7 +118,7 @@ const SETTINGS_ALL_SETTINGS_SECTION_FILTER_PATCHES = [
 ];
 const SETTINGS_HOST_SPECIFIC_SECTION_ALLOWLIST_PATTERN =
   /(\b[$A-Za-z_][\w$]*=\[(?=[^\]]*`profile`)(?=[^\]]*`agent`)(?=[^\]]*`mcp-settings`)(?=[^\]]*`hooks-settings`)(?=[^\]]*`data-controls`)(?![^\]]*`connections`)[^\]]*`hooks-settings`)([^\]]*\],[$A-Za-z_][\w$]*=`agent`)/;
-const PATCHED_SETTINGS_HOST_SPECIFIC_SECTION_ALLOWLIST_PATTERN =
+const SETTINGS_HOST_SPECIFIC_SECTION_ALLOWLIST_WITH_CONNECTIONS_PATTERN =
   /\b[$A-Za-z_][\w$]*=\[(?=[^\]]*`profile`)(?=[^\]]*`agent`)(?=[^\]]*`mcp-settings`)(?=[^\]]*`hooks-settings`)(?=[^\]]*`data-controls`)(?=[^\]]*`connections`)[^\]]*\],[$A-Za-z_][\w$]*=`agent`/;
 const SETTINGS_ARCHIVED_CHATS_LOCAL_THREADS_PATTERN =
   /(\blet\s+[$A-Za-z_][\w$]*=)([$A-Za-z_][\w$]*)===`local`\?([$A-Za-z_][\w$]*):\[\](?=,)/;
@@ -238,9 +238,12 @@ function checkPatchedWebviewAssetInvariants(assetsDir) {
       SETTINGS_SECTION_FILTER_ASSET_MARKERS.every((marker) =>
         source.includes(marker),
       ) &&
-      !patternMatches(PATCHED_SETTINGS_HOST_SPECIFIC_SECTION_ALLOWLIST_PATTERN, source)
+      patternMatches(
+        SETTINGS_HOST_SPECIFIC_SECTION_ALLOWLIST_WITH_CONNECTIONS_PATTERN,
+        source,
+      )
     ) {
-      failures.push(`${label}: host-specific settings still hide Connections`);
+      failures.push(`${label}: remote host-specific settings still show Connections`);
     }
     if (
       patternMatches(AUTOMATION_REQUIRED_MODEL_PATTERN, source) ||
@@ -903,14 +906,15 @@ export function patchSettingsAllSettingsSectionFiltersSupport(source) {
     }
     patched = patched.replace(patch.stale, patch.replacement);
   }
-  if (!PATCHED_SETTINGS_HOST_SPECIFIC_SECTION_ALLOWLIST_PATTERN.test(patched)) {
-    if (!SETTINGS_HOST_SPECIFIC_SECTION_ALLOWLIST_PATTERN.test(patched)) {
-      throw new Error("settings host-specific section allowlist not found");
-    }
+  if (SETTINGS_HOST_SPECIFIC_SECTION_ALLOWLIST_WITH_CONNECTIONS_PATTERN.test(patched)) {
     patched = patched.replace(
-      SETTINGS_HOST_SPECIFIC_SECTION_ALLOWLIST_PATTERN,
-      "$1,`connections`$2",
+      SETTINGS_HOST_SPECIFIC_SECTION_ALLOWLIST_WITH_CONNECTIONS_PATTERN,
+      (match) => match.replace(/,?`connections`,?/, (item) =>
+        item.startsWith(",") && item.endsWith(",") ? "," : "",
+      ),
     );
+  } else if (!SETTINGS_HOST_SPECIFIC_SECTION_ALLOWLIST_PATTERN.test(patched)) {
+    throw new Error("settings host-specific section allowlist not found");
   }
   return patched;
 }
