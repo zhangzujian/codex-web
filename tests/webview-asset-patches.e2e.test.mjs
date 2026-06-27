@@ -15,16 +15,6 @@ const require = createRequire(import.meta.url);
 
 const PATCH_TARGETS = [
   {
-    name: "thread delete menu and i18n",
-    positive: [
-      "Remove chat",
-      "threadHeader.deleteThread",
-      "threadHeader.deleteThreadConfirm.title",
-      "threadHeader.deleteThreadConfirm.body",
-      "移除对话",
-    ],
-  },
-  {
     name: "terminal side panel uses native persistent panels",
     positive: ["codexWebRenderTerminalPanels", "data-codex-terminal"],
   },
@@ -239,6 +229,20 @@ function assertPatchTarget(target, combinedSource) {
         `${target.name}: stale ${JSON.stringify(marker)}`,
       );
     }
+  }
+}
+
+function assertThreadDeletePatchRemoved(combinedSource) {
+  for (const marker of [
+    "threadHeader.deleteThread",
+    "threadHeader.deleteThreadConfirm.title",
+    "threadHeader.deleteThreadConfirm.body",
+    "移除对话",
+  ]) {
+    assert.ok(
+      !combinedSource.includes(marker),
+      `thread delete patch should be removed: ${marker}`,
+    );
   }
 }
 
@@ -471,6 +475,7 @@ test(
       const combinedSource = sources
         .map(({ name, text }) => `\n/* ${name} */\n${text}`)
         .join("\n");
+      assertThreadDeletePatchRemoved(combinedSource);
       for (const target of PATCH_TARGETS) {
         assertPatchTarget(target, combinedSource);
       }

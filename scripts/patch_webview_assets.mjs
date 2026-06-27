@@ -10,8 +10,6 @@ import { patchWebviewAutomationsNavAssets } from "./patch_webview_automations_na
 import { patchWebviewMobileSidebarAssets } from "./patch_webview_mobile_sidebar.mjs";
 import { patchWebviewMobileTabLayoutAssets } from "./patch_webview_mobile_tab_layout.mjs";
 import { patchWebviewTelemetryDisableAssets } from "./patch_webview_telemetry_disable.mjs";
-import { patchWebviewThreadDeleteAssets } from "./patch_webview_thread_delete.mjs";
-import { patchWebviewThreadDeleteI18nAssets } from "./patch_webview_thread_delete_i18n.mjs";
 import { patchWebviewTurnStreamingAssets } from "./patch_webview_turn_streaming.mjs";
 
 const STATSIG_OPTIONS_PATTERN =
@@ -136,8 +134,6 @@ const PATCHED_APP_HEADER_NAVIGATION_BUTTONS_RENDER_PATTERN =
 
 export function patchWebviewAssets(assetsDir) {
   const patchedFiles = [
-    ...patchWebviewThreadDeleteAssets(assetsDir),
-    ...patchWebviewThreadDeleteI18nAssets(assetsDir),
     ...patchTerminalSidePanelSupport(assetsDir),
     ...patchBrowserPanelIframeAssets(assetsDir),
     ...patchRefetchQueriesCancelRefetchAsset(assetsDir),
