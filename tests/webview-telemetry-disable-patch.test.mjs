@@ -80,6 +80,17 @@ const currentComposerFixture = [
   "var mj=`/wham/analytics-events/events`;",
 ].join("");
 
+const currentAppMainDisabledFixture = [
+  "function IOe({appVersion:e,client:t,deviceId:n,enabled:r}){let{data:i,status:a}=K_(),o=false,s=(0,$$.useMemo)(()=>LOe(t),[t]),c=(0,$$.useRef)(o)}",
+  "var e1={status:`dropped`,reason:`Structured analytics disabled`};",
+  "async function VOe(e){return;try{switch(e.eventKind){case`turn_rating`:return}}catch(t){}}",
+  "function q1({appVersion:e,authMethod:t,client:n,deviceId:r,hostBuildFlavor:i,children:a}){return a;let[o]=(0,e0.useState)(()=>c0++),s=IOe({appVersion:e,client:n,deviceId:r,enabled:!0})}",
+  "var s0={overrideAdapter:window.__ELECTRON_SHIM__.overrideAdapter,disableLogging:true,networkConfig:{api:n0,logEventUrl:q$,sdkExceptionUrl:r0,preventAllNetworkTraffic:true,networkOverrideFunc:_ke}};",
+].join("");
+
+const unrelatedDpfFixture =
+  "function dP({root:e,labels:t}){let n=t[e]?.trim();if(n)return n;let r=e.split(/[/\\\\]+/).filter(Boolean);return r[r.length-1]??e}";
+
 test("webview telemetry patch disables analytics and network telemetry", () => {
   const patched = patchWebviewTelemetryDisableSource(
     appMainFixture,
@@ -121,6 +132,13 @@ test("webview telemetry patch skips non-usage-limit wham analytics", () => {
   );
 });
 
+test("webview telemetry patch skips unrelated dP helper chunks", () => {
+  assert.equal(
+    patchWebviewTelemetryDisableSource(unrelatedDpfFixture),
+    unrelatedDpfFixture,
+  );
+});
+
 test("webview telemetry patch disables current usage limit analytics", () => {
   const patched = patchWebviewTelemetryDisableSource(currentComposerFixture);
 
@@ -158,6 +176,26 @@ test("webview telemetry asset patch updates app main and composer chunks", () =>
     assert.match(
       patchedComposer,
       /async function ff\(\{[\s\S]*?\}\) \{\s*return false;/,
+    );
+  } finally {
+    fs.rmSync(assetsDir, { recursive: true, force: true });
+  }
+});
+
+test("webview telemetry asset patch accepts current disabled app telemetry", () => {
+  const assetsDir = fs.mkdtempSync(join(tmpdir(), "codex-web-telemetry-"));
+  try {
+    fs.writeFileSync(
+      join(assetsDir, appMainAssetName),
+      currentAppMainDisabledFixture,
+    );
+    fs.writeFileSync(join(assetsDir, composerAssetName), composerFixture);
+
+    const patchedFiles = patchWebviewTelemetryDisableAssets(assetsDir);
+
+    assert.deepEqual(
+      patchedFiles.map((filePath) => basename(filePath)).sort(),
+      [composerAssetName],
     );
   } finally {
     fs.rmSync(assetsDir, { recursive: true, force: true });

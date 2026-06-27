@@ -14,10 +14,7 @@ const STATSIG_OPTIONS_FORMATTED =
 export function patchWebviewTelemetryDisableSource(source, assetName = "") {
   let patched = source;
 
-  if (
-    source.includes("function dP({") ||
-    source.includes("Structured analytics disabled")
-  ) {
+  if (hasAppMainTelemetryTarget(source)) {
     patched = replaceFirstAvailableByRegex(
       patched,
       [
@@ -158,6 +155,14 @@ function replaceStatsigOptions(source) {
     "QP={overrideAdapter:window.__ELECTRON_SHIM__.overrideAdapter,disableLogging:!0,networkConfig:{api:KP,logEventUrl:tP,sdkExceptionUrl:qP,preventAllNetworkTraffic:!0,networkOverrideFunc:UP}}",
     /QP\s*=\s*\{\s*overrideAdapter:\s*window\.__ELECTRON_SHIM__\.overrideAdapter/,
     "Statsig network options",
+  );
+}
+
+function hasAppMainTelemetryTarget(source) {
+  return (
+    /\bfunction [$A-Za-z_][\w$]*\(\{\s*appVersion\s*:[\s\S]{0,160}?enabled\s*:/.test(
+      source,
+    ) || source.includes("Structured analytics disabled")
   );
 }
 

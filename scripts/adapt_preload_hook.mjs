@@ -662,7 +662,12 @@ function extractMainWorldKeyUsages(asset, source, mainWorldKeys) {
 
 function rendererAliasSearchRange(source, alias, index) {
   const maxEnd = Math.min(source.length, index + RENDERER_ALIAS_TRACE_WINDOW);
-  let end = maxEnd;
+  let end = Math.min(
+    maxEnd,
+    nearestFunctionBodyEnd(source, index) ??
+      containingBraceEnd(source, index) ??
+      maxEnd,
+  );
   for (const pattern of [
     new RegExp(`\\b${escapeRegExp(alias)}\\s*=`, "g"),
     new RegExp(
@@ -677,6 +682,56 @@ function rendererAliasSearchRange(source, alias, index) {
     }
   }
   return [index, end];
+}
+
+function nearestFunctionBodyEnd(source, index) {
+  const offset = Math.max(0, index - RENDERER_ALIAS_TRACE_WINDOW);
+  const segment = source.slice(offset, index);
+  const candidates = [
+    ...segment.matchAll(/(?:async\s*)?\([^)]*\)\s*=>\s*\{/g),
+    ...segment.matchAll(/[A-Za-z_$][\w$]*\s*=>\s*\{/g),
+    ...segment.matchAll(/function\s*[A-Za-z_$]*\s*\([^)]*\)\s*\{/g),
+  ].sort((left, right) => left.index - right.index);
+  for (const match of candidates.reverse()) {
+    const open = offset + match.index + match[0].lastIndexOf("{");
+    const close = findMatchingBrace(source, open);
+    if (close > index) {
+      return close;
+    }
+  }
+  return null;
+}
+
+function containingBraceEnd(source, index) {
+  const stack = [];
+  let quote = null;
+  for (let cursor = 0; cursor < index; cursor += 1) {
+    const char = source[cursor];
+    const previous = source[cursor - 1];
+    if (quote) {
+      if (char === quote && previous !== "\\") {
+        quote = null;
+      }
+      continue;
+    }
+    if (char === "`" || char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === "{") {
+      stack.push(cursor);
+      continue;
+    }
+    if (char === "}") {
+      stack.pop();
+    }
+  }
+  const open = stack.at(-1);
+  if (open == null) {
+    return null;
+  }
+  const close = findMatchingBrace(source, open);
+  return close === -1 ? null : close;
 }
 
 function describeExpressionShape(expression) {
@@ -727,7 +782,7 @@ function describeRendererArgumentShape(source, call, expression) {
   );
   return describeContractExpressionShape(expression, {
     definitions,
-    params: nearestFunctionParams(source, call.calleeStart),
+    params: rendererFunctionParams(source, call.calleeStart),
   });
 }
 
@@ -844,12 +899,32 @@ function nearestFunctionParams(source, index) {
     index,
   );
   const candidates = [
+    ...segment.matchAll(/(?:async\s*)?\(([^)]*)\)\s*=>/g),
     ...segment.matchAll(/(?:function\s*[A-Za-z_$]*|[,(])\s*\(([^)]*)\)\s*=>/g),
     ...segment.matchAll(/([A-Za-z_$][\w$]*)\s*=>/g),
     ...segment.matchAll(/function\s+[A-Za-z_$][\w$]*\s*\(([^)]*)\)/g),
-  ];
+  ].sort((left, right) => left.index - right.index);
   const last = candidates.at(-1);
   return last ? splitParams(last[1]) : [];
+}
+
+function rendererFunctionParams(source, index) {
+  return [
+    ...new Set([
+      ...nearestFunctionParams(source, index),
+      ...destructuredParameterBindings(source, index),
+    ]),
+  ];
+}
+
+function destructuredParameterBindings(source, index) {
+  const segment = source.slice(
+    Math.max(0, index - RENDERER_ALIAS_TRACE_WINDOW),
+    index,
+  );
+  return [...segment.matchAll(/\(\s*(\{[^)]*\})\s*\)\s*=>/g)].flatMap(
+    (match) => splitParams(match[1]),
+  );
 }
 
 function valueDefinitions(source) {
@@ -1165,8 +1240,71 @@ function functionParams(expression) {
 
 function splitParams(params) {
   return splitTopLevel(params)
-    .map((param) => param.replace(/=.*/, "").trim())
+    .flatMap(parameterBindings)
     .filter(Boolean);
+}
+
+function parameterBindings(param) {
+  const trimmed = stripTopLevelDefault(param.trim());
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    return objectPatternBindings(trimmed.slice(1, -1));
+  }
+  return [trimmed];
+}
+
+function objectPatternBindings(body) {
+  return splitTopLevel(body).flatMap((part) => {
+    const entry = part.trim().replace(/^\.\.\./, "");
+    const colon = topLevelIndex(entry, ":");
+    const target = stripTopLevelDefault(
+      colon === -1 ? entry : entry.slice(colon + 1),
+    ).trim();
+    if (target.startsWith("{") && target.endsWith("}")) {
+      return objectPatternBindings(target.slice(1, -1));
+    }
+    return /^[A-Za-z_$][\w$]*$/.test(target) ? [target] : [];
+  });
+}
+
+function stripTopLevelDefault(value) {
+  const index = topLevelIndex(value, "=");
+  return index === -1 ? value : value.slice(0, index);
+}
+
+function topLevelIndex(source, needle) {
+  let parenDepth = 0;
+  let braceDepth = 0;
+  let bracketDepth = 0;
+  let quote = null;
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    const previous = source[index - 1];
+    if (quote) {
+      if (char === quote && previous !== "\\") {
+        quote = null;
+      }
+      continue;
+    }
+    if (char === "`" || char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === "(") parenDepth += 1;
+    else if (char === ")") parenDepth -= 1;
+    else if (char === "{") braceDepth += 1;
+    else if (char === "}") braceDepth -= 1;
+    else if (char === "[") bracketDepth += 1;
+    else if (char === "]") bracketDepth -= 1;
+    else if (
+      char === needle &&
+      parenDepth === 0 &&
+      braceDepth === 0 &&
+      bracketDepth === 0
+    ) {
+      return index;
+    }
+  }
+  return -1;
 }
 
 function inferBridgeReturnShape(

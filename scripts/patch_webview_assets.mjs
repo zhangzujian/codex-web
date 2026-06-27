@@ -41,6 +41,8 @@ const DYNAMIC_TOOLS_UNGATED_ONBOARDING_PATTERN =
   /(\.\.\.([$A-Za-z_][\w$]*)===`conversational_onboarding`\?\[([$A-Za-z_][\w$]*)\]:\[\],)\.\.\.\2!==`conversational_onboarding`\?\[\.\.\.([$A-Za-z_][\w$]*),([$A-Za-z_][\w$]*)\]:\[\]/;
 const PATCHED_DYNAMIC_TOOLS_AUTOMATION_GATE_PATTERN =
   /codexWebAutomationUpdateTool,\.\.\.[$A-Za-z_][\w$]*&&[$A-Za-z_][\w$]*!==`conversational_onboarding`\?\[\.\.\.[$A-Za-z_][\w$]*,[$A-Za-z_][\w$]*\]:\[\]/;
+const EXISTING_AUTOMATION_TOOL_DEFINITION_PATTERN =
+  /\b[$A-Za-z_][\w$]*\s*=\s*`automation_update`[\s\S]{0,3000}?\{name:[$A-Za-z_][\w$]*,description:[$A-Za-z_][\w$]*,inputSchema:/;
 const DYNAMIC_TOOLS_FEATURE_GATE_PATTERN =
   /(?:,|\blet\s+)([$A-Za-z_][\w$]*)=[$A-Za-z_][\w$]*\?\.\[[^\]]+\]===!0/g;
 const DYNAMIC_TOOLS_AUTOMATION_TOOL =
@@ -100,7 +102,7 @@ const AUTOMATION_NATIVE_OPTIONAL_FIELD_PATTERNS = [
 ];
 const SETTINGS_SECTION_FILTER_ASSET_MARKERS = [
   "settings.hostDropdown.allSettings",
-  "Ge.filter",
+  ".filter(",
   "case`connections`",
   "groupSettingsSections:!0",
 ];
@@ -635,7 +637,9 @@ export function patchDynamicToolsAutomationAsset(assetsDir) {
     .filter((name) => name.endsWith(".js"))
     .map((name) => path.join(assetsDir, name))
     .filter((assetPath) =>
-      fs.readFileSync(assetPath, "utf8").includes("automation_update"),
+      EXISTING_AUTOMATION_TOOL_DEFINITION_PATTERN.test(
+        fs.readFileSync(assetPath, "utf8"),
+      ),
     );
   if (existingAutomationToolAssets.length > 0) {
     if (existingAutomationToolAssets.length !== 1) {
@@ -814,7 +818,8 @@ export function patchAutomationModelPickerAsset(assetsDir) {
       const source = fs.readFileSync(assetPath, "utf8");
       return (
         source.includes("settings.automations.model.loading") &&
-        source.includes("settings.automations.modelAndReasoning.ariaLabel")
+        source.includes("settings.automations.modelAndReasoning.ariaLabel") &&
+        patchAutomationModelPickerSupport(source) !== source
       );
     });
   return patchOptionalSingleWebviewAsset(

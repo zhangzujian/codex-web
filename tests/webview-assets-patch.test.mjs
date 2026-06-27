@@ -318,6 +318,26 @@ test("patchSettingsAllSettingsSectionFiltersAsset locates the settings grouping 
   }
 });
 
+test("patchSettingsAllSettingsSectionFiltersAsset accepts renamed filter variables", async () => {
+  const assetsDir = await mkdtemp(join(tmpdir(), "codex-web-assets-"));
+  const settings = join(assetsDir, "settings-page-test.js");
+  try {
+    await writeFile(
+      settings,
+      "settings.hostDropdown.allSettings;groupSettingsSections:!0;var lr,ur;lr=[`profile`,`agent`,`personalization`,`mcp-settings`,`hooks-settings`,`local-environments`,`worktrees`,`data-controls`],ur=`agent`;gt.filter(e=>{switch(e.slug){case`connections`:return i&&!r;case`usage`:return p}})",
+    );
+
+    assert.equal(
+      patchSettingsAllSettingsSectionFiltersAsset(assetsDir),
+      settings,
+    );
+    const patched = await readFile(settings, "utf8");
+    assert.match(patched, /case`connections`:return i;case`usage`:/);
+  } finally {
+    await rm(assetsDir, { force: true, recursive: true });
+  }
+});
+
 test("patchSettingsArchivedChatsRemoteDefaultSupport shows local archives for default remote", () => {
   const source =
     "function Pt(){let t=`remote:default`,s=[{id:`archived-thread`}],u=[];let o=t===`local`?s:[],E=ut({cloudTasks:u,localThreads:o})}";
@@ -535,7 +555,7 @@ test("single-target webview asset patches reject duplicate candidates", async ()
   const automationArgs =
     "case fe:{let t=Me.safeParse(a.arguments);if(!t.success){c=Ie(`${fe} received invalid arguments.`);break}run(t.data)}";
   const settings =
-    "settings.hostDropdown.allSettings;Ge.filter;case`connections`:return X&&!Y;case`usage`:return Z;groupSettingsSections:!0;let lr=[`profile`,`agent`,`mcp-settings`,`hooks-settings`,`data-controls`,`connections`],ar=`agent`;";
+    "settings.hostDropdown.allSettings;Ge.filter(e=>{switch(e.slug){case`connections`:return X&&!Y;case`usage`:return Z}});groupSettingsSections:!0;let lr=[`profile`,`agent`,`mcp-settings`,`hooks-settings`,`data-controls`,`connections`],ar=`agent`;";
   const archives =
     "settings.dataControls.archivedChats.empty;queryKey:[`archived-threads`,host];localThreads:items;let a=b===`local`?c:[],d=1;";
   const appHeader =
@@ -653,6 +673,26 @@ test("patchDynamicToolsAutomationAsset patches the app server dynamic tools chun
     await readFile(dynamicTools, "utf8"),
     /name:`automation_update`/,
   );
+});
+
+test("patchDynamicToolsAutomationAsset ignores automation timeline labels", async () => {
+  const assetsDir = await mkdtemp(join(tmpdir(), "codex-web-assets-"));
+  const dynamicTools = join(assetsDir, "dynamic-tools-current.js");
+
+  try {
+    await writeFile(
+      join(assetsDir, "timeline-labels.js"),
+      "const labels={automation_update:`Updating scheduled task`};",
+    );
+    await writeFile(
+      dynamicTools,
+      "let VH=`automation_update`,HH=`Create, update, view, or delete recurring automations in the Codex app.`,WH={name:VH,description:HH,inputSchema:{properties:{rrule:{type:`string`}}}};",
+    );
+
+    assert.equal(patchDynamicToolsAutomationAsset(assetsDir), dynamicTools);
+  } finally {
+    await rm(assetsDir, { force: true, recursive: true });
+  }
 });
 
 test("patchAutomationRemoteDefaultHostSupport lets default remote use automations", () => {

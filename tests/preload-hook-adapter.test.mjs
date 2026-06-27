@@ -792,6 +792,37 @@ test("extractRendererAssetStaticProfile stops following reassigned bridge aliase
   ]);
 });
 
+test("extractRendererAssetStaticProfile stops method aliases at function scope", () => {
+  const profile = extractRendererAssetStaticProfile(
+    {
+      "main.js":
+        "function Header(){let i=async(e,t)=>{let i=window.electronBridge?.showApplicationMenu;if(!i)return;await i(e,1,2)};return items.map(({id:n})=>({onClick:e=>i(n,e)}))}",
+    },
+    { allowedBridgeMethods: ["showApplicationMenu"] },
+  );
+
+  assert.deepEqual(profile.bridgeMethodCalls, [
+    {
+      asset: "main.js",
+      method: "showApplicationMenu",
+      rawArgs: "e,1,2",
+    },
+  ]);
+  assert.deepEqual(profile.unknownBridgeArguments, []);
+});
+
+test("extractRendererAssetStaticProfile recognizes destructured parameter aliases", () => {
+  const profile = extractRendererAssetStaticProfile(
+    {
+      "main.js":
+        "function Header(){return items.map(({id:n})=>({onClick:e=>window.electronBridge.showApplicationMenu(n,e)}))}",
+    },
+    { allowedBridgeMethods: ["showApplicationMenu"] },
+  );
+
+  assert.deepEqual(profile.unknownBridgeArguments, []);
+});
+
 test("validatePreloadHookSupport reports unsupported upstream requirements", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "preload-support-"));
 
