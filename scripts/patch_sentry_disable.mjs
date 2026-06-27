@@ -56,6 +56,7 @@ export function findSentryDisableTargets(asarRoot) {
   }
 
   if (fs.existsSync(buildDir)) {
+    const dropHandlers = [];
     for (const name of fs.readdirSync(buildDir)) {
       if (!/^workspace-root-drop-handler-[\w-]+\.js$/.test(name)) {
         continue;
@@ -63,12 +64,19 @@ export function findSentryDisableTargets(asarRoot) {
       const filePath = path.join(buildDir, name);
       const source = fs.readFileSync(filePath, "utf8");
       if (source.includes("buildFlavor") && source.includes("dsn:")) {
-        targets.push(filePath);
+        dropHandlers.push(filePath);
       }
     }
+    if (dropHandlers.length > 1) {
+      throw new Error(
+        `Expected one Sentry workspace-root-drop-handler asset, found ${dropHandlers.length}`,
+      );
+    }
+    targets.push(...dropHandlers);
   }
 
   if (fs.existsSync(webviewAssetsDir)) {
+    const errorBoundaries = [];
     for (const name of fs.readdirSync(webviewAssetsDir)) {
       if (!/^error-boundary-[\w-]+\.js$/.test(name)) {
         continue;
@@ -76,9 +84,15 @@ export function findSentryDisableTargets(asarRoot) {
       const filePath = path.join(webviewAssetsDir, name);
       const source = fs.readFileSync(filePath, "utf8");
       if (source.includes("beforeSend") && source.includes("dsn:")) {
-        targets.push(filePath);
+        errorBoundaries.push(filePath);
       }
     }
+    if (errorBoundaries.length > 1) {
+      throw new Error(
+        `Expected one Sentry error-boundary asset, found ${errorBoundaries.length}`,
+      );
+    }
+    targets.push(...errorBoundaries);
   }
 
   return [...new Set(targets)];

@@ -181,7 +181,9 @@ function patchModernBrowserPanelIframeSupport(source, alreadyPatched) {
 function findModernBrowserPanelSymbols(source) {
   const rootIndex = source.indexOf("`data-browser-sidebar-webview-host-root`");
   const rootPrefix =
-    rootIndex === -1 ? "" : source.slice(Math.max(0, rootIndex - 500), rootIndex);
+    rootIndex === -1
+      ? ""
+      : source.slice(Math.max(0, rootIndex - 500), rootIndex);
   const visibleBlankUrlVar = rootPrefix.match(
     /([$A-Za-z_][\w$]*)=`about:blank`/,
   )?.[1];
@@ -339,8 +341,12 @@ export function patchBrowserPanelIframeAssets(assetsDir) {
 }
 
 function replaceOnce(source, before, after, label) {
-  if (!source.includes(before)) {
+  const first = source.indexOf(before);
+  if (first === -1) {
     throw new Error(`Unable to patch ${label}`);
+  }
+  if (source.indexOf(before, first + before.length) !== -1) {
+    throw new Error(`Expected one ${label} target, found multiple`);
   }
   return source.replace(before, after);
 }
@@ -352,12 +358,29 @@ function replaceOnceIfMissing(source, before, after, marker, label) {
   return replaceOnce(source, before, after, label);
 }
 
-function replaceRegexOnceIfMissing(source, pattern, replacement, marker, label) {
+function replaceRegexOnceIfMissing(
+  source,
+  pattern,
+  replacement,
+  marker,
+  label,
+) {
   if (source.includes(marker)) {
     return source;
   }
-  if (!pattern.test(source)) {
+  const matches = [
+    ...source.matchAll(
+      new RegExp(
+        pattern,
+        pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`,
+      ),
+    ),
+  ];
+  if (matches.length === 0) {
     throw new Error(`Unable to patch ${label}`);
+  }
+  if (matches.length !== 1) {
+    throw new Error(`Expected one ${label} target, found multiple`);
   }
   return source.replace(pattern, replacement);
 }
@@ -367,13 +390,26 @@ function replaceFirstAvailable(source, replacements, marker, label) {
     return source;
   }
 
+  const matches = [];
   for (const { before, after } of replacements) {
     if (source.includes(before)) {
-      return source.replace(before, after);
+      const first = source.indexOf(before);
+      if (source.indexOf(before, first + before.length) !== -1) {
+        throw new Error(`Expected one ${label} target, found multiple`);
+      }
+      matches.push({ after, before });
     }
   }
 
-  throw new Error(`Unable to patch ${label}`);
+  if (matches.length === 0) {
+    throw new Error(`Unable to patch ${label}`);
+  }
+  if (matches.length !== 1) {
+    throw new Error(`Expected one ${label} target, found multiple`);
+  }
+
+  const [{ before, after }] = matches;
+  return source.replace(before, after);
 }
 
 function countOccurrences(source, needle) {

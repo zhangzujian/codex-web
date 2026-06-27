@@ -30,7 +30,9 @@ export function patchWebviewAutomationsNavSource(source) {
     return source;
   }
 
-  const currentMatches = [...source.matchAll(new RegExp(CURRENT_AUTOMATIONS_NAV_PATTERN, "g"))];
+  const currentMatches = [
+    ...source.matchAll(new RegExp(CURRENT_AUTOMATIONS_NAV_PATTERN, "g")),
+  ];
   if (currentMatches.length === 1) {
     const [match, gate, jsxNamespace, menuComponent] = currentMatches[0];
     return source.replace(
@@ -103,7 +105,7 @@ export function patchWebviewAutomationsNavAssets(assetsDir) {
     throw new Error("Unable to find app main asset");
   }
 
-  const patchedFiles = [];
+  const matches = [];
   for (const assetName of assetNames) {
     const assetPath = path.join(assetsDir, assetName);
     const source = fs.readFileSync(assetPath, "utf8");
@@ -116,16 +118,24 @@ export function patchWebviewAutomationsNavAssets(assetsDir) {
       }
       throw error;
     }
-
-    if (patched === source) {
-      continue;
-    }
-
-    fs.writeFileSync(assetPath, patched);
-    patchedFiles.push(assetPath);
+    matches.push({ assetPath, patched, source });
   }
 
-  return patchedFiles;
+  if (matches.length !== 1) {
+    throw new Error(
+      matches.length === 0
+        ? "Unable to find Automations navigation asset"
+        : `Expected one Automations navigation asset, found ${matches.length}`,
+    );
+  }
+
+  const [{ assetPath, patched, source }] = matches;
+  if (patched !== source) {
+    fs.writeFileSync(assetPath, patched);
+    return [assetPath];
+  }
+
+  return [];
 }
 
 const invokedPath = process.argv[1]

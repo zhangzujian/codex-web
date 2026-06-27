@@ -44,7 +44,9 @@ test("Automations nav patch handles minified app main chunks", () => {
 });
 
 test("Automations nav patch adapts current minified app main chunks", () => {
-  const patched = patchWebviewAutomationsNavSource(currentMinifiedAppMainSource);
+  const patched = patchWebviewAutomationsNavSource(
+    currentMinifiedAppMainSource,
+  );
 
   assert.doesNotMatch(patched, /!c&&l&&n===`codex`/);
   assert.match(patched, /t\?\(0,yL\.jsx\)\(ky,\{/);
@@ -69,6 +71,24 @@ test("Automations nav asset patch updates the bundled app main chunk", () => {
     assert.match(
       fs.readFileSync(path.join(assetsDir, "app-main-test.js"), "utf8"),
       /e\n\s+\? \(0, Z\.jsx\)\(Ca,/,
+    );
+  } finally {
+    fs.rmSync(assetsDir, { force: true, recursive: true });
+  }
+});
+
+test("Automations nav asset patch rejects duplicate app main candidates", () => {
+  const assetsDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "codex-web-automations-nav-duplicate-"),
+  );
+
+  try {
+    fs.writeFileSync(path.join(assetsDir, "app-main-a.js"), appMainSource);
+    fs.writeFileSync(path.join(assetsDir, "app-main-b.js"), appMainSource);
+
+    assert.throws(
+      () => patchWebviewAutomationsNavAssets(assetsDir),
+      /Expected one Automations navigation asset/,
     );
   } finally {
     fs.rmSync(assetsDir, { force: true, recursive: true });

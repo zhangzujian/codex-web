@@ -57,7 +57,8 @@ export function patchWebviewTelemetryDisableSource(source, assetName = "") {
         {
           pattern:
             /function [$A-Za-z_][\w$]*\(\{appVersion:[^}]*children:([$A-Za-z_][\w$]*)\}\)\{(?=[\s\S]{0,1800}?StatsigProvider)/,
-          replacement: (match, childrenName) => `${match}return ${childrenName};`,
+          replacement: (match, childrenName) =>
+            `${match}return ${childrenName};`,
         },
       ],
       /function [$A-Za-z_][\w$]*\((?:e|\{appVersion:[^}]*children:[$A-Za-z_][\w$]*\})\)\s*\{\s*return (?:e\.children|[$A-Za-z_][\w$]*);/,
@@ -95,8 +96,8 @@ export function patchWebviewTelemetryDisableSource(source, assetName = "") {
 
 export function patchWebviewTelemetryDisableAssets(assetsDir) {
   const patchedFiles = [];
-  let sawAppMain = false;
-  let sawComposer = false;
+  const appMainAssets = [];
+  const composerAssets = [];
 
   for (const assetName of fs.readdirSync(assetsDir)) {
     if (!assetName.endsWith(".js")) {
@@ -106,8 +107,12 @@ export function patchWebviewTelemetryDisableAssets(assetsDir) {
     const assetPath = path.join(assetsDir, assetName);
     const source = fs.readFileSync(assetPath, "utf8");
     const patched = patchWebviewTelemetryDisableSource(source, assetName);
-    sawAppMain ||= hasAppMainTelemetryDisable(patched);
-    sawComposer ||= hasComposerTelemetryDisable(patched);
+    if (hasAppMainTelemetryDisable(patched)) {
+      appMainAssets.push(assetPath);
+    }
+    if (hasComposerTelemetryDisable(patched)) {
+      composerAssets.push(assetPath);
+    }
 
     if (patched !== source) {
       fs.writeFileSync(assetPath, patched);
@@ -115,11 +120,21 @@ export function patchWebviewTelemetryDisableAssets(assetsDir) {
     }
   }
 
-  if (!sawAppMain) {
+  if (appMainAssets.length === 0) {
     throw new Error("Unable to disable webview app telemetry");
   }
-  if (!sawComposer) {
+  if (appMainAssets.length !== 1) {
+    throw new Error(
+      `Expected one webview app telemetry asset, found ${appMainAssets.length}`,
+    );
+  }
+  if (composerAssets.length === 0) {
     throw new Error("Unable to disable webview composer telemetry");
+  }
+  if (composerAssets.length !== 1) {
+    throw new Error(
+      `Expected one webview usage telemetry asset, found ${composerAssets.length}`,
+    );
   }
 
   return patchedFiles;

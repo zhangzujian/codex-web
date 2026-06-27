@@ -21,7 +21,9 @@ import {
   patchAutomationModelPickerSupport,
   patchAutomationToolContractAsset,
   patchAutomationToolContractSupport,
+  patchAutomationArgumentsNormalizationAsset,
   patchAutomationArgumentsNormalizationSupport,
+  patchAutomationRemoteDefaultHostAsset,
   patchAutomationRemoteDefaultHostSupport,
   patchSettingsAllSettingsSectionFiltersAsset,
   patchSettingsAllSettingsSectionFiltersSupport,
@@ -32,6 +34,25 @@ import {
   checkPatchedJavaScriptFilesSyntax,
   verifyPatchedWebviewAssets,
 } from "../scripts/patch_webview_assets.mjs";
+
+async function assertDuplicateAssetCandidatesThrow({
+  assetName = "candidate",
+  duplicateSource,
+  patchAsset,
+}) {
+  const assetsDir = await mkdtemp(join(tmpdir(), "codex-web-assets-"));
+  try {
+    await writeFile(join(assetsDir, `${assetName}-a.js`), duplicateSource);
+    await writeFile(join(assetsDir, `${assetName}-b.js`), duplicateSource);
+
+    assert.throws(
+      () => patchAsset(assetsDir),
+      /Expected one .*asset|Expected one .*chunk|found multiple/,
+    );
+  } finally {
+    await rm(assetsDir, { recursive: true, force: true });
+  }
+}
 
 test("checkPatchedJavaScriptFilesSyntax rejects invalid patched JavaScript", async () => {
   const dir = await mkdtemp(join(tmpdir(), "codex-web-syntax-"));
@@ -136,12 +157,15 @@ test("patchAppHeaderNavigationButtonsRenderAsset patches the app shell chunk", a
     );
     await writeFile(unrelated, "viewTransitionName:`sidebar-trigger`");
 
-    assert.equal(patchAppHeaderNavigationButtonsRenderAsset(assetsDir), appShell);
-    assert.match(
-      await readFile(appShell, "utf8"),
-      /children:\[O\]\}/,
+    assert.equal(
+      patchAppHeaderNavigationButtonsRenderAsset(assetsDir),
+      appShell,
     );
-    assert.equal(await readFile(unrelated, "utf8"), "viewTransitionName:`sidebar-trigger`");
+    assert.match(await readFile(appShell, "utf8"), /children:\[O\]\}/);
+    assert.equal(
+      await readFile(unrelated, "utf8"),
+      "viewTransitionName:`sidebar-trigger`",
+    );
   } finally {
     await rm(assetsDir, { force: true, recursive: true });
   }
@@ -282,7 +306,10 @@ test("patchSettingsAllSettingsSectionFiltersAsset locates the settings grouping 
       "settings.hostDropdown.allSettings;groupSettingsSections:!0;var lr,ur;lr=[`profile`,`agent`,`personalization`,`mcp-settings`,`hooks-settings`,`local-environments`,`worktrees`,`data-controls`],ur=`agent`;Ge.filter(e=>{switch(e.slug){case`connections`:return i&&!r;case`usage`:return p}})",
     );
 
-    assert.equal(patchSettingsAllSettingsSectionFiltersAsset(assetsDir), settings);
+    assert.equal(
+      patchSettingsAllSettingsSectionFiltersAsset(assetsDir),
+      settings,
+    );
     const patched = await readFile(settings, "utf8");
     assert.match(patched, /case`connections`:return i;case`usage`:/);
     assert.doesNotMatch(patched, /lr=\[[^\]]*`connections`/);
@@ -298,7 +325,10 @@ test("patchSettingsArchivedChatsRemoteDefaultSupport shows local archives for de
   const patched = patchSettingsArchivedChatsRemoteDefaultSupport(source);
 
   assert.match(patched, /\(t===`local`\|\|t===`remote:default`\)\?s:\[\]/);
-  assert.equal(patchSettingsArchivedChatsRemoteDefaultSupport(patched), patched);
+  assert.equal(
+    patchSettingsArchivedChatsRemoteDefaultSupport(patched),
+    patched,
+  );
 });
 
 test("patchSettingsArchivedChatsRemoteDefaultAsset locates the data controls chunk", async () => {
@@ -491,6 +521,86 @@ test("patchStatsigTelemetryDisableAsset ignores non-Statsig patched options", as
   );
 });
 
+test("single-target webview asset patches reject duplicate candidates", async () => {
+  const statsigOptions =
+    "let QP={networkConfig:{api:KP,logEventUrl:tP,sdkExceptionUrl:qP,networkOverrideFunc:UP}};";
+  const statsigFlush =
+    "enqueue(e){if(!this._shouldLogEvent(e))return;let n=this._normalizeEvent(e);if(this._loggingEnabled===`disabled`){this._storeEventToStorage(n);return}this._initFlushCoordinator().addEvent(n)}start(){let t=(0,d._isServerEnv)();if(t&&this._options?.loggingEnabled!==`always`)return;let n=this._initFlushCoordinator();E[this._sdkKey]=this,n.startScheduledFlushCycle()}";
+  const statsigNoop =
+    "var qRe=i((e=>{function a(){let{client:e,renderVersion:a,isLoading:o}=(0,t.useContext)(i.default),s=(0,t.useMemo)(()=>(0,r.isNoopClient)(e)?(n.Log.warn(`Attempting to retrieve a StatsigClient but none was set.`),r.NoopEvaluationsClient):e,[e,a]);return s}}));";
+  const dynamicTools =
+    'import{t as Ne}from"./automation-host-support-CMtWMs5w.js";var gr=100;function xr({featureOverrides:r,threadStartKind:m=`default`}){let C=r?.[s]===!0;return[{tools:[...m===`conversational_onboarding`?[Ie]:[],...C&&m!==`conversational_onboarding`?[...p,a]:[]]}]}';
+  const automationHost =
+    "case fe:{if(!Ab(n)){c=Ie(`Automations are only supported for local threads.`);break}let t=Me.safeParse(a.arguments);}";
+  const automationArgs =
+    "case fe:{let t=Me.safeParse(a.arguments);if(!t.success){c=Ie(`${fe} received invalid arguments.`);break}run(t.data)}";
+  const settings =
+    "settings.hostDropdown.allSettings;Ge.filter;case`connections`:return X&&!Y;case`usage`:return Z;groupSettingsSections:!0;let lr=[`profile`,`agent`,`mcp-settings`,`hooks-settings`,`data-controls`,`connections`],ar=`agent`;";
+  const archives =
+    "settings.dataControls.archivedChats.empty;queryKey:[`archived-threads`,host];localThreads:items;let a=b===`local`?c:[],d=1;";
+  const appHeader =
+    "viewTransitionName:`sidebar-trigger`,onClick:w});let N=(0,mL.jsx)(dL,{ariaLabel:k,onClick:uL});let R=(0,mL.jsx)(dL,{ariaLabel:P,onClick:lL});let z=(0,mL.jsx)(Kn,{children:(0,mL.jsxs)(mL.Fragment,{children:[N,R]})});let B;return t[44]!==O||t[45]!==z?(B=(0,mL.jsxs)(`div`,{className:`flex items-center gap-1`,children:[O,z]}),t[44]=O,t[45]=z,t[46]=B):B=t[46],B}function lL(){return Hn(`navigateForward`,`sidebar_forward`)}function uL(){return Hn(`navigateBack`,`sidebar_back`)}";
+
+  await assertDuplicateAssetCandidatesThrow({
+    duplicateSource: statsigOptions,
+    patchAsset: patchStatsigTelemetryDisableAsset,
+  });
+  await assertDuplicateAssetCandidatesThrow({
+    duplicateSource: statsigFlush,
+    patchAsset: patchStatsigTelemetryFlushDisableAsset,
+  });
+  await assertDuplicateAssetCandidatesThrow({
+    duplicateSource: statsigNoop,
+    patchAsset: patchStatsigNoopClientOverrideAsset,
+  });
+  await assertDuplicateAssetCandidatesThrow({
+    duplicateSource: dynamicTools,
+    patchAsset: patchDynamicToolsAutomationAsset,
+  });
+  await assertDuplicateAssetCandidatesThrow({
+    duplicateSource: automationHost,
+    patchAsset: patchAutomationRemoteDefaultHostAsset,
+  });
+  await assertDuplicateAssetCandidatesThrow({
+    duplicateSource: automationArgs,
+    patchAsset: patchAutomationArgumentsNormalizationAsset,
+  });
+  await assertDuplicateAssetCandidatesThrow({
+    duplicateSource: settings,
+    patchAsset: patchSettingsAllSettingsSectionFiltersAsset,
+  });
+  await assertDuplicateAssetCandidatesThrow({
+    duplicateSource: archives,
+    patchAsset: patchSettingsArchivedChatsRemoteDefaultAsset,
+  });
+  await assertDuplicateAssetCandidatesThrow({
+    duplicateSource: appHeader,
+    patchAsset: patchAppHeaderNavigationButtonsRenderAsset,
+  });
+});
+
+test("optional single-target automation asset patches reject duplicate candidates", async () => {
+  const automationDefault =
+    "function f(e){let r=[];return{missingRequirements:r,canSave:true},e.model??r.push(`model`)}";
+  const modelPicker =
+    "function Lt({selectedModel:n,reasoningEffort:r,align:i,className:a,onSelect:o}=e){let c=p(),{data:l}=E(),u,f;if(t[0]!==l?.models||t[1]!==r||t[2]!==n){u=l?.models.find(e=>e.model===n)??null;let e=d({model:u,reasoningEffort:r});f=T(e)?e:null,t[0]=l?.models,t[1]=r,t[2]=n,t[3]=u,t[4]=f}else u=t[3],f=t[4];let m=f,h=n==null||l?.models==null,v=n??``,y=l?.models,b;t[5]!==o||t[6]!==n?(b=e=>{n!=null&&o(n,e)},t[5]=o,t[6]=n,t[7]=b):b=t[7];let S;t[8]===c?S=t[9]:(S=c.formatMessage({id:`settings.automations.modelAndReasoning.ariaLabel`,defaultMessage:`Model and reasoning`,description:`Aria label for automation model and reasoning dropdown`}),t[8]=c,t[9]=S);let w;t[12]!==c||t[13]!==n||t[14]!==u?.displayName?(w=n!=null&&n.trim().length>0?(0,Y.jsx)(we,{model:n,displayName:u?.displayName??n,labelClassName:`text-token-foreground`}):(0,Y.jsx)(`span`,{className:`truncate text-token-foreground`,children:c.formatMessage({id:`settings.automations.model.loading`,defaultMessage:`Loading model`,description:`Fallback label while automation model options are loading`})}),t[12]=c,t[13]=n,t[14]=u?.displayName,t[15]=w):w=t[15];return (0,Y.jsx)(Te,{disabled:h,model:v,models:y,reasoningEffort:m,onSelectModel:o,onSelectReasoningEffort:b})}";
+  const toolContract =
+    "var eh=zt([`view`,`create`,`update`,`delete`,`suggested_create`,`suggested_update`]).transform(e=>{switch(e){case`view`:return`view`;case`create`:return`create`;case`update`:return`update`;case`delete`:return`delete`;case`suggested_create`:return`suggested-create`;case`suggested_update`:return`suggested-update`}}),oh=It({id:nh.optional(),kind:it.optional(),mode:eh,name:nh.optional(),prompt:nh.optional(),rrule:nh.optional(),cwds:ah.optional(),executionEnvironment:rh.optional(),model:nh.optional(),reasoningEffort:ct.optional(),status:th.optional()}).superRefine((e,t)=>{if(e.mode===`view`||e.mode===`delete`){e.id??t.addIssue({code:`custom`,message:`Missing id`,path:[`id`]});return}}),uh={inputSchema:{properties:{id:{description:`Required for mode=view, mode=update, mode=delete.`}}}}";
+
+  await assertDuplicateAssetCandidatesThrow({
+    duplicateSource: automationDefault,
+    patchAsset: patchAutomationDefaultModelAsset,
+  });
+  await assertDuplicateAssetCandidatesThrow({
+    duplicateSource: modelPicker,
+    patchAsset: patchAutomationModelPickerAsset,
+  });
+  await assertDuplicateAssetCandidatesThrow({
+    duplicateSource: toolContract,
+    patchAsset: patchAutomationToolContractAsset,
+  });
+});
+
 test("patchDynamicToolsAutomationSupport adds automation_update and preserves onboarding gate", () => {
   const source =
     "var gr=100;function xr({featureOverrides:r,threadStartKind:m=`default`}){let C=r?.[s]===!0;return[{tools:[...m===`conversational_onboarding`?[Ie]:[],...C&&m!==`conversational_onboarding`?[...p,a]:[]]}]}";
@@ -656,14 +766,32 @@ test("patchAutomationDefaultModelSupport stops requiring cron model selection", 
   const patched = patchAutomationDefaultModelSupport(source);
 
   assert.doesNotMatch(patched, /model`\)/);
-  assert.doesNotMatch(patched, /modelSettings|model:t\.model|reasoningEffort:t\.reasoningEffort/);
-  assert.doesNotMatch(patched, /let a=n\(\{automation:e|let d=a==null\?null:n\(\{automation:a/);
-  assert.doesNotMatch(patched, /e\.model==null\)throw Error\(`Cron automation draft is incomplete`\)/);
-  assert.doesNotMatch(patched, /model:e\.model,reasoningEffort:e\.reasoningEffort|model:null,reasoningEffort:null/);
+  assert.doesNotMatch(
+    patched,
+    /modelSettings|model:t\.model|reasoningEffort:t\.reasoningEffort/,
+  );
+  assert.doesNotMatch(
+    patched,
+    /let a=n\(\{automation:e|let d=a==null\?null:n\(\{automation:a/,
+  );
+  assert.doesNotMatch(
+    patched,
+    /e\.model==null\)throw Error\(`Cron automation draft is incomplete`\)/,
+  );
+  assert.doesNotMatch(
+    patched,
+    /model:e\.model,reasoningEffort:e\.reasoningEffort|model:null,reasoningEffort:null/,
+  );
   assert.match(patched, /model:t\(e\)\?null:e\.model\?\?null/);
-  assert.match(patched, /let d=a==null\?null:\{model:a\.model\?\?null,reasoningEffort:a\.reasoningEffort\?\?null\}/);
+  assert.match(
+    patched,
+    /let d=a==null\?null:\{model:a\.model\?\?null,reasoningEffort:a\.reasoningEffort\?\?null\}/,
+  );
   assert.match(patched, /\.\.\.e\.model==null\?\{\}:\{model:e\.model\}/);
-  assert.match(patched, /e\.executionEnvironment\?\?r\.push\(`executionEnvironment`\)/);
+  assert.match(
+    patched,
+    /e\.executionEnvironment\?\?r\.push\(`executionEnvironment`\)/,
+  );
   assert.equal(patchAutomationDefaultModelSupport(patched), patched);
 });
 
@@ -671,7 +799,10 @@ test("patchAutomationDefaultModelAsset skips browser builds without automation s
   const assetsDir = await mkdtemp(join(tmpdir(), "codex-web-assets-"));
 
   try {
-    await writeFile(join(assetsDir, "preload.js"), "const browserBuild = true;");
+    await writeFile(
+      join(assetsDir, "preload.js"),
+      "const browserBuild = true;",
+    );
 
     assert.deepEqual(patchAutomationDefaultModelAsset(assetsDir), []);
   } finally {
@@ -726,11 +857,23 @@ test("patchAutomationToolContractSupport accepts minimal cron create and list vi
   const patched = patchAutomationToolContractSupport(source);
 
   assert.match(patched, /zt\(\[`view`,`create`,`update`,`delete`\]\)/);
-  assert.doesNotMatch(patched, /Missing kind|Missing status|Missing executionEnvironment|Missing model|Missing reasoningEffort/);
+  assert.doesNotMatch(
+    patched,
+    /Missing kind|Missing status|Missing executionEnvironment|Missing model|Missing reasoningEffort/,
+  );
   assert.doesNotMatch(patched, /e\.mode===`view`\|\|e\.mode===`delete`/);
-  assert.doesNotMatch(patched, /suggested_create|suggested_update|suggested-create|suggested-update/);
-  assert.match(patched, /Do not set model or reasoningEffort unless explicitly requested/);
-  assert.doesNotMatch(patched, /model:e\.model\?\?null|reasoningEffort:e\.reasoningEffort\?\?null|model:null,reasoningEffort:null/);
+  assert.doesNotMatch(
+    patched,
+    /suggested_create|suggested_update|suggested-create|suggested-update/,
+  );
+  assert.match(
+    patched,
+    /Do not set model or reasoningEffort unless explicitly requested/,
+  );
+  assert.doesNotMatch(
+    patched,
+    /model:e\.model\?\?null|reasoningEffort:e\.reasoningEffort\?\?null|model:null,reasoningEffort:null/,
+  );
   assert.match(patched, /\.\.\.e\.model===void 0\?\{\}:\{model:e\.model\}/);
 });
 

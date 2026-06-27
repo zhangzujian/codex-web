@@ -124,7 +124,10 @@ test("webview telemetry patch skips non-usage-limit wham analytics", () => {
 test("webview telemetry patch disables current usage limit analytics", () => {
   const patched = patchWebviewTelemetryDisableSource(currentComposerFixture);
 
-  assert.match(patched, /async function pj\(\{eventType:e[\s\S]*?\}\)\{return false;/);
+  assert.match(
+    patched,
+    /async function pj\(\{eventType:e[\s\S]*?\}\)\{return false;/,
+  );
   assert.equal(patchWebviewTelemetryDisableSource(patched), patched);
 });
 
@@ -155,6 +158,38 @@ test("webview telemetry asset patch updates app main and composer chunks", () =>
     assert.match(
       patchedComposer,
       /async function ff\(\{[\s\S]*?\}\) \{\s*return false;/,
+    );
+  } finally {
+    fs.rmSync(assetsDir, { recursive: true, force: true });
+  }
+});
+
+test("webview telemetry asset patch rejects duplicate app telemetry targets", () => {
+  const assetsDir = fs.mkdtempSync(join(tmpdir(), "codex-web-telemetry-dup-"));
+  try {
+    fs.writeFileSync(join(assetsDir, "app-main-a.js"), appMainFixture);
+    fs.writeFileSync(join(assetsDir, "app-main-b.js"), appMainFixture);
+    fs.writeFileSync(join(assetsDir, composerAssetName), composerFixture);
+
+    assert.throws(
+      () => patchWebviewTelemetryDisableAssets(assetsDir),
+      /Expected one webview app telemetry asset/,
+    );
+  } finally {
+    fs.rmSync(assetsDir, { recursive: true, force: true });
+  }
+});
+
+test("webview telemetry asset patch rejects duplicate usage telemetry targets", () => {
+  const assetsDir = fs.mkdtempSync(join(tmpdir(), "codex-web-telemetry-dup-"));
+  try {
+    fs.writeFileSync(join(assetsDir, appMainAssetName), appMainFixture);
+    fs.writeFileSync(join(assetsDir, "composer-a.js"), composerFixture);
+    fs.writeFileSync(join(assetsDir, "composer-b.js"), composerFixture);
+
+    assert.throws(
+      () => patchWebviewTelemetryDisableAssets(assetsDir),
+      /Expected one webview usage telemetry asset/,
     );
   } finally {
     fs.rmSync(assetsDir, { recursive: true, force: true });

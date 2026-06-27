@@ -63,7 +63,10 @@ test("turn streaming patch avoids memoizing mutable turn items", () => {
 
   assert.match(patched, /fe=j\?My\(a\.items\):a\.items/);
   assert.match(patched, /\}=Qa\(fe,a\.status\),Ne=\(\(\)=>\{let e=new Map/);
-  assert.match(patched, /ne=s\?\?A\(a,c\?\?Iy,\{isBackgroundSubagentsEnabled:R,preserveServerUserMessages:L\}\);let re=ne/);
+  assert.match(
+    patched,
+    /ne=s\?\?A\(a,c\?\?Iy,\{isBackgroundSubagentsEnabled:R,preserveServerUserMessages:L\}\);let re=ne/,
+  );
   assert.doesNotMatch(patched, /useMemo\)\(\(\)=>\{let e=a\.items/);
   assert.doesNotMatch(patched, /\[fe,a\.status\]/);
   assert.doesNotMatch(patched, /t\[1\]!==a\|\|t\[2\]!==I/);
@@ -183,13 +186,70 @@ test("turn streaming patch upgrades previous malformed thread element patch", ()
 test("turn streaming asset patch accepts current direct thread turn elements", () => {
   const assetsDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-web-turn-"));
   try {
-    fs.writeFileSync(path.join(assetsDir, "app-current-turn.js"), currentModernTurnSource);
+    fs.writeFileSync(
+      path.join(assetsDir, "app-current-turn.js"),
+      currentModernTurnSource,
+    );
     fs.writeFileSync(
       path.join(assetsDir, "local-conversation-thread-current.js"),
       currentDirectThreadSource,
     );
 
     assert.doesNotThrow(() => patchWebviewTurnStreamingAssets(assetsDir));
+  } finally {
+    fs.rmSync(assetsDir, { recursive: true, force: true });
+  }
+});
+
+test("turn streaming asset patch rejects duplicate turn bundle targets", () => {
+  const assetsDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "codex-web-turn-dup-"),
+  );
+  try {
+    fs.writeFileSync(
+      path.join(assetsDir, "app-current-turn-a.js"),
+      currentModernTurnSource,
+    );
+    fs.writeFileSync(
+      path.join(assetsDir, "app-current-turn-b.js"),
+      currentModernTurnSource,
+    );
+    fs.writeFileSync(
+      path.join(assetsDir, "local-conversation-thread-current.js"),
+      currentDirectThreadSource,
+    );
+
+    assert.throws(
+      () => patchWebviewTurnStreamingAssets(assetsDir),
+      /Expected one local conversation render turn asset/,
+    );
+  } finally {
+    fs.rmSync(assetsDir, { recursive: true, force: true });
+  }
+});
+
+test("turn streaming asset patch rejects duplicate thread turn element targets", () => {
+  const assetsDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "codex-web-turn-dup-"),
+  );
+  try {
+    fs.writeFileSync(
+      path.join(assetsDir, "app-current-turn.js"),
+      currentModernTurnSource,
+    );
+    fs.writeFileSync(
+      path.join(assetsDir, "local-conversation-thread-a.js"),
+      currentDirectThreadSource,
+    );
+    fs.writeFileSync(
+      path.join(assetsDir, "local-conversation-thread-b.js"),
+      currentDirectThreadSource,
+    );
+
+    assert.throws(
+      () => patchWebviewTurnStreamingAssets(assetsDir),
+      /Expected one local conversation thread turn element asset/,
+    );
   } finally {
     fs.rmSync(assetsDir, { recursive: true, force: true });
   }

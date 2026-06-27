@@ -91,9 +91,10 @@ test("findBrowserSidebarManagerAssets locates modern bundled browser sidebar man
 
   const assetPaths = findBrowserSidebarManagerAssets(assetsDir);
 
-  assert.deepEqual(assetPaths.map((assetPath) => path.basename(assetPath)), [
-    "app-initial-modern.js",
-  ]);
+  assert.deepEqual(
+    assetPaths.map((assetPath) => path.basename(assetPath)),
+    ["app-initial-modern.js"],
+  );
 });
 
 test("patchBrowserPanelIframeAssets patches every bundled browser sidebar manager", () => {
@@ -179,6 +180,18 @@ test("patchBrowserPanelIframeSupport replaces Electron webview hosts with iframe
     patched,
     /codexWebSetBrowserPanelFrameSrc\(o\.webview,r\.length===0\?Ee:r\)/,
     "existing retained iframe hosts should navigate when their tab URL changes",
+  );
+});
+
+test("patchBrowserPanelIframeSupport rejects duplicate browser panel constants targets", () => {
+  const source = browserSidebarManagerFixture.replace(
+    "var me=`about:blank`,",
+    "var me=`about:blank`,var me=`about:blank`,",
+  );
+
+  assert.throws(
+    () => patchBrowserPanelIframeSupport(source),
+    /Expected one browser panel constants/,
   );
 });
 

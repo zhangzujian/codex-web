@@ -195,7 +195,9 @@ function checkPatchedWebviewAssetInvariants(assetsDir) {
       );
     }
     if (patternMatches(STATSIG_OPTIONS_PATTERN, source)) {
-      failures.push(`${label}: Statsig init options still allow network traffic`);
+      failures.push(
+        `${label}: Statsig init options still allow network traffic`,
+      );
     }
     if (patternMatches(STATSIG_DISABLED_STORE_PATTERN, source)) {
       failures.push(`${label}: disabled Statsig events are still stored`);
@@ -239,13 +241,17 @@ function checkPatchedWebviewAssetInvariants(assetsDir) {
         source,
       )
     ) {
-      failures.push(`${label}: remote host-specific settings still show Connections`);
+      failures.push(
+        `${label}: remote host-specific settings still show Connections`,
+      );
     }
     if (
       patternMatches(AUTOMATION_REQUIRED_MODEL_PATTERN, source) ||
       patternMatches(AUTOMATION_DRAFT_CRON_MODEL_REQUIRED_PATTERN, source)
     ) {
-      failures.push(`${label}: cron automations still require an explicit model`);
+      failures.push(
+        `${label}: cron automations still require an explicit model`,
+      );
     }
   }
   if (failures.length > 0) {
@@ -280,6 +286,54 @@ function webviewJavaScriptFiles(assetsDir) {
     .map((name) => path.join(assetsDir, name));
 }
 
+function patchSingleWebviewAsset(assetsDir, candidates, label, patchSource) {
+  const matches = [];
+  for (const assetPath of candidates) {
+    const source = fs.readFileSync(assetPath, "utf8");
+    let patched;
+    try {
+      patched = patchSource(source);
+    } catch {
+      continue;
+    }
+    matches.push({ assetPath, patched, source });
+  }
+
+  if (matches.length !== 1) {
+    throw new Error(
+      matches.length === 0
+        ? `${label} asset not found in ${assetsDir}`
+        : `Expected one ${label} asset, found ${matches.length}`,
+    );
+  }
+
+  const [{ assetPath, patched, source }] = matches;
+  if (patched !== source) {
+    fs.writeFileSync(assetPath, patched);
+  }
+  return assetPath;
+}
+
+function patchOptionalSingleWebviewAsset(candidates, label, patchSource) {
+  const matches = candidates.map((assetPath) => {
+    const source = fs.readFileSync(assetPath, "utf8");
+    return { assetPath, patched: patchSource(source), source };
+  });
+
+  if (matches.length === 0) {
+    return [];
+  }
+  if (matches.length !== 1) {
+    throw new Error(`Expected one ${label} asset, found ${matches.length}`);
+  }
+
+  const [{ assetPath, patched, source }] = matches;
+  if (patched !== source) {
+    fs.writeFileSync(assetPath, patched);
+  }
+  return [assetPath];
+}
+
 export function checkPatchedJavaScriptFilesSyntax(filePaths) {
   const jsFiles = [...new Set(filePaths)].filter((filePath) =>
     filePath.endsWith(".js"),
@@ -311,7 +365,13 @@ export function checkPatchedJavaScriptFilesSyntax(filePaths) {
   `;
   const result = spawnSync(
     process.execPath,
-    ["--no-warnings", "--experimental-vm-modules", "--input-type=module", "--eval", checker],
+    [
+      "--no-warnings",
+      "--experimental-vm-modules",
+      "--input-type=module",
+      "--eval",
+      checker,
+    ],
     {
       encoding: "utf8",
       input: JSON.stringify(jsFiles),
@@ -405,23 +465,12 @@ export function patchStatsigTelemetryDisableAsset(assetsDir) {
     .filter((assetPath) =>
       fs.readFileSync(assetPath, "utf8").includes("networkOverrideFunc"),
     );
-
-  for (const assetPath of candidates) {
-    const source = fs.readFileSync(assetPath, "utf8");
-    let patched;
-    try {
-      patched = patchStatsigTelemetryDisableSupport(source);
-    } catch {
-      continue;
-    }
-    if (patched !== source) {
-      fs.writeFileSync(assetPath, patched);
-      return assetPath;
-    }
-    return assetPath;
-  }
-
-  throw new Error(`Statsig asset not found in ${assetsDir}`);
+  return patchSingleWebviewAsset(
+    assetsDir,
+    candidates,
+    "Statsig",
+    patchStatsigTelemetryDisableSupport,
+  );
 }
 
 export function patchStatsigTelemetryFlushDisableSupport(source) {
@@ -459,17 +508,12 @@ export function patchStatsigTelemetryFlushDisableAsset(assetsDir) {
           source.includes("returnthis"))
       );
     });
-
-  for (const assetPath of candidates) {
-    const source = fs.readFileSync(assetPath, "utf8");
-    const patched = patchStatsigTelemetryFlushDisableSupport(source);
-    if (patched !== source) {
-      fs.writeFileSync(assetPath, patched);
-    }
-    return assetPath;
-  }
-
-  throw new Error(`Statsig SDK asset not found in ${assetsDir}`);
+  return patchSingleWebviewAsset(
+    assetsDir,
+    candidates,
+    "Statsig SDK",
+    patchStatsigTelemetryFlushDisableSupport,
+  );
 }
 
 export function patchStatsigNoopClientOverrideSupport(source) {
@@ -499,17 +543,12 @@ export function patchStatsigNoopClientOverrideAsset(assetsDir) {
         .readFileSync(assetPath, "utf8")
         .includes("Attempting to retrieve a StatsigClient but none was set."),
     );
-
-  for (const assetPath of candidates) {
-    const source = fs.readFileSync(assetPath, "utf8");
-    const patched = patchStatsigNoopClientOverrideSupport(source);
-    if (patched !== source) {
-      fs.writeFileSync(assetPath, patched);
-    }
-    return assetPath;
-  }
-
-  throw new Error(`Statsig noop client asset not found in ${assetsDir}`);
+  return patchSingleWebviewAsset(
+    assetsDir,
+    candidates,
+    "Statsig noop client",
+    patchStatsigNoopClientOverrideSupport,
+  );
 }
 
 export function patchDynamicToolsAutomationSupport(source) {
@@ -582,30 +621,29 @@ export function patchDynamicToolsAutomationAsset(assetsDir) {
         source.includes("threadStartKind")
       );
     });
-
-  for (const assetPath of candidates) {
-    const source = fs.readFileSync(assetPath, "utf8");
-    let patched;
-    try {
-      patched = patchDynamicToolsAutomationSupport(source);
-    } catch {
-      continue;
-    }
-    if (patched !== source) {
-      fs.writeFileSync(assetPath, patched);
-    }
-    return assetPath;
+  if (candidates.length > 0) {
+    return patchSingleWebviewAsset(
+      assetsDir,
+      candidates,
+      "dynamic tools",
+      patchDynamicToolsAutomationSupport,
+    );
   }
 
-  const existingAutomationToolAsset = fs
+  const existingAutomationToolAssets = fs
     .readdirSync(assetsDir)
     .filter((name) => name.endsWith(".js"))
     .map((name) => path.join(assetsDir, name))
-    .find((assetPath) =>
+    .filter((assetPath) =>
       fs.readFileSync(assetPath, "utf8").includes("automation_update"),
     );
-  if (existingAutomationToolAsset != null) {
-    return existingAutomationToolAsset;
+  if (existingAutomationToolAssets.length > 0) {
+    if (existingAutomationToolAssets.length !== 1) {
+      throw new Error(
+        `Expected one dynamic tools asset, found ${existingAutomationToolAssets.length}`,
+      );
+    }
+    return existingAutomationToolAssets[0];
   }
 
   throw new Error(`dynamic tools asset not found in ${assetsDir}`);
@@ -635,17 +673,12 @@ export function patchAutomationRemoteDefaultHostAsset(assetsDir) {
         .readFileSync(assetPath, "utf8")
         .includes("Automations are only supported for local threads."),
     );
-
-  for (const assetPath of candidates) {
-    const source = fs.readFileSync(assetPath, "utf8");
-    const patched = patchAutomationRemoteDefaultHostSupport(source);
-    if (patched !== source) {
-      fs.writeFileSync(assetPath, patched);
-    }
-    return assetPath;
-  }
-
-  throw new Error(`automation host guard asset not found in ${assetsDir}`);
+  return patchSingleWebviewAsset(
+    assetsDir,
+    candidates,
+    "automation host guard",
+    patchAutomationRemoteDefaultHostSupport,
+  );
 }
 
 export function patchAutomationArgumentsNormalizationSupport(source) {
@@ -692,23 +725,11 @@ export function patchAutomationArgumentsNormalizationAsset(assetsDir) {
         source.includes("received invalid arguments")
       );
     });
-
-  for (const assetPath of candidates) {
-    const source = fs.readFileSync(assetPath, "utf8");
-    let patched;
-    try {
-      patched = patchAutomationArgumentsNormalizationSupport(source);
-    } catch {
-      continue;
-    }
-    if (patched !== source) {
-      fs.writeFileSync(assetPath, patched);
-    }
-    return assetPath;
-  }
-
-  throw new Error(
-    `automation arguments safeParse asset not found in ${assetsDir}`,
+  return patchSingleWebviewAsset(
+    assetsDir,
+    candidates,
+    "automation arguments safeParse",
+    patchAutomationArgumentsNormalizationSupport,
   );
 }
 
@@ -757,17 +778,11 @@ export function patchAutomationDefaultModelAsset(assetsDir) {
           source.includes("model:e.model,reasoningEffort:e.reasoningEffort"))
       );
     });
-
-  for (const assetPath of candidates) {
-    const source = fs.readFileSync(assetPath, "utf8");
-    const patched = patchAutomationDefaultModelSupport(source);
-    if (patched !== source) {
-      fs.writeFileSync(assetPath, patched);
-    }
-    return [assetPath];
-  }
-
-  return [];
+  return patchOptionalSingleWebviewAsset(
+    candidates,
+    "automation default model",
+    patchAutomationDefaultModelSupport,
+  );
 }
 
 export function patchAutomationModelPickerSupport(source) {
@@ -802,17 +817,11 @@ export function patchAutomationModelPickerAsset(assetsDir) {
         source.includes("settings.automations.modelAndReasoning.ariaLabel")
       );
     });
-
-  for (const assetPath of candidates) {
-    const source = fs.readFileSync(assetPath, "utf8");
-    const patched = patchAutomationModelPickerSupport(source);
-    if (patched !== source) {
-      fs.writeFileSync(assetPath, patched);
-      return [assetPath];
-    }
-  }
-
-  return [];
+  return patchOptionalSingleWebviewAsset(
+    candidates,
+    "automation model picker",
+    patchAutomationModelPickerSupport,
+  );
 }
 
 export function patchAutomationToolContractSupport(source) {
@@ -878,17 +887,11 @@ export function patchAutomationToolContractAsset(assetsDir) {
         source.includes("Use view to list automations")
       );
     });
-
-  for (const assetPath of candidates) {
-    const source = fs.readFileSync(assetPath, "utf8");
-    const patched = patchAutomationToolContractSupport(source);
-    if (patched !== source) {
-      fs.writeFileSync(assetPath, patched);
-    }
-    return [assetPath];
-  }
-
-  return [];
+  return patchOptionalSingleWebviewAsset(
+    candidates,
+    "automation tool contract",
+    patchAutomationToolContractSupport,
+  );
 }
 
 export function patchSettingsAllSettingsSectionFiltersSupport(source) {
@@ -902,12 +905,17 @@ export function patchSettingsAllSettingsSectionFiltersSupport(source) {
     }
     patched = patched.replace(patch.stale, patch.replacement);
   }
-  if (SETTINGS_HOST_SPECIFIC_SECTION_ALLOWLIST_WITH_CONNECTIONS_PATTERN.test(patched)) {
+  if (
+    SETTINGS_HOST_SPECIFIC_SECTION_ALLOWLIST_WITH_CONNECTIONS_PATTERN.test(
+      patched,
+    )
+  ) {
     patched = patched.replace(
       SETTINGS_HOST_SPECIFIC_SECTION_ALLOWLIST_WITH_CONNECTIONS_PATTERN,
-      (match) => match.replace(/,?`connections`,?/, (item) =>
-        item.startsWith(",") && item.endsWith(",") ? "," : "",
-      ),
+      (match) =>
+        match.replace(/,?`connections`,?/, (item) =>
+          item.startsWith(",") && item.endsWith(",") ? "," : "",
+        ),
     );
   } else if (!SETTINGS_HOST_SPECIFIC_SECTION_ALLOWLIST_PATTERN.test(patched)) {
     throw new Error("settings host-specific section allowlist not found");
@@ -930,17 +938,12 @@ export function patchSettingsAllSettingsSectionFiltersAsset(assetsDir) {
         source.includes(marker),
       );
     });
-
-  for (const assetPath of candidates) {
-    const source = fs.readFileSync(assetPath, "utf8");
-    const patched = patchSettingsAllSettingsSectionFiltersSupport(source);
-    if (patched !== source) {
-      fs.writeFileSync(assetPath, patched);
-    }
-    return assetPath;
-  }
-
-  throw new Error(`settings page asset not found in ${assetsDir}`);
+  return patchSingleWebviewAsset(
+    assetsDir,
+    candidates,
+    "settings page",
+    patchSettingsAllSettingsSectionFiltersSupport,
+  );
 }
 
 export function patchSettingsConnectionsAllSettingsAsset(assetsDir) {
@@ -972,17 +975,12 @@ export function patchSettingsArchivedChatsRemoteDefaultAsset(assetsDir) {
         source.includes(marker),
       );
     });
-
-  for (const assetPath of candidates) {
-    const source = fs.readFileSync(assetPath, "utf8");
-    const patched = patchSettingsArchivedChatsRemoteDefaultSupport(source);
-    if (patched !== source) {
-      fs.writeFileSync(assetPath, patched);
-    }
-    return assetPath;
-  }
-
-  throw new Error(`settings archived chats asset not found in ${assetsDir}`);
+  return patchSingleWebviewAsset(
+    assetsDir,
+    candidates,
+    "settings archived chats",
+    patchSettingsArchivedChatsRemoteDefaultSupport,
+  );
 }
 
 export function patchAppHeaderNavigationButtonsRenderSupport(source) {
@@ -992,10 +990,7 @@ export function patchAppHeaderNavigationButtonsRenderSupport(source) {
   if (!APP_HEADER_NAVIGATION_BUTTONS_RENDER_PATTERN.test(source)) {
     throw new Error("app header navigation button render target not found");
   }
-  return source.replace(
-    APP_HEADER_NAVIGATION_BUTTONS_RENDER_PATTERN,
-    "$1$2$4",
-  );
+  return source.replace(APP_HEADER_NAVIGATION_BUTTONS_RENDER_PATTERN, "$1$2$4");
 }
 
 export function patchAppHeaderNavigationButtonsRenderAsset(assetsDir) {
@@ -1012,13 +1007,12 @@ export function patchAppHeaderNavigationButtonsRenderAsset(assetsDir) {
     throw new Error(`app header shell asset not found in ${assetsDir}`);
   }
 
-  const assetPath = candidates[0];
-  const source = fs.readFileSync(assetPath, "utf8");
-  const patched = patchAppHeaderNavigationButtonsRenderSupport(source);
-  if (patched !== source) {
-    fs.writeFileSync(assetPath, patched);
-  }
-  return assetPath;
+  return patchSingleWebviewAsset(
+    assetsDir,
+    candidates,
+    "app header shell",
+    patchAppHeaderNavigationButtonsRenderSupport,
+  );
 }
 
 const invokedPath = process.argv[1]

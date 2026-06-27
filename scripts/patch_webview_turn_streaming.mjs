@@ -75,10 +75,10 @@ export function patchWebviewTurnStreamingSource(source, assetName = "") {
 
 export function patchWebviewTurnStreamingAssets(assetsDir) {
   const patchedFiles = [];
-  let sawRenderTurnPatch = false;
-  let sawTurnItemsPatch = false;
-  let sawTurnComponentPatch = false;
-  let sawThreadTurnElementPatch = false;
+  const renderTurnAssets = [];
+  const turnItemsAssets = [];
+  const turnComponentAssets = [];
+  const threadTurnElementAssets = [];
 
   for (const assetName of fs.readdirSync(assetsDir)) {
     if (!assetName.endsWith(".js")) {
@@ -88,35 +88,18 @@ export function patchWebviewTurnStreamingAssets(assetsDir) {
     const assetPath = path.join(assetsDir, assetName);
     const source = fs.readFileSync(assetPath, "utf8");
     const patched = patchWebviewTurnStreamingSource(source, assetName);
-    sawRenderTurnPatch ||= patched.includes(RENDER_TURN_DIRECT);
-    sawRenderTurnPatch ||= patched.includes(MODERN_RENDER_TURN_DIRECT);
-    sawRenderTurnPatch ||=
-      /[$A-Za-z_][\w$]*=o\?\?[$A-Za-z_][\w$]*\(a,s\?\?[$A-Za-z_][\w$]*,\{isBackgroundSubagentsEnabled:[$A-Za-z_][\w$]*,preserveServerUserMessages:[$A-Za-z_][\w$]*\}\);let [$A-Za-z_][\w$]*=[$A-Za-z_][\w$]*/.test(
-        patched,
-      );
-    sawTurnItemsPatch ||=
-      patched.includes(TURN_ITEMS_DIRECT) ||
-      patched.includes(MODERN_TURN_ITEMS_DIRECT) ||
-      /[$A-Za-z_][\w$]*=\(\(\)=>\{let e=[$A-Za-z_][\w$]*\?a\.items:a\.items\.filter\(e=>e\.type!==`subagent-activity`\)/.test(
-        patched,
-      );
-    sawTurnComponentPatch ||=
-      (assetName.startsWith("local-conversation-turn-") &&
-        patched.includes(TURN_COMPONENT_DIRECT_START)) ||
-      patched.includes(MODERN_TURN_COMPONENT_DIRECT_START) ||
-      /[$A-Za-z_][\w$]*=function\(e\)\{[\s\S]{0,2400}?return \(0,[$A-Za-z_][\w$]*\.jsx\)\([$A-Za-z_][\w$]*,\{conversationId:[\s\S]{0,220}?mcpTurn:a,turn:/.test(
-        patched,
-      );
-    sawThreadTurnElementPatch ||=
-      assetName.startsWith("local-conversation-thread-") &&
-      (patched.includes("let L = I,\n    R = (0, $.jsx)(Gt, {") ||
-        patched.includes("let L=I,R=(0,$.jsx)(Gt,{") ||
-        /children:\(0,[$A-Za-z_][\w$]*\.jsx\)\([$A-Za-z_][\w$]*,\{conversationId:[\s\S]{0,240}?turnState:[^,]+,turnRequests:/.test(
-          patched,
-        ));
-    sawThreadTurnElementPatch ||= patched.includes(
-      "return (0,e3.jsx)(GBn,{conversationId:n,hostId:r,turnSearchKey:i,turnId:a.turnId,mcpTurn:a,turn:ae",
-    );
+    if (hasRenderTurnPatch(patched)) {
+      renderTurnAssets.push(assetPath);
+    }
+    if (hasTurnItemsPatch(patched)) {
+      turnItemsAssets.push(assetPath);
+    }
+    if (hasTurnComponentPatch(assetName, patched)) {
+      turnComponentAssets.push(assetPath);
+    }
+    if (hasThreadTurnElementPatch(assetName, patched)) {
+      threadTurnElementAssets.push(assetPath);
+    }
 
     if (patched !== source) {
       fs.writeFileSync(assetPath, patched);
@@ -124,20 +107,69 @@ export function patchWebviewTurnStreamingAssets(assetsDir) {
     }
   }
 
-  if (!sawRenderTurnPatch) {
-    throw new Error("Unable to patch local conversation render turn memo");
-  }
-  if (!sawTurnItemsPatch) {
-    throw new Error("Unable to patch local conversation turn items memo");
-  }
-  if (!sawTurnComponentPatch) {
-    throw new Error("Unable to patch local conversation turn component memo");
-  }
-  if (!sawThreadTurnElementPatch) {
-    throw new Error("Unable to patch local conversation thread turn element memo");
-  }
+  assertOneAsset(renderTurnAssets, "local conversation render turn");
+  assertOneAsset(turnItemsAssets, "local conversation turn items");
+  assertOneAsset(turnComponentAssets, "local conversation turn component");
+  assertOneAsset(
+    threadTurnElementAssets,
+    "local conversation thread turn element",
+  );
 
   return patchedFiles;
+}
+
+function assertOneAsset(assetPaths, label) {
+  if (assetPaths.length === 0) {
+    throw new Error(`Unable to patch ${label} memo`);
+  }
+  if (assetPaths.length !== 1) {
+    throw new Error(`Expected one ${label} asset, found ${assetPaths.length}`);
+  }
+}
+
+function hasRenderTurnPatch(source) {
+  return (
+    source.includes(RENDER_TURN_DIRECT) ||
+    source.includes(MODERN_RENDER_TURN_DIRECT) ||
+    /[$A-Za-z_][\w$]*=o\?\?[$A-Za-z_][\w$]*\(a,s\?\?[$A-Za-z_][\w$]*,\{isBackgroundSubagentsEnabled:[$A-Za-z_][\w$]*,preserveServerUserMessages:[$A-Za-z_][\w$]*\}\);let [$A-Za-z_][\w$]*=[$A-Za-z_][\w$]*/.test(
+      source,
+    )
+  );
+}
+
+function hasTurnItemsPatch(source) {
+  return (
+    source.includes(TURN_ITEMS_DIRECT) ||
+    source.includes(MODERN_TURN_ITEMS_DIRECT) ||
+    /[$A-Za-z_][\w$]*=\(\(\)=>\{let e=[$A-Za-z_][\w$]*\?a\.items:a\.items\.filter\(e=>e\.type!==`subagent-activity`\)/.test(
+      source,
+    )
+  );
+}
+
+function hasTurnComponentPatch(assetName, source) {
+  return (
+    (assetName.startsWith("local-conversation-turn-") &&
+      source.includes(TURN_COMPONENT_DIRECT_START)) ||
+    source.includes(MODERN_TURN_COMPONENT_DIRECT_START) ||
+    /[$A-Za-z_][\w$]*=function\(e\)\{[\s\S]{0,2400}?return \(0,[$A-Za-z_][\w$]*\.jsx\)\([$A-Za-z_][\w$]*,\{conversationId:[\s\S]{0,220}?mcpTurn:a,turn:/.test(
+      source,
+    )
+  );
+}
+
+function hasThreadTurnElementPatch(assetName, source) {
+  return (
+    (assetName.startsWith("local-conversation-thread-") &&
+      (source.includes("let L = I,\n    R = (0, $.jsx)(Gt, {") ||
+        source.includes("let L=I,R=(0,$.jsx)(Gt,{") ||
+        /children:\(0,[$A-Za-z_][\w$]*\.jsx\)\([$A-Za-z_][\w$]*,\{conversationId:[\s\S]{0,240}?turnState:[^,]+,turnRequests:/.test(
+          source,
+        ))) ||
+    source.includes(
+      "return (0,e3.jsx)(GBn,{conversationId:n,hostId:r,turnSearchKey:i,turnId:a.turnId,mcpTurn:a,turn:ae",
+    )
+  );
 }
 
 function isModernTurnSource(source) {
@@ -219,7 +251,11 @@ function replaceModernRenderTurnMemo(source) {
 }
 
 function replaceModernTurnComponentElementCacheDynamic(source) {
-  if (/return \(0,[$A-Za-z_][\w$]*\.jsx\)\([$A-Za-z_][\w$]*,\{conversationId:[\s\S]{0,160}?mcpTurn:a,turn:/.test(source)) {
+  if (
+    /return \(0,[$A-Za-z_][\w$]*\.jsx\)\([$A-Za-z_][\w$]*,\{conversationId:[\s\S]{0,160}?mcpTurn:a,turn:/.test(
+      source,
+    )
+  ) {
     return source;
   }
 
@@ -300,7 +336,9 @@ function replaceModernTurnComponentElementCache(source) {
   const jsxEnd = source.indexOf(",t[16]=w", jsxStart);
   const blockEnd = source.indexOf("})}));function", jsxEnd);
   if (jsxStart === -1 || jsxEnd === -1 || blockEnd === -1) {
-    throw new Error("Unable to patch modern local conversation turn element memo");
+    throw new Error(
+      "Unable to patch modern local conversation turn element memo",
+    );
   }
 
   const jsx = source.slice(jsxStart + jsxStartMarker.length, jsxEnd);
@@ -417,11 +455,17 @@ function patchFormattedThreadTurnElementCache(source, markerIndex) {
   const jsxEnd = source.indexOf(")),\n      (t[5] = _)", jsxStart);
   const blockEnd = source.indexOf("  let z;", jsxEnd);
   if (jsxStart === -1 || jsxEnd === -1 || blockEnd === -1) {
-    throw new Error("Unable to patch local conversation thread turn element memo");
+    throw new Error(
+      "Unable to patch local conversation thread turn element memo",
+    );
   }
 
   const jsx = source.slice(jsxStart + jsxStartMarker.length, jsxEnd);
-  return source.slice(0, start) + `let L = I,\n    R = ${jsx});\n` + source.slice(blockEnd);
+  return (
+    source.slice(0, start) +
+    `let L = I,\n    R = ${jsx});\n` +
+    source.slice(blockEnd)
+  );
 }
 
 function patchMinifiedThreadTurnElementCache(source, markerIndex) {
@@ -434,7 +478,9 @@ function patchMinifiedThreadTurnElementCache(source, markerIndex) {
   const jsxEnd = source.indexOf(",t[5]=", jsxStart);
   const blockEnd = source.indexOf("let z;", jsxEnd);
   if (jsxStart === -1 || jsxEnd === -1 || blockEnd === -1) {
-    throw new Error("Unable to patch local conversation thread turn element memo");
+    throw new Error(
+      "Unable to patch local conversation thread turn element memo",
+    );
   }
 
   const jsx = source.slice(jsxStart + jsxStartMarker.length, jsxEnd);
@@ -511,5 +557,7 @@ if (invokedPath === import.meta.url) {
   const assetsDir =
     process.argv[2] ?? path.join(workspaceRoot, "scratch/asar/webview/assets");
   const patchedFiles = patchWebviewTurnStreamingAssets(assetsDir);
-  console.log(`Patched webview turn streaming in ${patchedFiles.length} asset(s)`);
+  console.log(
+    `Patched webview turn streaming in ${patchedFiles.length} asset(s)`,
+  );
 }

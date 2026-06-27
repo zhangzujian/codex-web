@@ -70,3 +70,47 @@ test("patchSentryDisableAssets patches shell and webview Sentry bundles", () => 
   }
   assert.deepEqual(patchSentryDisableAssets(asarRoot), []);
 });
+
+test("patchSentryDisableAssets rejects duplicate drop handler targets", () => {
+  const asarRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), "codex-web-sentry-duplicate-"),
+  );
+  const buildDir = path.join(asarRoot, ".vite/build");
+  fs.mkdirSync(buildDir, { recursive: true });
+
+  fs.writeFileSync(
+    path.join(buildDir, "workspace-root-drop-handler-a.js"),
+    "Fz({dsn:t.Ti,environment:tB.buildFlavor,release:i,dist:tB.buildNumber??void 0,beforeSend:Jz({app:r.app})})",
+  );
+  fs.writeFileSync(
+    path.join(buildDir, "workspace-root-drop-handler-b.js"),
+    "Fz({dsn:t.Ti,environment:tB.buildFlavor,release:i,dist:tB.buildNumber??void 0,beforeSend:Jz({app:r.app})})",
+  );
+
+  assert.throws(
+    () => findSentryDisableTargets(asarRoot),
+    /Expected one Sentry workspace-root-drop-handler asset/,
+  );
+});
+
+test("patchSentryDisableAssets rejects duplicate webview error boundary targets", () => {
+  const asarRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), "codex-web-sentry-duplicate-"),
+  );
+  const webviewAssetsDir = path.join(asarRoot, "webview/assets");
+  fs.mkdirSync(webviewAssetsDir, { recursive: true });
+
+  fs.writeFileSync(
+    path.join(webviewAssetsDir, "error-boundary-a.js"),
+    "Df({beforeSend:ne,dsn:l,environment:kf,release:d(n.version),dist:e.buildNumber??void 0,tracesSampleRate:0})",
+  );
+  fs.writeFileSync(
+    path.join(webviewAssetsDir, "error-boundary-b.js"),
+    "Df({beforeSend:ne,dsn:l,environment:kf,release:d(n.version),dist:e.buildNumber??void 0,tracesSampleRate:0})",
+  );
+
+  assert.throws(
+    () => findSentryDisableTargets(asarRoot),
+    /Expected one Sentry error-boundary asset/,
+  );
+});
