@@ -93,6 +93,22 @@ const AUTOMATION_NATIVE_OPTIONAL_FIELD_PATTERNS = [
   /,e\.model\?\?t\.addIssue\(\{code:`custom`,message:`Missing model`,path:\[`model`\]\}\)/g,
   /,e\.reasoningEffort\?\?t\.addIssue\(\{code:`custom`,message:`Missing reasoningEffort`,path:\[`reasoningEffort`\]\}\)/g,
 ];
+const SETTINGS_SECTION_FILTER_ASSET_MARKERS = [
+  "settings.hostDropdown.allSettings",
+  "Ge.filter",
+  "case`connections`",
+  "groupSettingsSections:!0",
+];
+const SETTINGS_ALL_SETTINGS_SECTION_FILTER_PATCHES = [
+  {
+    name: "Connections",
+    stale:
+      /case`connections`:return ([$A-Za-z_][\w$]*)&&![$A-Za-z_][\w$]*(?=;case`usage`:)/,
+    patched: /case`connections`:return [$A-Za-z_][\w$]*(?=;case`usage`:)/,
+    replacement: (_match, featureGate) =>
+      `case\`connections\`:return ${featureGate}`,
+  },
+];
 
 export function patchWebviewAssets(assetsDir) {
   const patchedFiles = [
@@ -108,6 +124,7 @@ export function patchWebviewAssets(assetsDir) {
     ...patchWebviewAutomationsNavAssets(assetsDir),
     ...patchWebviewMobileSidebarAssets(assetsDir),
     ...patchWebviewMobileTabLayoutAssets(assetsDir),
+    patchSettingsAllSettingsSectionFiltersAsset(assetsDir),
     patchDynamicToolsAutomationAsset(assetsDir),
     ...patchAutomationToolContractAsset(assetsDir),
     patchAutomationRemoteDefaultHostAsset(assetsDir),
@@ -123,7 +140,7 @@ export function patchWebviewAssets(assetsDir) {
 
 export function verifyPatchedWebviewAssets(assetsDir, patchedFiles) {
   checkPatchedAssetFileList(assetsDir, patchedFiles);
-  checkPatchedJavaScriptFilesSyntax(patchedFiles);
+  checkPatchedJavaScriptFilesSyntax(webviewJavaScriptFiles(assetsDir));
   checkPatchedWebviewAssetInvariants(assetsDir);
 }
 
@@ -182,6 +199,11 @@ function checkPatchedWebviewAssetInvariants(assetsDir) {
     if (patternMatches(AUTOMATION_ARGUMENTS_SAFE_PARSE_PATTERN, source)) {
       failures.push(`${label}: automation arguments are still parsed raw`);
     }
+    for (const patch of SETTINGS_ALL_SETTINGS_SECTION_FILTER_PATCHES) {
+      if (patternMatches(patch.stale, source)) {
+        failures.push(`${label}: All settings still hides ${patch.name}`);
+      }
+    }
     if (
       patternMatches(AUTOMATION_REQUIRED_MODEL_PATTERN, source) ||
       patternMatches(AUTOMATION_DRAFT_CRON_MODEL_REQUIRED_PATTERN, source)
@@ -209,17 +231,46 @@ function webviewJavaScriptFiles(assetsDir) {
 }
 
 export function checkPatchedJavaScriptFilesSyntax(filePaths) {
-  for (const filePath of [...new Set(filePaths)].filter((filePath) =>
+  const jsFiles = [...new Set(filePaths)].filter((filePath) =>
     filePath.endsWith(".js"),
-  )) {
-    const result = spawnSync(process.execPath, ["--check", filePath], {
-      encoding: "utf8",
-    });
-    if (result.status !== 0) {
-      throw new Error(
-        `Invalid JavaScript syntax in patched file ${filePath}\n${result.stderr || result.stdout}`,
-      );
+  );
+  if (jsFiles.length === 0) {
+    return;
+  }
+
+  const checker = `
+    import fs from "node:fs";
+    import fsp from "node:fs/promises";
+    import vm from "node:vm";
+    const files = JSON.parse(fs.readFileSync(0, "utf8"));
+    const failures = [];
+    for (const filePath of files) {
+      try {
+        new vm.SourceTextModule(await fsp.readFile(filePath, "utf8"), {
+          identifier: filePath,
+        });
+      } catch (error) {
+        if (error?.name !== "SyntaxError") throw error;
+        failures.push(filePath + "\\n" + (error.stack || error.message));
+      }
     }
+    if (failures.length > 0) {
+      console.error(failures.join("\\n\\n"));
+      process.exit(1);
+    }
+  `;
+  const result = spawnSync(
+    process.execPath,
+    ["--no-warnings", "--experimental-vm-modules", "--input-type=module", "--eval", checker],
+    {
+      encoding: "utf8",
+      input: JSON.stringify(jsFiles),
+    },
+  );
+  if (result.status !== 0) {
+    throw new Error(
+      `Invalid JavaScript syntax in patched file(s)\n${result.stderr || result.stdout}`,
+    );
   }
 }
 
@@ -748,6 +799,52 @@ export function patchAutomationToolContractAsset(assetsDir) {
   }
 
   return [];
+}
+
+export function patchSettingsAllSettingsSectionFiltersSupport(source) {
+  let patched = source;
+  for (const patch of SETTINGS_ALL_SETTINGS_SECTION_FILTER_PATCHES) {
+    if (patch.patched.test(patched)) {
+      continue;
+    }
+    if (!patch.stale.test(patched)) {
+      throw new Error(`settings ${patch.name} visibility guard not found`);
+    }
+    patched = patched.replace(patch.stale, patch.replacement);
+  }
+  return patched;
+}
+
+export function patchSettingsConnectionsAllSettingsSupport(source) {
+  return patchSettingsAllSettingsSectionFiltersSupport(source);
+}
+
+export function patchSettingsAllSettingsSectionFiltersAsset(assetsDir) {
+  const candidates = fs
+    .readdirSync(assetsDir)
+    .filter((name) => name.endsWith(".js"))
+    .map((name) => path.join(assetsDir, name))
+    .filter((assetPath) => {
+      const source = fs.readFileSync(assetPath, "utf8");
+      return SETTINGS_SECTION_FILTER_ASSET_MARKERS.every((marker) =>
+        source.includes(marker),
+      );
+    });
+
+  for (const assetPath of candidates) {
+    const source = fs.readFileSync(assetPath, "utf8");
+    const patched = patchSettingsAllSettingsSectionFiltersSupport(source);
+    if (patched !== source) {
+      fs.writeFileSync(assetPath, patched);
+    }
+    return assetPath;
+  }
+
+  throw new Error(`settings page asset not found in ${assetsDir}`);
+}
+
+export function patchSettingsConnectionsAllSettingsAsset(assetsDir) {
+  return patchSettingsAllSettingsSectionFiltersAsset(assetsDir);
 }
 
 const invokedPath = process.argv[1]

@@ -21,6 +21,8 @@ import {
   patchAutomationToolContractSupport,
   patchAutomationArgumentsNormalizationSupport,
   patchAutomationRemoteDefaultHostSupport,
+  patchSettingsAllSettingsSectionFiltersAsset,
+  patchSettingsAllSettingsSectionFiltersSupport,
   checkPatchedJavaScriptFilesSyntax,
   verifyPatchedWebviewAssets,
 } from "../scripts/patch_webview_assets.mjs";
@@ -37,6 +39,21 @@ test("checkPatchedJavaScriptFilesSyntax rejects invalid patched JavaScript", asy
 
     assert.throws(
       () => checkPatchedJavaScriptFilesSyntax([valid, html, invalid]),
+      /Invalid JavaScript syntax in patched file/,
+    );
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
+test("checkPatchedJavaScriptFilesSyntax rejects invalid ESM syntax missed by node --check", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-web-esm-syntax-"));
+  try {
+    const invalid = join(dir, "invalid-esm.js");
+    await writeFile(invalid, "const a = 1; export { a as b) };\n");
+
+    assert.throws(
+      () => checkPatchedJavaScriptFilesSyntax([invalid]),
       /Invalid JavaScript syntax in patched file/,
     );
   } finally {
@@ -68,6 +85,23 @@ test("verifyPatchedWebviewAssets rejects invalid patched file lists", async () =
     assert.throws(
       () => verifyPatchedWebviewAssets(dir, [join(tmpdir(), "outside.js")]),
       /Patched asset is outside/,
+    );
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
+test("verifyPatchedWebviewAssets checks syntax for every webview JavaScript asset", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "codex-web-assets-verify-"));
+  const listed = join(dir, "listed.js");
+  const unlistedInvalid = join(dir, "lazy-chunk.js");
+  try {
+    await writeFile(listed, "const ok = 1;\n");
+    await writeFile(unlistedInvalid, "const a = 1; export { a as b) };\n");
+
+    assert.throws(
+      () => verifyPatchedWebviewAssets(dir, [listed]),
+      /Invalid JavaScript syntax in patched file/,
     );
   } finally {
     await rm(dir, { force: true, recursive: true });
@@ -183,6 +217,39 @@ test("patchStatsigTelemetryDisableAsset skips unrelated Statsig SDK chunks", asy
 
   assert.equal(patchedFile, appMain);
   assert.match(patched, /preventAllNetworkTraffic:true/);
+});
+
+test("patchSettingsAllSettingsSectionFiltersSupport keeps Connections visible in All settings", () => {
+  const source =
+    "function sr(){let r=Gt(),i=ye(),y=Ge.filter(e=>{switch(e.slug){case`connections`:return i&&!r;case`usage`:return p}})}";
+  const patched = patchSettingsAllSettingsSectionFiltersSupport(source);
+
+  assert.match(patched, /case`connections`:return i;case`usage`:/);
+  assert.equal(patchSettingsAllSettingsSectionFiltersSupport(patched), patched);
+});
+
+test("patchSettingsAllSettingsSectionFiltersAsset locates the settings grouping chunk", async () => {
+  const assetsDir = await mkdtemp(join(tmpdir(), "codex-web-assets-"));
+  const settings = join(assetsDir, "settings-page-test.js");
+  const unrelated = join(assetsDir, "remote-connections-settings.js");
+  try {
+    await writeFile(
+      unrelated,
+      "case`connections`:return i&&!r;case`usage`:return p",
+    );
+    await writeFile(
+      settings,
+      "settings.hostDropdown.allSettings;groupSettingsSections:!0;Ge.filter(e=>{switch(e.slug){case`connections`:return i&&!r;case`usage`:return p}})",
+    );
+
+    assert.equal(patchSettingsAllSettingsSectionFiltersAsset(assetsDir), settings);
+    assert.match(
+      await readFile(settings, "utf8"),
+      /case`connections`:return i;case`usage`:/,
+    );
+  } finally {
+    await rm(assetsDir, { force: true, recursive: true });
+  }
 });
 
 test("patchStatsigTelemetryFlushDisableSupport drops disabled Statsig events instead of storing and flushing", () => {

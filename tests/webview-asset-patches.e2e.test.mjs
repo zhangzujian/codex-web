@@ -7,6 +7,8 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { checkPatchedJavaScriptFilesSyntax } from "../scripts/patch_webview_assets.mjs";
+
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const assetsDir = path.join(repoRoot, "scratch/asar/webview/assets");
 const require = createRequire(import.meta.url);
@@ -232,6 +234,29 @@ function assertPatchTarget(target, combinedSource) {
   }
 }
 
+function assertSettingsAllSettingsAssetPatch(sources) {
+  const settingsAsset = sources.find(({ text }) =>
+    [
+      "settings.hostDropdown.allSettings",
+      "groupSettingsSections:!0",
+      "Ge.filter",
+      "case`connections`",
+    ].every((marker) => text.includes(marker)),
+  );
+
+  assert.ok(settingsAsset, "served settings page asset should contain section grouping logic");
+  assert.match(
+    settingsAsset.text,
+    /case`connections`:return [$A-Za-z_][\w$]*(?=;case`usage`:)/,
+    `${settingsAsset.name}: Connections should stay visible in All settings`,
+  );
+  assert.doesNotMatch(
+    settingsAsset.text,
+    /case`connections`:return [$A-Za-z_][\w$]*&&![$A-Za-z_][\w$]*(?=;case`usage`:)/,
+    `${settingsAsset.name}: stale All settings Connections guard`,
+  );
+}
+
 async function assertRemoteDefaultRuntime(page, expectedSshHost) {
   const runtime = await page.evaluate(() => ({
     injectedSshHost: window.__CODEX_WEB_REMOTE_SSH_HOST__,
@@ -260,6 +285,22 @@ async function assertRemoteDefaultRuntime(page, expectedSshHost) {
     assert.equal(connections[0].sshHost, "remote");
     assert.equal(connections[0].autoConnect, true);
   }
+}
+
+async function assertSettingsConnectionsRuntime(page) {
+  const runtime = await page.evaluate(() => ({
+    hostConfig: window.electronBridge?.getSharedObjectSnapshotValue("host_config"),
+    initialRoute: window.__ELECTRON_SHIM__?.initialRoute,
+    pathname: window.location.pathname,
+  }));
+
+  assert.equal(runtime.pathname, "/settings/connections");
+  assert.equal(runtime.initialRoute, "/settings/connections");
+  assert.deepEqual(runtime.hostConfig, {
+    display_name: "Local",
+    id: "local",
+    kind: "local",
+  });
 }
 
 async function assertNonRemoteRuntimeShims(page, expectedTerminalFont) {
@@ -309,6 +350,9 @@ test(
       .filter((name) => name.endsWith(".js"))
       .sort();
     assert.ok(assetNames.length > 0, "prepared webview assets should exist");
+    checkPatchedJavaScriptFilesSyntax(
+      assetNames.map((name) => path.join(assetsDir, name)),
+    );
 
     const token = `asset-patch-e2e-${Date.now()}`;
     const remoteSshHost = `e2e-remote-${Date.now()}.example`;
@@ -332,7 +376,15 @@ test(
       await assertRemoteDefaultRuntime(page, remoteSshHost);
       await assertNonRemoteRuntimeShims(page, terminalFont);
 
+      const settingsResponse = await page.goto(
+        new URL("/settings/connections", baseURL).href,
+        { waitUntil: "domcontentloaded" },
+      );
+      assert.equal(settingsResponse?.status(), 200);
+      await assertSettingsConnectionsRuntime(page);
+
       const sources = await fetchServedAssetSources(page, assetNames);
+      assertSettingsAllSettingsAssetPatch(sources);
       const combinedSource = sources
         .map(({ name, text }) => `\n/* ${name} */\n${text}`)
         .join("\n");
