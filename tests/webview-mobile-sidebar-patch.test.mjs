@@ -34,6 +34,17 @@ const currentV2AppShellSource = [
   "(0,fq.jsx)(`div`,{className:Y(`app-shell-main-content-viewport relative flex min-h-0 min-w-0 flex-col`,v?`w-0 flex-none overflow-hidden`:`flex-1`)}),",
   "rightPanelAnimatedWidth}",
 ].join("");
+const currentV3AppShellSource = [
+  "function FGe({bottomPanelSlot:e,children:t,leftPanelSlot:n,rightPanelSlot:r}){",
+  "let i=B(Z),a=B(Pa),o=(0,HF.useRef)(null),[s,c]=(0,HF.useState)(null),[l,u]=(0,HF.useState)(!1),d=(0,HF.useRef)(n);",
+  "let f=(n??(l?d.current:void 0))?.children,p=f!=null,m=e!=null,h=r!=null,g=(0,HF.useRef)(!1),_=(0,HF.useRef)(!1),v=X(wS),y=X(kS),b=al(),x=FWe(),S=qP(),[C,w]=(0,HF.useState)(!1),T=X(HS),E=X(Fo),D=X(JGe),O=y===`thread-edge-scroll`,k=p&&T,A=O&&C&&!v,j=y===`full-bleed`;",
+  "let N=sp(cCe()),P=yp(N,e=>`${Math.max(0,e-GF*2)}px`),{isMounted:F,animatedSize:I}=CF({animation:X(JS),size:N,isVisible:k}),L=sp(window.innerWidth),R=sp(window.innerHeight-46),J=yp([L,I],([e,t])=>Math.max(0,e-t)),{rightPanelAnimatedWidth:Y,rightPanelWidth:ee,rightPanelWidthRatio:te,widthMode:ne}=SGe({isFullWidth:v,mainContentWidth:J});",
+  "let fe=xl(({width:e})=>{L.set(e);let t=e<=UGe,n=e<=WGe,r=t!==g.current,a=n!==_.current;});",
+  "return ue&&!T&&!l&&!F&&(0,UF.jsx)(IGe,{floatingLeftPanelWidth:P,isApplicationMenuBarEnabled:S,isVisible:D&&!T&&!F,leftPanelWidth:N,leftPanel:f,shouldUseReducedMotion:E,onOpenSidebar:()=>{IS(i,!0,{animate:!1})}}),",
+  "(0,UF.jsx)(`div`,{className:`app-shell-left-panel`,children:f}),",
+  "(0,UF.jsx)(`div`,{className:$(`app-shell-main-content-viewport relative flex min-h-0 min-w-0 flex-col`,v?`w-0 flex-none overflow-hidden`:`flex-1`)}),",
+  "rightPanelAnimatedWidth}",
+].join("");
 
 const mobileViewportWidthPattern =
   /Math\.min\(window\.innerWidth,window\.visualViewport\?\.width\?\?window\.innerWidth,window\.screen\?\.width\?\?window\.innerWidth\)/;
@@ -79,6 +90,22 @@ test("mobile sidebar patch supports the current jpn app shell layout", () => {
   assert.match(
     patched,
     /className:Y\(`app-shell-main-content-viewport relative flex min-h-0 min-w-0 flex-col`,\(v\|\|h&&\(Math\.min/,
+  );
+  assert.equal(patchWebviewMobileSidebarSource(patched), patched);
+});
+
+test("mobile sidebar patch supports the current FGe app shell layout", () => {
+  const patched = patchWebviewMobileSidebarSource(currentV3AppShellSource);
+
+  assert.match(patched, mobileViewportWidthPattern);
+  assert.match(patched, /navigator\?\.maxTouchPoints>0/);
+  assert.match(patched, /SGe\(\{isFullWidth:v\|\|h&&\(Math\.min/);
+  assert.match(patched, /mainContentWidth:v\|\|h&&\(Math\.min[\s\S]*\?L:J/);
+  assert.match(patched, /k=p&&T&&!\(Math\.min/);
+  assert.match(patched, /ue&&\(!T\|\|\(Math\.min[\s\S]*\)\)&&!l&&!F&&!\(h&&\(Math\.min/);
+  assert.match(
+    patched,
+    /className:\$\(`app-shell-main-content-viewport relative flex min-h-0 min-w-0 flex-col`,\(v\|\|h&&\(Math\.min/,
   );
   assert.equal(patchWebviewMobileSidebarSource(patched), patched);
 });

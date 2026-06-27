@@ -19,6 +19,10 @@ const CURRENT_V2_MOBILE_VIEWPORT_IS_NARROW =
   `(${MOBILE_VIEWPORT_WIDTH}<=Vpn||${MOBILE_VIEWPORT_HAS_TOUCH}&&${MOBILE_VIEWPORT_WIDTH}<=1440)`;
 const CURRENT_V2_MOBILE_RIGHT_PANEL_OPEN =
   `h&&${CURRENT_V2_MOBILE_VIEWPORT_IS_NARROW}`;
+const CURRENT_V3_MOBILE_VIEWPORT_IS_NARROW =
+  `(${MOBILE_VIEWPORT_WIDTH}<=UGe||${MOBILE_VIEWPORT_HAS_TOUCH}&&${MOBILE_VIEWPORT_WIDTH}<=1440)`;
+const CURRENT_V3_MOBILE_RIGHT_PANEL_OPEN =
+  `h&&${CURRENT_V3_MOBILE_VIEWPORT_IS_NARROW}`;
 const LEGACY_MOBILE_VIEWPORT_WIDTH =
   "Math.min(window.innerWidth,window.visualViewport?.width??window.innerWidth)";
 const LEGACY_MOBILE_VIEWPORT_IS_NARROW =
@@ -138,6 +142,12 @@ const CURRENT_V2_APP_SHELL_LAYOUT_MARKERS = [
   "rightPanelAnimatedWidth",
   "app-shell-main-content-viewport",
 ];
+const CURRENT_V3_APP_SHELL_LAYOUT_MARKERS = [
+  "function FGe({bottomPanelSlot:",
+  "app-shell-left-panel",
+  "rightPanelAnimatedWidth",
+  "app-shell-main-content-viewport",
+];
 
 function replaceOnce(source, patternOrPatterns, replacement, description) {
   if (source.includes(replacement)) {
@@ -197,6 +207,9 @@ function pickAppShellCandidate(candidates, assetsDir) {
 }
 
 export function patchWebviewMobileSidebarSource(source) {
+  if (isCurrentV3WebviewMobileSidebarSource(source)) {
+    return patchCurrentV3WebviewMobileSidebarSource(source);
+  }
   if (isCurrentV2WebviewMobileSidebarSource(source)) {
     return patchCurrentV2WebviewMobileSidebarSource(source);
   }
@@ -278,6 +291,9 @@ export function patchWebviewMobileSidebarAssets(assetsDir) {
         ) ||
         CURRENT_V2_APP_SHELL_LAYOUT_MARKERS.every((marker) =>
           source.includes(marker),
+        ) ||
+        CURRENT_V3_APP_SHELL_LAYOUT_MARKERS.every((marker) =>
+          source.includes(marker),
         ),
     );
 
@@ -354,6 +370,65 @@ function patchCurrentWebviewMobileSidebarSource(source) {
 
 function isCurrentWebviewMobileSidebarSource(source) {
   return CURRENT_APP_SHELL_LAYOUT_MARKERS.every((marker) =>
+    source.includes(marker),
+  );
+}
+
+function patchCurrentV3WebviewMobileSidebarSource(source) {
+  if (!isCurrentV3WebviewMobileSidebarSource(source)) {
+    return source;
+  }
+  if (
+    source.includes(`L=sp(${MOBILE_VIEWPORT_WIDTH}),`) &&
+    source.includes(
+      `SGe({isFullWidth:v||${CURRENT_V3_MOBILE_RIGHT_PANEL_OPEN}`,
+    )
+  ) {
+    return source;
+  }
+
+  let patched = source;
+  patched = replaceCurrentOnce(
+    patched,
+    "L=sp(window.innerWidth),",
+    `L=sp(${MOBILE_VIEWPORT_WIDTH}),`,
+    "current v3 shell width source",
+  );
+  patched = replaceCurrentOnce(
+    patched,
+    "k=p&&T,A=O&&C&&!v,",
+    `k=p&&T&&!${CURRENT_V3_MOBILE_VIEWPORT_IS_NARROW},A=O&&C&&!v,`,
+    "current v3 docked left panel condition",
+  );
+  patched = replaceCurrentOnce(
+    patched,
+    "SGe({isFullWidth:v,mainContentWidth:J})",
+    `SGe({isFullWidth:v||${CURRENT_V3_MOBILE_RIGHT_PANEL_OPEN},mainContentWidth:v||${CURRENT_V3_MOBILE_RIGHT_PANEL_OPEN}?L:J})`,
+    "current v3 right panel width source",
+  );
+  patched = replaceCurrentOnce(
+    patched,
+    "let t=e<=UGe,n=e<=WGe",
+    `let t=e<=UGe||${MOBILE_VIEWPORT_HAS_TOUCH}&&${MOBILE_VIEWPORT_WIDTH}<=1440,n=e<=WGe||${MOBILE_VIEWPORT_HAS_TOUCH}&&${MOBILE_VIEWPORT_WIDTH}<=1440`,
+    "current v3 resize narrow thresholds",
+  );
+  patched = replaceCurrentOnce(
+    patched,
+    "className:$(`app-shell-main-content-viewport relative flex min-h-0 min-w-0 flex-col`,v?`w-0 flex-none overflow-hidden`:`flex-1`)",
+    `className:$(\`app-shell-main-content-viewport relative flex min-h-0 min-w-0 flex-col\`,(v||${CURRENT_V3_MOBILE_RIGHT_PANEL_OPEN})?\`w-0 flex-none overflow-hidden\`:\`flex-1\`)`,
+    "current v3 main content full-width class",
+  );
+  patched = replaceCurrentOnce(
+    patched,
+    "ue&&!T&&!l&&!F&&(0,UF.jsx)(IGe,{floatingLeftPanelWidth:P,isApplicationMenuBarEnabled:S,isVisible:D&&!T&&!F,leftPanelWidth:N,leftPanel:f,shouldUseReducedMotion:E,onOpenSidebar:()=>{IS(i,!0,{animate:!1})}})",
+    `ue&&(!T||${CURRENT_V3_MOBILE_VIEWPORT_IS_NARROW})&&!l&&!F&&!(${CURRENT_V3_MOBILE_RIGHT_PANEL_OPEN})&&(0,UF.jsx)(IGe,{floatingLeftPanelWidth:P,isApplicationMenuBarEnabled:S,isVisible:(D&&!${CURRENT_V3_MOBILE_VIEWPORT_IS_NARROW}||T&&${CURRENT_V3_MOBILE_VIEWPORT_IS_NARROW})&&!F,leftPanelWidth:N,leftPanel:f,shouldUseReducedMotion:E,onOpenSidebar:()=>{IS(i,!(T&&${CURRENT_V3_MOBILE_VIEWPORT_IS_NARROW}),{animate:!1})}})`,
+    "current v3 floating left panel condition",
+  );
+  return patched;
+}
+
+function isCurrentV3WebviewMobileSidebarSource(source) {
+  return CURRENT_V3_APP_SHELL_LAYOUT_MARKERS.every((marker) =>
     source.includes(marker),
   );
 }

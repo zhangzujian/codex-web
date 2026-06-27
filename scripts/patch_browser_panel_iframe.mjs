@@ -261,9 +261,9 @@ function patchModernBrowserPanelAdoptionUrlUpdates(source, symbols) {
 function patchModernExistingVisibleBrowserPanelUrlUpdates(source) {
   return replaceRegexOnceIfMissing(
     source,
-    /if\(l instanceof ([$A-Za-z_][\w$]*)&&l\.getPartition\(\)===c\)return l\.setHostKind\(u\),l\.setPagePersistence\(s\)&&\(this\.notifyWebviewHostCreated\(e,n,u,s\),this\.emitChange\(\)\),i!=null&&\(l\.setAdoptionAttributes\(i\.adoptionLease\?\?null,i\.adoptedWebContentsId\?\?null,r\),i\.adoptionLease!=null&&i\.adoptedWebContentsId!=null&&([$A-Za-z_][\w$]*)\.info\(`IAB_ADOPTION renderer updated adopted webview`,\{safe:\{adoptedWebContentsId:i\.adoptedWebContentsId,browserTabId:n,conversationId:e,hasInitialUrl:r\.length>0\},sensitive:\{\}\}\)\),l;/,
-    (_match, hostClass, logger) =>
-      `if(l instanceof ${hostClass}&&l.getPartition()===c)return l.setHostKind(u),l.setPagePersistence(s)&&(this.notifyWebviewHostCreated(e,n,u,s),this.emitChange()),l.setAdoptionAttributes(i?.adoptionLease??null,i?.adoptedWebContentsId??null,r),i?.adoptionLease!=null&&i.adoptedWebContentsId!=null&&${logger}.info(\`IAB_ADOPTION renderer updated adopted webview\`,{safe:{adoptedWebContentsId:i.adoptedWebContentsId,browserTabId:n,conversationId:e,hasInitialUrl:r.length>0},sensitive:{}}),l;`,
+    /if\(l instanceof ([$A-Za-z_][\w$]*)&&l\.getPartition\(\)===c\)return l\.setHostKind\(([$A-Za-z_][\w$]*)\),l\.setPagePersistence\(s\)&&\(this\.notifyWebviewHostCreated\(e,n,\2,s\),this\.emitChange\(\)\),i!=null&&\(l\.setAdoptionAttributes\(i\.adoptionLease\?\?null,i\.adoptedWebContentsId\?\?null,r\),i\.adoptionLease!=null&&i\.adoptedWebContentsId!=null&&([$A-Za-z_][\w$]*)\.info\(`IAB_ADOPTION renderer updated adopted webview`,\{safe:\{adoptedWebContentsId:i\.adoptedWebContentsId,browserTabId:n,conversationId:e,hasInitialUrl:r\.length>0\},sensitive:\{\}\}\)\),l;/,
+    (_match, hostClass, hostKind, logger) =>
+      `if(l instanceof ${hostClass}&&l.getPartition()===c)return l.setHostKind(${hostKind}),l.setPagePersistence(s)&&(this.notifyWebviewHostCreated(e,n,${hostKind},s),this.emitChange()),l.setAdoptionAttributes(i?.adoptionLease??null,i?.adoptedWebContentsId??null,r),i?.adoptionLease!=null&&i.adoptedWebContentsId!=null&&${logger}.info(\`IAB_ADOPTION renderer updated adopted webview\`,{safe:{adoptedWebContentsId:i.adoptedWebContentsId,browserTabId:n,conversationId:e,hasInitialUrl:r.length>0},sensitive:{}}),l;`,
     "l.setAdoptionAttributes(i?.adoptionLease??null,i?.adoptedWebContentsId??null,r)",
     "modern existing visible browser panel URL updates",
   );

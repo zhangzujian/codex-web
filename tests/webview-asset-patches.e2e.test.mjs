@@ -412,7 +412,7 @@ async function assertNonRemoteRuntimeShims(page, expectedTerminalFont) {
   assert.equal(typeof runtime.backendToken, "string");
   assert.ok(runtime.backendToken.length > 0);
   assert.equal(runtime.sentry.enabled, false);
-  assert.equal(runtime.sentry.appVersion, "26.623.41415");
+  assert.equal(runtime.sentry.appVersion, "26.623.42026");
   assert.equal(runtime.appSessionId, runtime.sentry.codexAppSessionId);
   assert.equal(typeof runtime.buildFlavor, "string");
   assert.equal(runtime.owlAppShell, false);

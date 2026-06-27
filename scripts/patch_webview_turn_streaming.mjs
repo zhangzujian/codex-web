@@ -163,12 +163,16 @@ function hasThreadTurnElementPatch(assetName, source) {
     (assetName.startsWith("local-conversation-thread-") &&
       (source.includes("let L = I,\n    R = (0, $.jsx)(Gt, {") ||
         source.includes("let L=I,R=(0,$.jsx)(Gt,{") ||
-        /children:\(0,[$A-Za-z_][\w$]*\.jsx\)\([$A-Za-z_][\w$]*,\{conversationId:[\s\S]{0,240}?turnState:[^,]+,turnRequests:/.test(
-          source,
-        ))) ||
+        hasDirectThreadTurnElement(source))) ||
     source.includes(
       "return (0,e3.jsx)(GBn,{conversationId:n,hostId:r,turnSearchKey:i,turnId:a.turnId,mcpTurn:a,turn:ae",
     )
+  );
+}
+
+function hasDirectThreadTurnElement(source) {
+  return /children:\(0,[$A-Za-z_][\w$]*\.jsx\)\([$A-Za-z_][\w$]*,\{conversationId:[\s\S]{0,240}?turnState:[^,]+,turnRequests:/.test(
+    source,
   );
 }
 
@@ -423,6 +427,9 @@ function patchThreadTurnElementCache(source) {
     return fixMalformedThreadTurnElementPatch(source, patchedStart);
   }
   if (source.includes("let L=I,R=(0,$.jsx)(Gt,{")) {
+    return source;
+  }
+  if (hasDirectThreadTurnElement(source)) {
     return source;
   }
 

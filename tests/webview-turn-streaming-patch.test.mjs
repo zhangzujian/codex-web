@@ -55,6 +55,11 @@ const minifiedThreadSource =
 const currentDirectThreadSource =
   "function Zb({entry:e}){let{conversationId:n,hostId:i,turnSearchKey:O,turn:w,turnState:T,requests:x,preserveServerUserMessages:y}=e;return Y(()=>{}),(0,tx.jsx)(fs,{children:(0,tx.jsx)(Uc,{conversationId:n,hostId:i,turnSearchKey:O,turn:w,turnState:T,turnRequests:x,preserveServerUserMessages:y})})}";
 
+const currentDirectThreadSourceWithMatchingNames = [
+  "function unrelated(){let L=I,R;t[36]===c?R=t[37]:(R=ky(c),t[36]=c,t[37]=R);let z=R;return z}",
+  "function Zb({entry:e}){let{conversationId:n,hostId:i,turnSearchKey:O,turn:w,turnState:E,requests:S,preserveServerUserMessages:y}=e;return Y(()=>{}),(0,tx.jsx)(fs,{children:(0,tx.jsx)(Uc,{conversationId:n,hostId:i,turnSearchKey:O,turn:w,turnState:E,turnRequests:S,preserveServerUserMessages:y})})}",
+].join("");
+
 test("turn streaming patch avoids memoizing mutable turn items", () => {
   const patched = patchWebviewTurnStreamingSource(
     turnSource,
@@ -199,6 +204,15 @@ test("turn streaming asset patch accepts current direct thread turn elements", (
   } finally {
     fs.rmSync(assetsDir, { recursive: true, force: true });
   }
+});
+
+test("turn streaming patch ignores already direct thread turn elements with old marker names", () => {
+  assert.doesNotThrow(() =>
+    patchWebviewTurnStreamingSource(
+      currentDirectThreadSourceWithMatchingNames,
+      "local-conversation-thread-current.js",
+    ),
+  );
 });
 
 test("turn streaming asset patch rejects duplicate turn bundle targets", () => {
