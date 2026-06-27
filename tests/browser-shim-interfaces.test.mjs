@@ -13,6 +13,7 @@ import {
 } from "../src/browser/drop-upload.mts";
 import {
   handleSyncIpc,
+  hostConfigForRoute,
   isReadConfigForHostFetchMessage,
   normalizeReadConfigForHostFetchResponse,
   normalizeSharedObjectUpdateForRoute,
@@ -418,6 +419,24 @@ test("settings routes expose local host_config so Connections stays visible", ()
   );
 });
 
+test("browser host_config route mapping uses local only for settings", () => {
+  assert.deepEqual(hostConfigForRoute("/settings"), {
+    id: "local",
+    display_name: "Local",
+    kind: "local",
+  });
+  assert.deepEqual(hostConfigForRoute("/settings/connections"), {
+    id: "local",
+    display_name: "Local",
+    kind: "local",
+  });
+  assert.deepEqual(hostConfigForRoute("/thread/abc"), {
+    id: "remote:default",
+    display_name: "Remote",
+    kind: "ssh",
+  });
+});
+
 test("host_config shared-object updates are scoped to the current route", () => {
   assert.deepEqual(
     normalizeSharedObjectUpdateForRoute(
@@ -450,6 +469,16 @@ test("host_config shared-object updates are scoped to the current route", () => 
       value: { id: "remote:default", display_name: "Remote", kind: "ssh" },
     },
   );
+});
+
+test("non-host_config shared-object updates pass through unchanged", () => {
+  const message = {
+    type: "shared-object-updated",
+    key: "remote_connections",
+    value: [{ hostId: "local" }],
+  };
+
+  assert.equal(normalizeSharedObjectUpdateForRoute(message, "/settings"), message);
 });
 
 test("read-config-for-host fetch responses expose browser remote connection features", () => {
@@ -485,6 +514,30 @@ test("read-config-for-host fetch responses expose browser remote connection feat
       model: "gpt-5",
       features: {
         existing: true,
+        remote_connections: true,
+        remote_ssh_connections: true,
+      },
+    },
+  });
+});
+
+test("read-config-for-host fetch responses add missing feature maps", () => {
+  const response = normalizeReadConfigForHostFetchResponse({
+    type: "fetch-response",
+    requestId: "request-2",
+    responseType: "success",
+    status: 200,
+    bodyJsonString: JSON.stringify({
+      config: {
+        model: "gpt-5",
+      },
+    }),
+  });
+
+  assert.deepEqual(JSON.parse(response.bodyJsonString), {
+    config: {
+      model: "gpt-5",
+      features: {
         remote_connections: true,
         remote_ssh_connections: true,
       },

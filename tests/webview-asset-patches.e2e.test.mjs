@@ -134,7 +134,7 @@ function getFreePort() {
   });
 }
 
-async function startServer(t, token) {
+async function startServer(t, token, extraEnv = {}) {
   const port = await getFreePort();
   const child = spawn(
     process.execPath,
@@ -149,7 +149,11 @@ async function startServer(t, token) {
     ],
     {
       cwd: repoRoot,
-      env: { ...process.env, CODEX_CLI_PATH: process.env.CODEX_CLI_PATH ?? "codex" },
+      env: {
+        ...process.env,
+        CODEX_CLI_PATH: process.env.CODEX_CLI_PATH ?? "codex",
+        ...extraEnv,
+      },
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
@@ -228,8 +232,76 @@ function assertPatchTarget(target, combinedSource) {
   }
 }
 
+async function assertRemoteDefaultRuntime(page, expectedSshHost) {
+  const runtime = await page.evaluate(() => ({
+    injectedSshHost: window.__CODEX_WEB_REMOTE_SSH_HOST__,
+    hostConfig: window.electronBridge?.getSharedObjectSnapshotValue("host_config"),
+    remoteConnections:
+      window.electronBridge?.getSharedObjectSnapshotValue("remote_connections"),
+    remoteSshConnections:
+      window.electronBridge?.getSharedObjectSnapshotValue(
+        "remote_ssh_connections",
+      ),
+  }));
+
+  assert.equal(runtime.injectedSshHost, expectedSshHost);
+  assert.deepEqual(runtime.hostConfig, {
+    display_name: "Remote",
+    id: "remote:default",
+    kind: "ssh",
+  });
+  for (const connections of [
+    runtime.remoteConnections,
+    runtime.remoteSshConnections,
+  ]) {
+    assert.equal(connections?.length, 1);
+    assert.equal(connections[0].hostId, "remote:default");
+    assert.equal(connections[0].displayName, "Remote");
+    assert.equal(connections[0].sshHost, "remote");
+    assert.equal(connections[0].autoConnect, true);
+  }
+}
+
+async function assertNonRemoteRuntimeShims(page, expectedTerminalFont) {
+  const runtime = await page.evaluate(() => ({
+    appSessionId: window.electronBridge?.getAppSessionId(),
+    backendToken: window.__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__,
+    buildFlavor: window.electronBridge?.getBuildFlavor(),
+    codexWindowType: window.codexWindowType,
+    hasApplicationMenuBridge:
+      "showApplicationMenu" in (window.electronBridge ?? {}),
+    intelMacBuild: window.electronBridge?.isIntelMacBuild(),
+    owlAppShell: window.electronBridge?.usesOwlAppShell(),
+    sentry: window.electronBridge?.getSentryInitOptions(),
+    statsigGate:
+      window.__ELECTRON_SHIM__?.overrideAdapter?.getGateOverride({
+        name: "3075919032",
+        value: false,
+      }),
+    systemTheme: window.electronBridge?.getSystemThemeVariant(),
+    terminalFont: window.__CODEX_WEB_TERMINAL_FONT__,
+  }));
+
+  assert.equal(runtime.codexWindowType, "electron");
+  assert.equal(runtime.terminalFont, expectedTerminalFont);
+  assert.equal(typeof runtime.backendToken, "string");
+  assert.ok(runtime.backendToken.length > 0);
+  assert.equal(runtime.sentry.enabled, false);
+  assert.equal(runtime.sentry.appVersion, "26.623.31921");
+  assert.equal(runtime.appSessionId, runtime.sentry.codexAppSessionId);
+  assert.equal(typeof runtime.buildFlavor, "string");
+  assert.equal(runtime.owlAppShell, false);
+  assert.equal(runtime.intelMacBuild, false);
+  assert.match(runtime.systemTheme, /^(dark|light)$/);
+  assert.deepEqual(runtime.statsigGate, {
+    name: "3075919032",
+    value: true,
+  });
+  assert.equal(runtime.hasApplicationMenuBridge, false);
+}
+
 test(
-  "served webview assets satisfy every asset patch target",
+  "served webview assets and runtime shims satisfy every patch target",
   { timeout: 90_000 },
   async (t) => {
     const assetNames = fs
@@ -239,7 +311,12 @@ test(
     assert.ok(assetNames.length > 0, "prepared webview assets should exist");
 
     const token = `asset-patch-e2e-${Date.now()}`;
-    const baseURL = await startServer(t, token);
+    const remoteSshHost = `e2e-remote-${Date.now()}.example`;
+    const terminalFont = "MesloLGS NF";
+    const baseURL = await startServer(t, token, {
+      CODEX_WEB_REMOTE_SSH_HOST: remoteSshHost,
+      CODEX_WEB_TERMINAL_FONT: terminalFont,
+    });
     const { chromium } = loadPlaywright();
     const browser = await chromium.launch({ headless: true });
 
@@ -252,6 +329,8 @@ test(
         await page.evaluate(() => Boolean(window.__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__)),
         "root app shell should inject the web backend runtime",
       );
+      await assertRemoteDefaultRuntime(page, remoteSshHost);
+      await assertNonRemoteRuntimeShims(page, terminalFont);
 
       const sources = await fetchServedAssetSources(page, assetNames);
       const combinedSource = sources
