@@ -587,6 +587,27 @@ test("browser local fetch responses expose locale info", () => {
   });
 });
 
+test("browser locale info uses the saved language override", () => {
+  const response = localBrowserFetchResponse(
+    {
+      type: "fetch",
+      requestId: "locale-override-1",
+      method: "POST",
+      url: "vscode://codex/locale-info",
+    },
+    {
+      locale: "en-US",
+      getSetting: (key) => (key === "localeOverride" ? "zh-CN" : undefined),
+      setSetting: () => {},
+    },
+  );
+
+  assert.deepEqual(JSON.parse(response.bodyJsonString), {
+    ideLocale: "zh-CN",
+    systemLocale: "zh-CN",
+  });
+});
+
 test("browser local fetch responses persist settings", () => {
   const settings = new Map();
   const env = {
@@ -624,6 +645,28 @@ test("browser local fetch responses persist settings", () => {
       localeOverride: "zh-CN",
     },
   });
+});
+
+test("browser local fetch responses persist settings from direct request bodies", () => {
+  const settings = new Map();
+  const env = {
+    locale: "zh-CN",
+    getSetting: (key) => settings.get(key),
+    setSetting: (key, value) => settings.set(key, value),
+  };
+
+  localBrowserFetchResponse(
+    {
+      type: "fetch",
+      requestId: "set-direct-1",
+      method: "POST",
+      url: "vscode://codex/set-setting",
+      body: JSON.stringify({ key: "localeOverride", value: "zh-CN" }),
+    },
+    env,
+  );
+
+  assert.equal(settings.get("localeOverride"), "zh-CN");
 });
 
 test("handleSyncIpc rejects unsupported synchronous channels with channel context", () => {

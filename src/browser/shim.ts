@@ -199,7 +199,10 @@ function normalizeRendererMessageForView(message: unknown): unknown {
   }
   if (message.type === "fetch-response") {
     readConfigForHostRequestIds.delete(message.requestId);
-    return normalizeReadConfigForHostFetchResponse(message, navigator.language);
+    return normalizeReadConfigForHostFetchResponse(
+      message,
+      effectiveBrowserLocale(),
+    );
   }
   return message;
 }
@@ -225,6 +228,13 @@ function setBrowserSetting(key: string, value: unknown): void {
       localStorage.setItem(browserSettingStorageKey(key), JSON.stringify(value));
     }
   } catch {}
+}
+
+function effectiveBrowserLocale(): string {
+  const override = getBrowserSetting("localeOverride");
+  return typeof override === "string" && override.trim().length > 0
+    ? override
+    : navigator.language;
 }
 
 function handleIncomingMessage(message: MainToRendererMessage): void {

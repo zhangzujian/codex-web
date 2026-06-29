@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
 
@@ -13,6 +15,37 @@ import {
   shouldBlockFsRequestPath,
 } from "../src/server/main.js";
 import * as serverMain from "../src/server/main.js";
+
+test("server only exposes the backend IPC websocket", () => {
+  const source = readFileSync(new URL("../src/server/main.ts", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /__backend\/terminal/);
+  assert.match(source, /__backend\/ipc/);
+});
+
+test("websocket error listener closes oversized frames without throwing", () => {
+  class FakeSocket extends EventEmitter {
+    closeCalls = 0;
+
+    close() {
+      this.closeCalls += 1;
+    }
+  }
+
+  const socket = new FakeSocket();
+  const originalWarn = console.warn;
+  const warnings = [];
+  console.warn = (...args) => warnings.push(args);
+  try {
+    serverMain.attachWebSocketErrorHandler(socket);
+    socket.emit("error", new RangeError("Max payload size exceeded"));
+  } finally {
+    console.warn = originalWarn;
+  }
+
+  assert.equal(socket.closeCalls, 1);
+  assert.match(String(warnings[0]?.[1]), /Max payload size exceeded/);
+});
 
 test("isAllowedBackendWebSocketRequest accepts same-origin upgrades with the expected token", () => {
   assert.equal(
@@ -66,7 +99,7 @@ test("isAllowedBackendWebSocketRequest rejects missing or incorrect tokens", () 
     isAllowedBackendWebSocketRequest({
       host: "127.0.0.1:8214",
       origin: "http://127.0.0.1:8214",
-      requestUrl: "/__backend/terminal",
+      requestUrl: "/__backend/ipc",
       token: "secret",
     }),
     false,
@@ -75,7 +108,7 @@ test("isAllowedBackendWebSocketRequest rejects missing or incorrect tokens", () 
     isAllowedBackendWebSocketRequest({
       host: "127.0.0.1:8214",
       origin: "http://127.0.0.1:8214",
-      requestUrl: "/__backend/terminal?token=wrong",
+      requestUrl: "/__backend/ipc?token=wrong",
       token: "secret",
     }),
     false,
@@ -447,119 +480,6 @@ test("webview shell installs sidebar history control hider before assets load", 
   assert.match(injected, /sidebar-trigger/);
   assert.match(injected, /data-codex-web-hidden-sidebar-history/);
   assert.ok(hiderIndex < appIndex);
-});
-
-test("webview shell keeps terminal Ctrl+W out of global key handlers", () => {
-  const injected = serverMain.injectWebviewRuntimeScripts("<head></head>", "secret");
-  const bootstrapScripts = [
-    ...injected.matchAll(/<script>([\s\S]*?)<\/script>/g),
-  ].map((match) => match[1]);
-
-  class FakeEventTarget {
-    constructor() {
-      this.listeners = [];
-    }
-
-    addEventListener(type, listener) {
-      this.listeners.push({ type, listener });
-    }
-
-    removeEventListener(type, listener) {
-      this.listeners = this.listeners.filter(
-        (entry) => entry.type !== type || entry.listener !== listener,
-      );
-    }
-
-    dispatchEvent(event) {
-      for (const entry of this.listeners) {
-        if (entry.type === event.type) {
-          entry.listener.call(this, event);
-        }
-      }
-    }
-  }
-
-  class FakeElement extends FakeEventTarget {
-    constructor({ isTerminal = false } = {}) {
-      super();
-      this.isTerminal = isTerminal;
-    }
-
-    closest(selector) {
-      return selector === "[data-codex-terminal]" && this.isTerminal
-        ? this
-        : null;
-    }
-  }
-
-  const document = new FakeEventTarget();
-  document.body = new FakeElement();
-  document.documentElement = new FakeElement();
-  const window = new FakeEventTarget();
-  window.fetch = () => Promise.resolve(new Response(null, { status: 204 }));
-
-  runInNewContext(bootstrapScripts.join("\n"), {
-    document,
-    Element: FakeElement,
-    EventTarget: FakeEventTarget,
-    Response,
-    URL,
-    window,
-  });
-
-  const terminalTarget = new FakeElement({ isTerminal: true });
-  const nonTerminalTarget = new FakeElement();
-  let xtermCalls = 0;
-  let appCalls = 0;
-  let objectListenerThis = null;
-  let preventDefaultCalls = 0;
-
-  terminalTarget.addEventListener("keydown", () => {
-    xtermCalls += 1;
-  });
-  const objectListener = {
-    handleEvent() {
-      objectListenerThis = this;
-    },
-  };
-  terminalTarget.addEventListener("keydown", objectListener);
-  document.addEventListener("keydown", () => {
-    appCalls += 1;
-  });
-
-  const terminalCtrlWEvent = {
-    altKey: false,
-    code: "KeyW",
-    ctrlKey: true,
-    defaultPrevented: false,
-    key: "w",
-    metaKey: false,
-    preventDefault() {
-      this.defaultPrevented = true;
-      preventDefaultCalls += 1;
-    },
-    shiftKey: false,
-    target: terminalTarget,
-    type: "keydown",
-  };
-
-  window.dispatchEvent(terminalCtrlWEvent);
-  assert.equal(preventDefaultCalls, 1);
-
-  terminalTarget.dispatchEvent(terminalCtrlWEvent);
-  document.dispatchEvent(terminalCtrlWEvent);
-
-  assert.equal(xtermCalls, 1);
-  assert.equal(objectListenerThis, objectListener);
-  assert.equal(appCalls, 0);
-  assert.ok(preventDefaultCalls >= 1);
-
-  document.dispatchEvent({
-    ...terminalCtrlWEvent,
-    target: nonTerminalTarget,
-  });
-
-  assert.equal(appCalls, 1);
 });
 
 test("webview shell exposes configured terminal font", () => {

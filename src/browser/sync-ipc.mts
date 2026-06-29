@@ -157,9 +157,10 @@ export function localBrowserFetchResponse(
   }
 
   if (url.pathname === "/locale-info") {
+    const locale = effectiveBrowserLocale(env);
     return fetchResponse(message.requestId, {
-      ideLocale: env.locale,
-      systemLocale: env.locale,
+      ideLocale: locale,
+      systemLocale: locale,
     });
   }
 
@@ -264,10 +265,20 @@ function readFetchParams(body: unknown): Record<string, unknown> {
   }
   try {
     const parsed: unknown = JSON.parse(body);
-    return isRecord(parsed) && isRecord(parsed.params) ? parsed.params : {};
+    if (!isRecord(parsed)) {
+      return {};
+    }
+    return isRecord(parsed.params) ? parsed.params : parsed;
   } catch {
     return {};
   }
+}
+
+function effectiveBrowserLocale(env: BrowserLocalFetchEnvironment): string {
+  const override = env.getSetting("localeOverride");
+  return typeof override === "string" && override.trim().length > 0
+    ? override
+    : env.locale;
 }
 
 function readStoredSettingEntries(env: BrowserLocalFetchEnvironment) {

@@ -133,6 +133,24 @@ const APP_HEADER_NAVIGATION_BUTTONS_RENDER_PATTERN =
   /(viewTransitionName:`sidebar-trigger`[\s\S]{0,3600}?className:`flex items-center gap-1`,children:\[)([$A-Za-z_][\w$]*),([$A-Za-z_][\w$]*)(\]\})/;
 const PATCHED_APP_HEADER_NAVIGATION_BUTTONS_RENDER_PATTERN =
   /viewTransitionName:`sidebar-trigger`[\s\S]{0,3600}?className:`flex items-center gap-1`,children:\[[$A-Za-z_][\w$]*\]\}/;
+const COMPOSER_CUSTOM_PERMISSIONS_DISABLED_PATTERN =
+  /(\blet\{agentMode:([$A-Za-z_][\w$]*)[\s\S]{0,7000}?\{canShowCustom:([$A-Za-z_][\w$]*)[\s\S]{0,3000}?,Pe=[$A-Za-z_][\w$]*\+[$A-Za-z_][\w$]*\.length,Fe=)([$A-Za-z_][\w$]*)\|\|(?:!\3&&)?(?:(?:\2!==`custom`&&)?(?:\2!==[$A-Za-z_][\w$]*&&)?)?[$A-Za-z_][\w$]*<=1&&\([^)]*\)/;
+const PATCHED_COMPOSER_CUSTOM_PERMISSIONS_DISABLED_PATTERN =
+  /\blet\{agentMode:[$A-Za-z_][\w$]*[\s\S]{0,7000}?\{canShowCustom:[$A-Za-z_][\w$]*[\s\S]{0,3000}?,Pe=[$A-Za-z_][\w$]*\+[$A-Za-z_][\w$]*\.length,Fe=!1(?=,)/;
+const MALFORMED_COMPOSER_CUSTOM_PERMISSIONS_DISABLED_PATTERN =
+  /(\blet\{agentMode:[$A-Za-z_][\w$]*[\s\S]{0,7000}?\{canShowCustom:[$A-Za-z_][\w$]*[\s\S]{0,3000}?,Pe=[$A-Za-z_][\w$]*\+[$A-Za-z_][\w$]*\.length,Fe=)([$A-Za-z_][\w$]*)\([^)]*\)/;
+const PARTIAL_COMPOSER_CUSTOM_PERMISSIONS_DISABLED_PATTERN =
+  /(\blet\{agentMode:[$A-Za-z_][\w$]*[\s\S]{0,7000}?\{canShowCustom:[$A-Za-z_][\w$]*[\s\S]{0,3000}?,Pe=[$A-Za-z_][\w$]*\+[$A-Za-z_][\w$]*\.length,Fe=)[$A-Za-z_][\w$]*(?=,)/;
+const COMPOSER_CUSTOM_PERMISSIONS_CLICK_GUARD_PATTERN =
+  /(=\(\)=>\{)[$A-Za-z_][\w$]*&&\(([$A-Za-z_][\w$]*\(`custom`\),[$A-Za-z_][\w$]*\(null\),[$A-Za-z_][\w$]*\(`custom`\),[$A-Za-z_][\w$]*\(!1\))\)\}/;
+const PATCHED_COMPOSER_CUSTOM_PERMISSIONS_CLICK_PATTERN =
+  /=\(\)=>\{[$A-Za-z_][\w$]*\(`custom`\),[$A-Za-z_][\w$]*\(null\),[$A-Za-z_][\w$]*\(`custom`\),[$A-Za-z_][\w$]*\(!1\)\}/;
+const COMPOSER_CUSTOM_PERMISSIONS_TRIGGER_SHIMMER_PATTERN =
+  /(\blet\s+[$A-Za-z_][\w$]*=)(?:[$A-Za-z_][\w$]*\?`loading-shimmer`:void 0|[$A-Za-z_][\w$]*&&`loading-shimmer`)(?=,[$A-Za-z_][\w$]*;[\s\S]{0,2600}?composer\.permissionsDropdown\.title)/g;
+const COMPOSER_CUSTOM_PERMISSIONS_TRIGGER_INLINE_SHIMMER_PATTERN =
+  /(,[$A-Za-z_][\w$]*=)(?:[$A-Za-z_][\w$]*\?`loading-shimmer`:void 0|[$A-Za-z_][\w$]*&&`loading-shimmer`)(?=,[$A-Za-z_][\w$]*;[\s\S]{0,2600}?composer\.permissionsDropdown\.title)/g;
+const PATCHED_COMPOSER_CUSTOM_PERMISSIONS_TRIGGER_SHIMMER_PATTERN =
+  /\blet\s+[$A-Za-z_][\w$]*=void 0(?=,[$A-Za-z_][\w$]*;[\s\S]{0,2600}?composer\.permissionsDropdown\.title)/;
 
 export function patchWebviewAssets(assetsDir) {
   const patchedFiles = [
@@ -148,6 +166,7 @@ export function patchWebviewAssets(assetsDir) {
     ...patchWebviewMobileTabLayoutAssets(assetsDir),
     patchStatsigNoopClientOverrideAsset(assetsDir),
     patchAppHeaderNavigationButtonsRenderAsset(assetsDir),
+    patchComposerCustomPermissionsAsset(assetsDir),
     patchSettingsAllSettingsSectionFiltersAsset(assetsDir),
     patchSettingsArchivedChatsRemoteDefaultAsset(assetsDir),
     patchDynamicToolsAutomationAsset(assetsDir),
@@ -212,6 +231,22 @@ function checkPatchedWebviewAssetInvariants(assetsDir) {
     }
     if (patternMatches(STATSIG_NOOP_CLIENT_PATTERN, source)) {
       failures.push(`${label}: Statsig noop client ignores browser overrides`);
+    }
+    if (
+      source.includes("composer.permissionsDropdown.custom.optionLabel") &&
+      !patternMatches(
+        PATCHED_COMPOSER_CUSTOM_PERMISSIONS_DISABLED_PATTERN,
+        source,
+      ) &&
+      patternMatches(COMPOSER_CUSTOM_PERMISSIONS_DISABLED_PATTERN, source)
+    ) {
+      failures.push(`${label}: current custom permissions mode is not clickable`);
+    }
+    if (
+      source.includes("composer.permissionsDropdown.custom.optionLabel") &&
+      patternMatches(COMPOSER_CUSTOM_PERMISSIONS_CLICK_GUARD_PATTERN, source)
+    ) {
+      failures.push(`${label}: custom permissions click is still guarded`);
     }
     if (source.includes("returnthis")) {
       failures.push(`${label}: contains malformed returnthis token`);
@@ -1020,6 +1055,77 @@ export function patchAppHeaderNavigationButtonsRenderAsset(assetsDir) {
     candidates,
     "app header shell",
     patchAppHeaderNavigationButtonsRenderSupport,
+  );
+}
+
+export function patchComposerCustomPermissionsSupport(source) {
+  let patched = source;
+  if (!PATCHED_COMPOSER_CUSTOM_PERMISSIONS_DISABLED_PATTERN.test(patched)) {
+    if (MALFORMED_COMPOSER_CUSTOM_PERMISSIONS_DISABLED_PATTERN.test(patched)) {
+      patched = patched.replace(
+        MALFORMED_COMPOSER_CUSTOM_PERMISSIONS_DISABLED_PATTERN,
+        (_match, prefix) => `${prefix}!1`,
+      );
+    } else if (
+      PARTIAL_COMPOSER_CUSTOM_PERMISSIONS_DISABLED_PATTERN.test(patched)
+    ) {
+      patched = patched.replace(
+        PARTIAL_COMPOSER_CUSTOM_PERMISSIONS_DISABLED_PATTERN,
+        (_match, prefix) => `${prefix}!1`,
+      );
+    } else if (!COMPOSER_CUSTOM_PERMISSIONS_DISABLED_PATTERN.test(patched)) {
+      throw new Error("composer custom permissions disabled target not found");
+    } else {
+      patched = patched.replace(
+        COMPOSER_CUSTOM_PERMISSIONS_DISABLED_PATTERN,
+        (_match, prefix) => `${prefix}!1`,
+      );
+    }
+  }
+
+  if (!PATCHED_COMPOSER_CUSTOM_PERMISSIONS_CLICK_PATTERN.test(patched)) {
+    if (!COMPOSER_CUSTOM_PERMISSIONS_CLICK_GUARD_PATTERN.test(patched)) {
+      throw new Error("composer custom permissions click target not found");
+    }
+    patched = patched.replace(
+      COMPOSER_CUSTOM_PERMISSIONS_CLICK_GUARD_PATTERN,
+      (_match, prefix, body) => `${prefix}${body}}`,
+    );
+  }
+
+  if (COMPOSER_CUSTOM_PERMISSIONS_TRIGGER_SHIMMER_PATTERN.test(patched)) {
+    patched = patched.replace(
+      COMPOSER_CUSTOM_PERMISSIONS_TRIGGER_SHIMMER_PATTERN,
+      (_match, prefix) => `${prefix}void 0`,
+    );
+  }
+  if (COMPOSER_CUSTOM_PERMISSIONS_TRIGGER_INLINE_SHIMMER_PATTERN.test(patched)) {
+    patched = patched.replace(
+      COMPOSER_CUSTOM_PERMISSIONS_TRIGGER_INLINE_SHIMMER_PATTERN,
+      (_match, prefix) => `${prefix}void 0`,
+    );
+  }
+  if (!PATCHED_COMPOSER_CUSTOM_PERMISSIONS_TRIGGER_SHIMMER_PATTERN.test(patched)) {
+    throw new Error("composer custom permissions shimmer target not found");
+  }
+
+  return patched;
+}
+
+export function patchComposerCustomPermissionsAsset(assetsDir) {
+  const candidates = webviewJavaScriptFiles(assetsDir).filter((assetPath) => {
+    const source = fs.readFileSync(assetPath, "utf8");
+    return (
+      source.includes("canShowConfigCustom") &&
+      source.includes("composer.permissionsDropdown.custom.optionLabel")
+    );
+  });
+
+  return patchSingleWebviewAsset(
+    assetsDir,
+    candidates,
+    "composer custom permissions",
+    patchComposerCustomPermissionsSupport,
   );
 }
 

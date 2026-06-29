@@ -8,7 +8,7 @@ import {
   findTerminalActionAsset,
   findTerminalSidePanelAsset,
   patchKeepMountedTerminalPanelsSource,
-  patchNativeTerminalCtrlWSource,
+  patchNativeTerminalFontSource,
   patchTerminalActionSource,
   patchTerminalNewTabMenuSource,
   patchTerminalSidePanelSupport,
@@ -88,9 +88,6 @@ const nativeTerminalChunk = [
   "function update(e){let b=N.current,x=P.current;e.options.fontFamily=b,e.options.fontSize=x}",
   'function terminal(){f.attachCustomKeyEventHandler(e=>oe({event:e,sendText:e=>write(e)}));return {"data-codex-terminal":!0}}',
 ].join("");
-
-const legacyTerminalNativeShortcutFunction =
-  'function codexWebInstallNativeTerminalShortcut(e){let t=globalThis;if(t.codexWebNativeTerminalShortcutHandler)document.removeEventListener(`keydown`,t.codexWebNativeTerminalShortcutHandler,!0);let n=t.codexWebNativeTerminalShortcutHandler=t=>{let n=t.target instanceof Element?t.target:null,r=document.activeElement instanceof Element?document.activeElement:null,i=n?.closest(`[role="tabpanel"]`)??r?.closest(`[role="tabpanel"]`);if((t.ctrlKey||t.metaKey)&&!t.altKey&&!t.shiftKey&&t.code===`KeyW`&&i!=null){t.preventDefault();return}if(t.defaultPrevented)return;if(t.ctrlKey&&!t.metaKey&&!t.altKey&&!t.shiftKey&&t.code===`Backquote`){t.preventDefault();e()}};document.addEventListener(`keydown`,n,!0)}';
 
 const appShellNavigationChunk = [
   "function $n(e){",
@@ -223,11 +220,7 @@ test("patchTerminalActionSource keeps Terminal on the native desktop opener", ()
     /\{id:`terminal`,Icon:Md,onSelect:Re,keyboardShortcut:ne,title:/,
   );
   assert.doesNotMatch(patched, /globalThis\.open/);
-  assert.doesNotMatch(patched, /codexWebInstallTerminalBrowserShortcut/);
   assert.match(patched, /function codexWebInstallNativeTerminalShortcut/);
-  assert.doesNotMatch(patched, /KeyW/);
-  assert.doesNotMatch(patched, /document\.activeElement/);
-  assert.doesNotMatch(patched, /Terminal input/);
   assert.match(
     patched,
     /Ne\(`toggleTerminal`,y\);codexWebInstallNativeTerminalShortcut\(y\)/,
@@ -240,52 +233,8 @@ test("patchTerminalActionSource keeps Terminal on the native desktop opener", ()
   );
 });
 
-test("patchTerminalActionSource removes old browser terminal shortcut calls", () => {
-  const oldBrowserShortcutChunk =
-    "function It(e){let y;t[12]!==r||t[13]!==u?(y=()=>{q(r,void 0,u)},t[12]=r,t[13]=u,t[14]=y):y=t[14],Ne(`toggleTerminal`,y);codexWebInstallTerminalBrowserShortcut(()=>{js(r)});return null}";
-
-  const patched = patchTerminalActionSource(
-    `${sidePanelActionChunk}${oldBrowserShortcutChunk}`,
-    {
-      terminalActionFunctionName: "Pe",
-    },
-  );
-
-  assert.doesNotMatch(patched, /codexWebInstallTerminalBrowserShortcut/);
-  assert.match(
-    patched,
-    /Ne\(`toggleTerminal`,y\);codexWebInstallNativeTerminalShortcut\(y\);return null/,
-  );
-});
-
-test("patchTerminalActionSource replaces legacy native shortcut patches", () => {
-  const legacyPatchedChunk =
-    legacyTerminalNativeShortcutFunction +
-    sidePanelActionWithTerminalCommandChunk.replace(
-      "Ne(`toggleTerminal`,y);",
-      "Ne(`toggleTerminal`,y);codexWebInstallNativeTerminalShortcut(y);",
-    );
-
-  const patched = patchTerminalActionSource(legacyPatchedChunk, {
-    terminalActionFunctionName: "Pe",
-  });
-
-  assert.doesNotMatch(patched, /KeyW/);
-  assert.equal(
-    patched.match(/function codexWebInstallNativeTerminalShortcut/g)?.length,
-    1,
-  );
-});
-
-test("patchNativeTerminalCtrlWSource keeps Ctrl+W inside the terminal", () => {
-  const patched = patchNativeTerminalCtrlWSource(nativeTerminalChunk);
-
-  assert.match(patched, /if\(Z\(t,`w`\)\)return J\(t\),i\(`\\x17`\),!1;/);
-  assert.equal(patchNativeTerminalCtrlWSource(patched), patched);
-});
-
-test("patchNativeTerminalCtrlWSource applies the configured terminal font", () => {
-  const patched = patchNativeTerminalCtrlWSource(nativeTerminalChunk);
+test("patchNativeTerminalFontSource applies the configured terminal font", () => {
+  const patched = patchNativeTerminalFontSource(nativeTerminalChunk);
 
   assert.match(
     patched,
@@ -295,16 +244,16 @@ test("patchNativeTerminalCtrlWSource applies the configured terminal font", () =
     patched,
     /e\.options\.fontFamily=window\.__CODEX_WEB_TERMINAL_FONT__\?\?b/,
   );
-  assert.equal(patchNativeTerminalCtrlWSource(patched), patched);
+  assert.equal(patchNativeTerminalFontSource(patched), patched);
 });
 
-test("patchNativeTerminalCtrlWSource upgrades partially patched terminal font", () => {
+test("patchNativeTerminalFontSource upgrades partially patched terminal font", () => {
   const partiallyPatched = nativeTerminalChunk.replace(
     "fontFamily:N.current",
     "fontFamily:window.__CODEX_WEB_TERMINAL_FONT__??N.current",
   );
 
-  const patched = patchNativeTerminalCtrlWSource(partiallyPatched);
+  const patched = patchNativeTerminalFontSource(partiallyPatched);
 
   assert.match(
     patched,
@@ -494,11 +443,11 @@ test("patchTerminalSidePanelSupport keeps sidebar Terminal native without patchi
     appShellPath,
   ]);
   assert.equal(fs.readFileSync(sourcePath, "utf8"), sourceChunk);
-  assert.doesNotMatch(
-    fs.readFileSync(actionPath, "utf8"),
-    /codexWebInstallTerminalBrowserShortcut/,
+  assert.doesNotMatch(fs.readFileSync(nativeTerminalPath, "utf8"), /`\\x17`/);
+  assert.match(
+    fs.readFileSync(nativeTerminalPath, "utf8"),
+    /fontFamily:window\.__CODEX_WEB_TERMINAL_FONT__\?\?N\.current/,
   );
-  assert.match(fs.readFileSync(nativeTerminalPath, "utf8"), /i\(`\\x17`\)/);
   assert.match(
     fs.readFileSync(actionPath, "utf8"),
     /\{id:`terminal`,Icon:Md,onSelect:Re,keyboardShortcut:ne,title:/,

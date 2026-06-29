@@ -1,36 +1,3 @@
-import type { WebSocket } from "ws";
-export type TerminalClientMessage = {
-    type: "create";
-    cwd?: string;
-    cols?: number;
-    rows?: number;
-    terminalType?: string;
-} | {
-    type: "input";
-    data: string;
-} | {
-    type: "resize";
-    cols: number;
-    rows: number;
-} | {
-    type: "close";
-};
-export type TerminalServerMessage = {
-    type: "created";
-    sessionId: string;
-} | {
-    type: "output";
-    data: string;
-} | {
-    type: "exit";
-    exitCode: number | null;
-    signal: number | null;
-} | {
-    type: "error";
-    message: string;
-    messageKey?: string;
-    messageValues?: Record<string, unknown>;
-};
 export type TerminalSession = {
     id: string;
     close: () => void;
@@ -95,12 +62,7 @@ export type AppServerRpcClient = {
         timeoutMs?: number | null;
     }) => Promise<unknown>;
 };
-export declare function parseTerminalClientMessage(value: unknown): TerminalClientMessage;
 export declare function resolveTerminalCwd(requestedCwd: string | undefined): string;
-export declare function createTerminalSocketHandler(factory: TerminalSessionFactory, { resolveCwd, }?: {
-    resolveCwd?: (requestedCwd: string | undefined) => string;
-}): (socket: Pick<WebSocket, "on" | "send" | "close" | "readyState">) => void;
-export declare function createNodePtyTerminalSessionFactory(): TerminalSessionFactory;
 export declare function createRemoteTerminalSessionFactory(connection: RemoteProcessConnection): TerminalSessionFactory;
 export declare function createCommandExecRemoteProcessConnection(client: AppServerRpcClient): RemoteProcessConnection;
 //# sourceMappingURL=terminal.d.ts.map

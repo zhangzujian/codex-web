@@ -9,11 +9,8 @@ const TERMINAL_NATIVE_SHORTCUT_FUNCTION =
   "function codexWebInstallNativeTerminalShortcut(e){let t=globalThis;if(t.codexWebNativeTerminalShortcutHandler)document.removeEventListener(`keydown`,t.codexWebNativeTerminalShortcutHandler,!0);let n=t.codexWebNativeTerminalShortcutHandler=t=>{if(t.defaultPrevented)return;if(t.ctrlKey&&!t.metaKey&&!t.altKey&&!t.shiftKey&&t.code===`Backquote`){t.preventDefault();e()}};document.addEventListener(`keydown`,n,!0)}";
 const TERMINAL_NATIVE_SHORTCUT_FUNCTION_PATTERN =
   /function codexWebInstallNativeTerminalShortcut\(e\)\{let t=globalThis;if\(t\.codexWebNativeTerminalShortcutHandler\)document\.removeEventListener\(`keydown`,t\.codexWebNativeTerminalShortcutHandler,!0\);let n=t\.codexWebNativeTerminalShortcutHandler=t=>\{[^]*?\};document\.addEventListener\(`keydown`,n,!0\)\}/g;
-const TERMINAL_BROWSER_SHORTCUT_FUNCTION =
-  "function codexWebInstallTerminalBrowserShortcut(e){let t=globalThis;if(t.codexWebTerminalBrowserShortcutHandler)document.removeEventListener(`keydown`,t.codexWebTerminalBrowserShortcutHandler,!0);let n=t.codexWebTerminalBrowserShortcutHandler=t=>{if(t.ctrlKey&&!t.metaKey&&!t.altKey&&!t.shiftKey&&t.code===`Backquote`){t.preventDefault();e()}};document.addEventListener(`keydown`,n,!0)}";
 const TERMINAL_COMMAND_REGISTRATION_PATTERN =
   /([$A-Za-z_][\w$]*)\(`toggleTerminal`,([$A-Za-z_][\w$]*)\);(?!codexWebInstallNativeTerminalShortcut)/;
-const TERMINAL_CTRL_W_PATCH = "if(Z(t,`w`))return J(t),i(`\\x17`),!1;";
 const LEGACY_KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION =
   "function codexWebRenderBottomTerminalPanels(e,t,n,r,i){if(e.panelId!==`bottom`||t==null||!Array.isArray(n)||!n.some(e=>typeof e?.tabId==`string`&&e.tabId.startsWith(`terminal:`)))return t==null?(0,Q.jsx)(`div`,{className:`relative min-h-0 flex-1`,children:i}):(0,Q.jsx)(Cn,{controller:e,tab:t},r);let a=n.filter(e=>e.tabId===t.tabId||typeof e?.tabId==`string`&&e.tabId.startsWith(`terminal:`));return(0,Q.jsx)(Q.Fragment,{children:a.map(n=>{let r=n.tabId===t.tabId;return(0,Q.jsx)(`div`,{className:r?`contents`:`hidden`,children:(0,Q.jsx)(Cn,{controller:e,tab:n},n.tabId)},n.tabId)})})}";
 const KEEP_MOUNTED_TERMINAL_PANELS_FUNCTION =
@@ -140,26 +137,10 @@ export function patchTerminalActionSource(
   source,
   { terminalActionFunctionName },
 ) {
-  let patched = source
-    .replace(TERMINAL_NATIVE_SHORTCUT_FUNCTION_PATTERN, "")
-    .replace(TERMINAL_BROWSER_SHORTCUT_FUNCTION, "")
-    .replace(/;codexWebInstallTerminalBrowserShortcut\(\(\)=>\{[^}]*\}\)/g, "")
-    .replace(
-      /;codexWebInstallTerminalBrowserShortcut\([$A-Za-z_][\w$]*\)/g,
-      "",
-    );
-  const browserPatchedActionPattern =
-    /(id:`terminal`[\s\S]{0,160}?onSelect\s*:)[$A-Za-z_][\w$]*===`right`\?[\s\S]{0,900}?(\s*,\s*title\s*:\s*\(0,[\s\S]{0,180}?thread\.sidePanel\.newTab\.terminal\.title)/;
-  patched = patched.replace(
-    browserPatchedActionPattern,
-    `$1${terminalActionFunctionName}$2`,
-  );
+  let patched = source.replace(TERMINAL_NATIVE_SHORTCUT_FUNCTION_PATTERN, "");
   patched = patchTerminalCommandNativeShortcutSource(patched);
   if (!patched.includes("codexWebInstallNativeTerminalShortcut(")) {
     throw new Error("Terminal native shortcut was not installed");
-  }
-  if (patched.includes("codexWebInstallTerminalBrowserShortcut")) {
-    throw new Error("Terminal browser shortcut patch was not removed");
   }
   return patched;
 }
@@ -275,21 +256,6 @@ export function patchTerminalNewTabMenuSource(source) {
   }
 
   return patched;
-}
-
-export function patchNativeTerminalCtrlWSource(source) {
-  let patched = patchNativeTerminalFontSource(source);
-
-  if (patched.includes(TERMINAL_CTRL_W_PATCH)) {
-    return patched;
-  }
-
-  return replaceOnce(
-    patched,
-    "if(t.type!==`keydown`)return!0;",
-    `if(t.type!==\`keydown\`)return!0;${TERMINAL_CTRL_W_PATCH}`,
-    "Native terminal key handler target not found",
-  );
 }
 
 export function patchKeepMountedTerminalPanelsSource(source) {
@@ -487,7 +453,7 @@ function buildModernKeepMountedTerminalPanelsFunction({
   return `function codexWebRenderTerminalPanels(e,t,n,r,i,a,o){if(t==null||!o)return a?(0,${jsxNamespace}.jsx)(\`div\`,{className:\`relative min-h-0 flex-1\`,children:i}):(0,${jsxNamespace}.jsx)(\`div\`,{className:\`flex min-h-0 flex-1 items-center justify-center p-4 text-center text-sm text-token-text-secondary\`,children:(0,${jsxNamespace}.jsx)(${placeholderComponent},{id:\`appShell.tabPanel.worktreeProvisioning\`,defaultMessage:\`Available when the worktree is ready\`,description:\`Placeholder shown instead of tab content while a worktree is being provisioned\`})});if(!Array.isArray(n)||!n.some(e=>typeof e?.tabId==\`string\`&&e.tabId.startsWith(\`terminal:\`)))return(0,${jsxNamespace}.jsx)(${panelComponent},{controller:e,tab:t},r);let s=n.filter(e=>e.tabId===t.tabId||typeof e?.tabId==\`string\`&&e.tabId.startsWith(\`terminal:\`));return(0,${jsxNamespace}.jsx)(${jsxNamespace}.Fragment,{children:s.map(n=>{let r=n.tabId===t.tabId;return(0,${jsxNamespace}.jsx)(\`div\`,{className:r?\`contents\`:\`hidden\`,children:(0,${jsxNamespace}.jsx)(${panelComponent},{controller:e,tab:n},n.tabId)},n.tabId)})})}`;
 }
 
-function patchNativeTerminalFontSource(source) {
+export function patchNativeTerminalFontSource(source) {
   return source
     .replace(
       /fontFamily:(?!window\.__CODEX_WEB_TERMINAL_FONT__\?\?)([$A-Za-z_][\w$]*\.current)/,
@@ -513,10 +479,10 @@ export function patchTerminalActionAsset(assetsDir, terminalPatchTarget) {
   return patchTarget.assetPath;
 }
 
-export function patchNativeTerminalCtrlWAsset(assetsDir) {
+export function patchNativeTerminalFontAsset(assetsDir) {
   const assetPath = findNativeTerminalAsset(assetsDir);
   const source = fs.readFileSync(assetPath, "utf8");
-  const patched = patchNativeTerminalCtrlWSource(source);
+  const patched = patchNativeTerminalFontSource(source);
   if (patched !== source) {
     fs.writeFileSync(assetPath, patched);
   }
@@ -537,7 +503,7 @@ export function patchTerminalSidePanelSupport(assetsDir) {
   const terminalPatchTarget = findTerminalSidePanelAsset(assetsDir);
   return [
     patchTerminalActionAsset(assetsDir, terminalPatchTarget),
-    patchNativeTerminalCtrlWAsset(assetsDir),
+    patchNativeTerminalFontAsset(assetsDir),
     patchKeepMountedTerminalPanelsAsset(assetsDir),
   ];
 }

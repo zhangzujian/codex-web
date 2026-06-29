@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { WebSocket } from "ws";
 import { type AppServerRpcClient, type TerminalSessionFactory } from "./terminal";
 type ServerOptions = {
     auth?: {
@@ -72,6 +73,7 @@ export declare function createFastifyOptions(options: ServerOptions): Promise<{
         key: string;
     };
 }>;
+export declare function attachWebSocketErrorHandler(socket: Pick<WebSocket, "close" | "on">): void;
 export declare function getWorkspaceDirectoryEntries({ directoryPath, directoriesOnly, }: {
     directoryPath: string | null;
     directoriesOnly: boolean;

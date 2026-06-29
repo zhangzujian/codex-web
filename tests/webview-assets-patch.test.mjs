@@ -31,6 +31,8 @@ import {
   patchSettingsArchivedChatsRemoteDefaultSupport,
   patchAppHeaderNavigationButtonsRenderAsset,
   patchAppHeaderNavigationButtonsRenderSupport,
+  patchComposerCustomPermissionsAsset,
+  patchComposerCustomPermissionsSupport,
   checkPatchedJavaScriptFilesSyntax,
   verifyPatchedWebviewAssets,
 } from "../scripts/patch_webview_assets.mjs";
@@ -183,6 +185,50 @@ test("patchAppHeaderNavigationButtonsRenderAsset patches the app shell chunk", a
     );
   } finally {
     await rm(assetsDir, { force: true, recursive: true });
+  }
+});
+
+test("patchComposerCustomPermissionsSupport keeps current custom mode clickable", () => {
+  const source =
+    "let{agentMode:W}=Mi(U),{customEquivalentMode:ge,isConfigDataPending:_e}=Lr({}),{canShowCustom:Ae}=Ny({canShowConfigCustom:me}),Pe=Me+ee.length,Fe=_e||Pe<=1&&(ee.length===0||J!=null),Qe=()=>{Ae&&(We(`custom`),Te(null),q(`custom`),H(!1))},yt=Ae?(0,ZP.jsx)(Ef.Item,{onClick:Qe,children:(0,ZP.jsx)(Z,{id:`composer.permissionsDropdown.custom.optionLabel`,defaultMessage:`Custom (config.toml)`})}):null;let st;if(h){let e=_e?`loading-shimmer`:void 0,n;}else if(f){let e=_e?`loading-shimmer`:void 0,n;}else{let e=ze,n=_e&&`loading-shimmer`,r;}let pt=(0,ZP.jsx)(Z,{id:`composer.permissionsDropdown.title`});";
+  const patched = patchComposerCustomPermissionsSupport(source);
+
+  assert.match(patched, /Fe=!1,/);
+  assert.match(patched, /Qe=\(\)=>\{We\(`custom`\),Te\(null\),q\(`custom`\),H\(!1\)\}/);
+  assert.doesNotMatch(patched, /loading-shimmer/);
+  assert.equal(patchComposerCustomPermissionsSupport(patched), patched);
+});
+
+test("patchComposerCustomPermissionsSupport repairs malformed disabled expressions", () => {
+  const source =
+    "let{agentMode:W}=Mi(U),{canShowCustom:Ae}=Ny({canShowConfigCustom:me}),Pe=Me+ee.length,Fe=_e(ee.length===0||J!=null),Qe=()=>{We(`custom`),Te(null),q(`custom`),H(!1)},yt=Ae?(0,ZP.jsx)(Ef.Item,{onClick:Qe,children:(0,ZP.jsx)(Z,{id:`composer.permissionsDropdown.custom.optionLabel`,defaultMessage:`Custom (config.toml)`})}):null;let st;if(h){let e=_e?`loading-shimmer`:void 0,n;}else if(f){let e=_e?`loading-shimmer`:void 0,n;}else{let e=ze,n=_e&&`loading-shimmer`,r;}let pt=(0,ZP.jsx)(Z,{id:`composer.permissionsDropdown.title`});";
+  const patched = patchComposerCustomPermissionsSupport(source);
+
+  assert.match(patched, /Fe=!1,/);
+  assert.doesNotMatch(patched, /loading-shimmer/);
+});
+
+test("patchComposerCustomPermissionsAsset patches the composer chunk", async () => {
+  const assetsDir = await mkdtemp(join(tmpdir(), "codex-web-assets-"));
+  const composer = join(assetsDir, "composer.js");
+  const locale = join(assetsDir, "zh-CN.js");
+  try {
+    await writeFile(
+      composer,
+      "let{agentMode:W}=Mi(U),{customEquivalentMode:ge,isConfigDataPending:_e}=Lr({}),{canShowCustom:Ae}=Ny({canShowConfigCustom:me}),Pe=Me+ee.length,Fe=_e||W!==`custom`&&Pe<=1&&(ee.length===0||J!=null),Qe=()=>{Ae&&(We(`custom`),Te(null),q(`custom`),H(!1))},yt=Ae?(0,ZP.jsx)(Ef.Item,{onClick:Qe,children:(0,ZP.jsx)(Z,{id:`composer.permissionsDropdown.custom.optionLabel`,defaultMessage:`Custom (config.toml)`})}):null;let st;if(h){let e=_e?`loading-shimmer`:void 0,n;}else if(f){let e=_e?`loading-shimmer`:void 0,n;}else{let e=ze,n=_e&&`loading-shimmer`,r;}let pt=(0,ZP.jsx)(Z,{id:`composer.permissionsDropdown.title`});",
+    );
+    await writeFile(locale, "var messages={\"composer.permissionsDropdown.custom.optionLabel\":`自定义`};");
+
+    assert.equal(patchComposerCustomPermissionsAsset(assetsDir), composer);
+    const patched = await readFile(composer, "utf8");
+    assert.match(patched, /Fe=!1,/);
+    assert.doesNotMatch(patched, /loading-shimmer/);
+    assert.equal(
+      await readFile(locale, "utf8"),
+      "var messages={\"composer.permissionsDropdown.custom.optionLabel\":`自定义`};",
+    );
+  } finally {
+    await rm(assetsDir, { recursive: true, force: true });
   }
 });
 

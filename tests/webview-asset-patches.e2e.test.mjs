@@ -387,6 +387,51 @@ function assertStatsigNoopClientOverridePatch(sources) {
   );
 }
 
+function assertComposerCustomPermissionsPatch(sources) {
+  const composerAsset = sources.find(({ text }) =>
+    [
+      "canShowConfigCustom",
+      "composer.permissionsDropdown.custom.optionLabel",
+      "Custom (config.toml)",
+    ].every((marker) => text.includes(marker)),
+  );
+  assert.ok(composerAsset, "served composer asset should contain custom permissions");
+
+  assert.match(
+    composerAsset.text,
+    /\blet\{agentMode:[$A-Za-z_][\w$]*[\s\S]{0,7000}?\{canShowCustom:[$A-Za-z_][\w$]*[\s\S]{0,3000}?,Pe=[$A-Za-z_][\w$]*\+[$A-Za-z_][\w$]*\.length,Fe=!1(?=,)/,
+    `${composerAsset.name}: current custom permissions mode should keep trigger clickable`,
+  );
+  assert.doesNotMatch(
+    composerAsset.text,
+    /\blet\{agentMode:([$A-Za-z_][\w$]*)[\s\S]{0,7000}?\{canShowCustom:([$A-Za-z_][\w$]*)[\s\S]{0,3000}?,Pe=[$A-Za-z_][\w$]*\+[$A-Za-z_][\w$]*\.length,Fe=[$A-Za-z_][\w$]*\|\|(?:!\2&&)?(?:(?:\1!==`custom`&&)?(?:\1!==[$A-Za-z_][\w$]*&&)?)?[$A-Za-z_][\w$]*<=1&&/,
+    `${composerAsset.name}: stale custom permissions trigger disable guard`,
+  );
+  assert.match(
+    composerAsset.text,
+    /=\(\)=>\{[$A-Za-z_][\w$]*\(`custom`\),[$A-Za-z_][\w$]*\(null\),[$A-Za-z_][\w$]*\(`custom`\),[$A-Za-z_][\w$]*\(!1\)\}/,
+    `${composerAsset.name}: custom permissions click should not be guarded`,
+  );
+  assert.doesNotMatch(
+    composerAsset.text,
+    /=\(\)=>\{[$A-Za-z_][\w$]*&&\(([$A-Za-z_][\w$]*\(`custom`\),[$A-Za-z_][\w$]*\(null\),[$A-Za-z_][\w$]*\(`custom`\),[$A-Za-z_][\w$]*\(!1\))\)\}/,
+    `${composerAsset.name}: stale guarded custom permissions click`,
+  );
+  const triggerStart = composerAsset.text.indexOf(
+    "composer.permissionsDropdown.trigger.tooltip",
+  );
+  const triggerEnd = composerAsset.text.indexOf(
+    "composer.permissionsDropdown.title",
+    triggerStart,
+  );
+  assert.ok(triggerStart > -1 && triggerEnd > triggerStart);
+  assert.equal(
+    composerAsset.text.slice(triggerStart, triggerEnd).includes("loading-shimmer"),
+    false,
+    `${composerAsset.name}: custom permissions trigger should not look loading`,
+  );
+}
+
 async function assertNonRemoteRuntimeShims(page, expectedTerminalFont) {
   const runtime = await page.evaluate(() => ({
     appSessionId: window.electronBridge?.getAppSessionId(),
@@ -425,6 +470,43 @@ async function assertNonRemoteRuntimeShims(page, expectedTerminalFont) {
   assert.equal(runtime.hasApplicationMenuBridge, false);
 }
 
+async function assertLocaleOverrideRuntime(page) {
+  const localeInfo = await page.evaluate(async () => {
+    localStorage.setItem(
+      "codex-web:setting:localeOverride",
+      JSON.stringify("zh-CN"),
+    );
+    return await new Promise((resolve, reject) => {
+      const timeout = setTimeout(
+        () => reject(new Error("locale-info response timed out")),
+        5_000,
+      );
+      window.addEventListener(
+        "message",
+        (event) => {
+          if (event.data?.requestId !== "locale-override-e2e") {
+            return;
+          }
+          clearTimeout(timeout);
+          resolve(JSON.parse(event.data.bodyJsonString));
+        },
+        { once: true },
+      );
+      window.electronBridge.sendMessageFromView({
+        type: "fetch",
+        requestId: "locale-override-e2e",
+        method: "POST",
+        url: "vscode://codex/locale-info",
+      });
+    });
+  });
+
+  assert.deepEqual(localeInfo, {
+    ideLocale: "zh-CN",
+    systemLocale: "zh-CN",
+  });
+}
+
 test(
   "served webview assets and runtime shims satisfy every patch target",
   { timeout: 90_000 },
@@ -459,6 +541,7 @@ test(
       );
       await assertRemoteDefaultRuntime(page, remoteSshHost);
       await assertNonRemoteRuntimeShims(page, terminalFont);
+      await assertLocaleOverrideRuntime(page);
 
       const settingsResponse = await page.goto(
         new URL("/settings/connections", baseURL).href,
@@ -472,6 +555,7 @@ test(
       assertSettingsArchivedChatsAssetPatch(sources);
       assertAppHeaderNavigationButtonsRenderPatch(sources);
       assertStatsigNoopClientOverridePatch(sources);
+      assertComposerCustomPermissionsPatch(sources);
       const combinedSource = sources
         .map(({ name, text }) => `\n/* ${name} */\n${text}`)
         .join("\n");

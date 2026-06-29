@@ -105,8 +105,7 @@ visible and controllable in codex-web. native Electron-only actions such as
 real page screenshots, cross-origin find matching, devtools, printing and
 cross-origin annotation capture remain best-effort or unavailable.
 
-Terminal Ctrl+W handling is handled by a runtime bootstrap injected from
-[main.ts](./src/server/main.ts). Terminal entry wiring still uses
+Terminal entry wiring still uses
 [`patch_terminal_side_panel.mjs`](./scripts/patch_terminal_side_panel.mjs)
 because the upstream sidebar menu does not expose an extension point for
 replacing those actions.
