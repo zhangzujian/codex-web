@@ -16,6 +16,7 @@ type OpenTarget = {
     labelKey?: string;
     target: string;
     appPath?: string;
+    icon?: string;
     kind?: "editor" | "native";
 };
 type OpenInTargetsPayload = {

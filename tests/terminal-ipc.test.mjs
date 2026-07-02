@@ -74,3 +74,65 @@ test("terminal IPC messages create and control upstream terminal sessions", () =
     },
   ]);
 });
+
+test("terminal run action switches to the requested cwd before running", () => {
+  const calls = [];
+  const session = {
+    id: "session-1",
+    close() {},
+    onData() {},
+    onExit() {},
+    resize() {},
+    write(data) {
+      calls.push(["write", data]);
+    },
+  };
+  const handler = createTerminalIpcMessageHandler({
+    createSession() {
+      return session;
+    },
+  }, {
+    resolveCwd: (cwd) => cwd || "/home/user",
+    respond() {},
+  });
+
+  handler({ type: "terminal-create", sessionId: "session-1", cwd: "/repo" });
+  handler({
+    type: "terminal-run-action",
+    sessionId: "session-1",
+    cwd: "/tmp/repo with 'quote'",
+    command: "pwd",
+  });
+
+  assert.deepEqual(calls, [
+    ["write", "cd -- '/tmp/repo with '\\''quote'\\'''\rpwd\r"],
+  ]);
+});
+
+test("terminal create reports cwd errors without throwing", () => {
+  const events = [];
+  const handler = createTerminalIpcMessageHandler({
+    createSession() {
+      throw new Error("should not create session");
+    },
+  }, {
+    resolveCwd() {
+      throw new Error("bad cwd");
+    },
+    respond(message) {
+      events.push(message);
+    },
+  });
+
+  assert.equal(
+    handler({ type: "terminal-create", sessionId: "session-1", cwd: "/missing" }),
+    true,
+  );
+  assert.deepEqual(events, [
+    {
+      type: "terminal-error",
+      sessionId: "session-1",
+      message: "bad cwd",
+    },
+  ]);
+});

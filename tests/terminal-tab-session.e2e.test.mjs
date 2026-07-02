@@ -1,11 +1,21 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { createServer } from "node:net";
 import { createRequire } from "node:module";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { createCodexAppServerClient } from "../src/server/app-server-client.js";
+
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
+const BOTTOM_PANEL_TOGGLE_NAME = /^(切换底部面板显示|Toggle bottom panel)$/;
+const SIDE_PANEL_TOGGLE_TITLE = /^(显示\/隐藏侧边栏|Toggle side panel)$/;
+const OPEN_BOTTOM_PANEL_TAB_TITLE =
+  /^(打开底部面板标签页|Open bottom panel tab)$/;
+const OPEN_SIDE_PANEL_TAB_TITLE =
+  /^(打开侧边面板标签页|Open side panel tab)$/;
 
 function loadPlaywright() {
   const packagePaths = [
@@ -35,8 +45,100 @@ function loadPlaywright() {
   );
 }
 
+function loadPlaywrightOrSkip(t) {
+  try {
+    return loadPlaywright();
+  } catch (error) {
+    t.skip(error.message);
+    return null;
+  }
+}
+
 function attrSelector(name, value) {
   return `[${name}="${String(value).replaceAll('"', '\\"')}"]`;
+}
+
+function getFreePort() {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.unref();
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      server.close(() => resolve(address.port));
+    });
+  });
+}
+
+async function startServer(t, token, extraEnv = {}) {
+  const port = await getFreePort();
+  const child = spawn(
+    process.execPath,
+    [
+      "src/server/main.js",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      String(port),
+      "--auth-token",
+      token,
+    ],
+    {
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        CODEX_CLI_PATH: process.env.CODEX_CLI_PATH ?? "codex",
+        ...extraEnv,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  t.after(() => child.kill("SIGTERM"));
+
+  const output = [];
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => output.push(chunk));
+  child.stderr.on("data", (chunk) => output.push(chunk));
+
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error(`server did not start\n${output.join("")}`));
+    }, 20_000);
+    child.once("exit", (code, signal) => {
+      clearTimeout(timeout);
+      reject(new Error(`server exited early (${code ?? signal})\n${output.join("")}`));
+    });
+    child.stdout.on("data", (chunk) => {
+      if (chunk.includes("IPC bridge listening at")) {
+        clearTimeout(timeout);
+        resolve();
+      }
+    });
+  });
+
+  return `http://127.0.0.1:${port}`;
+}
+
+async function testServer(t, extraEnv = {}) {
+  const token = process.env.CODEX_WEB_AUTH_TOKEN?.trim();
+  const threadURL =
+    process.env.CODEX_WEB_THREAD_URL ??
+    `/thread/${encodeURIComponent(await createTerminalE2eThread())}`;
+  if (token) {
+    return {
+      baseURL: process.env.CODEX_WEB_URL ?? "https://127.0.0.1:9443",
+      threadURL,
+      token,
+    };
+  }
+
+  const generatedToken = `terminal-e2e-${Date.now()}-${Math.random()}`;
+  return {
+    baseURL: await startServer(t, generatedToken, extraEnv),
+    threadURL,
+    token: generatedToken,
+  };
 }
 
 async function authenticate(page, baseURL, token) {
@@ -51,31 +153,37 @@ async function authenticate(page, baseURL, token) {
   );
 }
 
-async function openCodexWebThread(page, baseURL) {
-  if ((await page.getByTitle("显示/隐藏侧边栏").count()) > 0) {
+async function openCodexWebThread(page, baseURL, threadURL) {
+  if ((await page.getByTitle(SIDE_PANEL_TOGGLE_TITLE).count()) > 0) {
     return;
   }
 
-  const threadURL = process.env.CODEX_WEB_THREAD_URL;
-  if (threadURL) {
-    await page.goto(new URL(threadURL, baseURL).href, {
-      waitUntil: "domcontentloaded",
-    });
-    await page.getByTitle("显示/隐藏侧边栏").last().waitFor();
-    return;
-  }
-
-  await page.getByRole("button", { name: "展开项目" }).last().click().catch(
-    () => {},
-  );
-  const threadRow = page.locator("[data-app-action-sidebar-thread-row]").first();
-  await threadRow.waitFor().catch(() => {
-    throw new Error(
-      "No sidebar thread rows found. Set CODEX_WEB_THREAD_URL to a /thread/... URL for this e2e test.",
-    );
+  await page.goto(baseURL, { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => Boolean(window.electronBridge));
+  await page.waitForTimeout(2_000);
+  await page.goto(new URL(threadURL, baseURL).href, {
+    waitUntil: "domcontentloaded",
   });
-  await threadRow.click();
-  await page.getByTitle("显示/隐藏侧边栏").last().waitFor();
+  await page.getByTitle(SIDE_PANEL_TOGGLE_TITLE).last().waitFor();
+}
+
+async function createTerminalE2eThread() {
+  const client = createCodexAppServerClient(process.env);
+  try {
+    const result = await client.rpc(
+      "thread/start",
+      {
+        cwd: repoRoot,
+        initialMessages: [],
+        threadSource: "codex-web-terminal-e2e",
+      },
+      { timeoutMs: 30_000 },
+    );
+    assert.equal(typeof result?.thread?.id, "string");
+    return result.thread.id;
+  } finally {
+    client.dispose();
+  }
 }
 
 async function activeTerminalTabId(page, controller) {
@@ -143,18 +251,75 @@ async function openTerminalInPanel(page, focusArea) {
 }
 
 test(
+  "terminal uses the configured browser terminal font",
+  { timeout: 45_000 },
+  async (t) => {
+    const playwright = loadPlaywrightOrSkip(t);
+    if (!playwright) {
+      return;
+    }
+    const terminalFont = "MesloLGS NF";
+    const { baseURL, threadURL, token } = await testServer(t, {
+      CODEX_WEB_TERMINAL_FONT: terminalFont,
+    });
+    const { chromium } = playwright;
+    const browser = await chromium.launch({ headless: true });
+
+    try {
+      const page = await browser.newPage({
+        ignoreHTTPSErrors: true,
+        viewport: { width: 1440, height: 1000 },
+      });
+      await authenticate(page, baseURL, token);
+      await page.goto(baseURL, { waitUntil: "domcontentloaded" });
+      await openCodexWebThread(page, baseURL, threadURL);
+
+      if (
+        (await page.locator('[data-app-shell-tab-controller="bottom"]').count()) ===
+        0
+      ) {
+        await page
+          .getByRole("button", { name: BOTTOM_PANEL_TOGGLE_NAME })
+          .last()
+          .click();
+      }
+      if (
+        (await page.locator('[data-app-shell-tab-controller="bottom"][data-tab-id^="terminal:"]').count()) ===
+        0
+      ) {
+        await openTerminalInPanel(page, "bottom-panel");
+      }
+      const terminalTab = page
+        .locator('[data-app-shell-tab-controller="bottom"][data-tab-id^="terminal:"]')
+        .first();
+      await terminalTab.locator('[role="tab"]').click();
+      const tabId = await activeTerminalTabId(page, "bottom");
+      assert.ok(tabId, "bottom terminal tab id should exist");
+      const panel = terminalPanelLocator(page, "bottom", tabId);
+      await panel.locator("textarea.xterm-helper-textarea").waitFor();
+
+      const fontFamily = await panel
+        .locator(".xterm-rows")
+        .first()
+        .evaluate((terminal) => getComputedStyle(terminal).fontFamily);
+      assert.match(fontFamily, /MesloLGS NF/);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+test(
   "bottom terminal tabs preserve their session text when switching back",
   { timeout: 45_000 },
   async (t) => {
-    const token = process.env.CODEX_WEB_AUTH_TOKEN;
-    if (!token) {
-      t.skip("Set CODEX_WEB_AUTH_TOKEN for the running codex-web service.");
+    const playwright = loadPlaywrightOrSkip(t);
+    if (!playwright) {
       return;
     }
-
-    const baseURL = process.env.CODEX_WEB_URL ?? "https://127.0.0.1:9443";
+    const { baseURL, threadURL, token } = await testServer(t);
     const marker = `CODEX_WEB_TERMINAL_TAB_${Date.now()}`;
-    const { chromium } = loadPlaywright();
+    const { chromium } = playwright;
     const browser = await chromium.launch({ headless: true });
 
     try {
@@ -165,10 +330,11 @@ test(
       await authenticate(page, baseURL, token);
 
       await page.goto(baseURL, { waitUntil: "domcontentloaded" });
+      await openCodexWebThread(page, baseURL, threadURL);
       const terminalInput = page.locator("textarea.xterm-helper-textarea");
       if ((await terminalInput.count()) === 0) {
         await page
-          .getByRole("button", { name: "切换底部面板显示" })
+          .getByRole("button", { name: BOTTOM_PANEL_TOGGLE_NAME })
           .last()
           .click();
       }
@@ -179,7 +345,7 @@ test(
 
       await writeTerminalMarkerToPanel(page, "bottom", firstTabId, marker);
 
-      await page.getByTitle("打开底部面板标签页").click();
+      await page.getByTitle(OPEN_BOTTOM_PANEL_TAB_TITLE).click();
       await page.getByRole("menuitem", { name: /^(终端|Terminal)$/ }).click();
       await page.waitForFunction(
         () =>
@@ -195,11 +361,12 @@ test(
         )
         .click();
 
-      const firstPanelText = await terminalPanelText(page, "bottom", firstTabId);
-      assert.match(
-        firstPanelText,
-        new RegExp(marker),
-        "switching back to the first terminal should keep prior command text/output",
+      await page.waitForFunction(
+        ({ marker, tabId }) => {
+          const selector = `[role="tabpanel"][data-app-shell-tab-panel-controller="bottom"][data-tab-id="${CSS.escape(tabId)}"]`;
+          return document.querySelector(selector)?.innerText.includes(marker);
+        },
+        { marker, tabId: firstTabId },
       );
     } finally {
       await browser.close();
@@ -211,15 +378,13 @@ test(
   "sidebar terminal tabs preserve their session text when switching back",
   { timeout: 60_000 },
   async (t) => {
-    const token = process.env.CODEX_WEB_AUTH_TOKEN;
-    if (!token) {
-      t.skip("Set CODEX_WEB_AUTH_TOKEN for the running codex-web service.");
+    const playwright = loadPlaywrightOrSkip(t);
+    if (!playwright) {
       return;
     }
-
-    const baseURL = process.env.CODEX_WEB_URL ?? "https://127.0.0.1:9443";
+    const { baseURL, threadURL, token } = await testServer(t);
     const marker = `CODEX_WEB_RIGHT_TERMINAL_TAB_${Date.now()}`;
-    const { chromium } = loadPlaywright();
+    const { chromium } = playwright;
     const browser = await chromium.launch({ headless: true });
 
     try {
@@ -230,13 +395,13 @@ test(
       await authenticate(page, baseURL, token);
 
       await page.goto(baseURL, { waitUntil: "domcontentloaded" });
-      await openCodexWebThread(page, baseURL);
+      await openCodexWebThread(page, baseURL, threadURL);
 
       if (
         (await page.locator('[data-app-shell-tab-controller="right"]').count()) ===
         0
       ) {
-        await page.getByTitle("显示/隐藏侧边栏").last().click();
+        await page.getByTitle(SIDE_PANEL_TOGGLE_TITLE).last().click();
       }
 
       const terminalInput = page.locator("textarea.xterm-helper-textarea");
@@ -256,7 +421,7 @@ test(
             '[data-app-shell-tab-controller="right"][data-tab-id^="terminal:"]',
           ).length,
       );
-      await page.getByTitle("打开侧边面板标签页").click();
+      await page.getByTitle(OPEN_SIDE_PANEL_TAB_TITLE).click();
       await page.getByRole("menuitem", { name: /^(终端|Terminal)$/ }).click();
       await page.waitForFunction(
         (count) =>
@@ -273,11 +438,12 @@ test(
         )
         .click();
 
-      const firstPanelText = await terminalPanelText(page, "right", firstTabId);
-      assert.match(
-        firstPanelText,
-        new RegExp(marker),
-        "switching back to the first sidebar terminal should keep prior command text/output",
+      await page.waitForFunction(
+        ({ marker, tabId }) => {
+          const selector = `[role="tabpanel"][data-app-shell-tab-panel-controller="right"][data-tab-id="${CSS.escape(tabId)}"]`;
+          return document.querySelector(selector)?.innerText.includes(marker);
+        },
+        { marker, tabId: firstTabId },
       );
     } finally {
       await browser.close();
@@ -289,15 +455,13 @@ test(
   "bottom terminal keeps its session text after hiding and showing the bottom panel",
   { timeout: 60_000 },
   async (t) => {
-    const token = process.env.CODEX_WEB_AUTH_TOKEN;
-    if (!token) {
-      t.skip("Set CODEX_WEB_AUTH_TOKEN for the running codex-web service.");
+    const playwright = loadPlaywrightOrSkip(t);
+    if (!playwright) {
       return;
     }
-
-    const baseURL = process.env.CODEX_WEB_URL ?? "https://127.0.0.1:9443";
+    const { baseURL, threadURL, token } = await testServer(t);
     const marker = `CODEX_WEB_BOTTOM_HIDE_${Date.now()}`;
-    const { chromium } = loadPlaywright();
+    const { chromium } = playwright;
     const browser = await chromium.launch({ headless: true });
 
     try {
@@ -307,12 +471,16 @@ test(
       });
       await authenticate(page, baseURL, token);
       await page.goto(baseURL, { waitUntil: "domcontentloaded" });
+      await openCodexWebThread(page, baseURL, threadURL);
 
       if (
         (await page.locator('[data-app-shell-tab-controller="bottom"]').count()) ===
         0
       ) {
-        await page.getByRole("button", { name: "切换底部面板显示" }).last().click();
+        await page
+          .getByRole("button", { name: BOTTOM_PANEL_TOGGLE_NAME })
+          .last()
+          .click();
       }
       await page
         .locator('[data-app-shell-tab-controller="bottom"][data-tab-id^="terminal:"]')
@@ -323,9 +491,15 @@ test(
       assert.ok(tabId, "bottom terminal tab id should exist");
       await writeTerminalMarkerToPanel(page, "bottom", tabId, marker);
 
-      await page.getByRole("button", { name: "切换底部面板显示" }).last().click();
+      await page
+        .getByRole("button", { name: BOTTOM_PANEL_TOGGLE_NAME })
+        .last()
+        .click();
       await waitForPanelSize(page, "bottom-panel", false);
-      await page.getByRole("button", { name: "切换底部面板显示" }).last().click();
+      await page
+        .getByRole("button", { name: BOTTOM_PANEL_TOGGLE_NAME })
+        .last()
+        .click();
       await waitForPanelSize(page, "bottom-panel", true);
       await page
         .locator(`[data-app-shell-tab-controller="bottom"]${attrSelector("data-tab-id", tabId)}`)
@@ -346,15 +520,13 @@ test(
   "sidebar terminal keeps its session text after hiding and showing the sidebar",
   { timeout: 60_000 },
   async (t) => {
-    const token = process.env.CODEX_WEB_AUTH_TOKEN;
-    if (!token) {
-      t.skip("Set CODEX_WEB_AUTH_TOKEN for the running codex-web service.");
+    const playwright = loadPlaywrightOrSkip(t);
+    if (!playwright) {
       return;
     }
-
-    const baseURL = process.env.CODEX_WEB_URL ?? "https://127.0.0.1:9443";
+    const { baseURL, threadURL, token } = await testServer(t);
     const marker = `CODEX_WEB_RIGHT_HIDE_${Date.now()}`;
-    const { chromium } = loadPlaywright();
+    const { chromium } = playwright;
     const browser = await chromium.launch({ headless: true });
 
     try {
@@ -364,13 +536,13 @@ test(
       });
       await authenticate(page, baseURL, token);
       await page.goto(baseURL, { waitUntil: "domcontentloaded" });
-      await openCodexWebThread(page, baseURL);
+      await openCodexWebThread(page, baseURL, threadURL);
 
       if (
         (await page.locator('[data-app-shell-tab-controller="right"]').count()) ===
         0
       ) {
-        await page.getByTitle("显示/隐藏侧边栏").last().click();
+        await page.getByTitle(SIDE_PANEL_TOGGLE_TITLE).last().click();
       }
       const terminalInput = page.locator("textarea.xterm-helper-textarea");
       if ((await terminalInput.count()) === 0) {
@@ -385,9 +557,9 @@ test(
       assert.ok(tabId, "sidebar terminal tab id should exist");
       await writeTerminalMarkerToPanel(page, "right", tabId, marker);
 
-      await page.getByTitle("显示/隐藏侧边栏").last().click();
+      await page.getByTitle(SIDE_PANEL_TOGGLE_TITLE).last().click();
       await waitForPanelSize(page, "right-panel", false);
-      await page.getByTitle("显示/隐藏侧边栏").last().click();
+      await page.getByTitle(SIDE_PANEL_TOGGLE_TITLE).last().click();
       await waitForPanelSize(page, "right-panel", true);
       await page
         .locator(`[data-app-shell-tab-controller="right"]${attrSelector("data-tab-id", tabId)}`)
@@ -408,16 +580,14 @@ test(
   "sidebar terminal keeps its session text after hiding both panels and reopening bottom first",
   { timeout: 90_000 },
   async (t) => {
-    const token = process.env.CODEX_WEB_AUTH_TOKEN;
-    if (!token) {
-      t.skip("Set CODEX_WEB_AUTH_TOKEN for the running codex-web service.");
+    const playwright = loadPlaywrightOrSkip(t);
+    if (!playwright) {
       return;
     }
-
-    const baseURL = process.env.CODEX_WEB_URL ?? "https://127.0.0.1:9443";
+    const { baseURL, threadURL, token } = await testServer(t);
     const bottomMarker = `CODEX_WEB_BOTH_BOTTOM_HIDE_${Date.now()}`;
     const rightMarker = `CODEX_WEB_BOTH_RIGHT_HIDE_${Date.now()}`;
-    const { chromium } = loadPlaywright();
+    const { chromium } = playwright;
     const browser = await chromium.launch({ headless: true });
 
     try {
@@ -427,13 +597,16 @@ test(
       });
       await authenticate(page, baseURL, token);
       await page.goto(baseURL, { waitUntil: "domcontentloaded" });
-      await openCodexWebThread(page, baseURL);
+      await openCodexWebThread(page, baseURL, threadURL);
 
       if (
         (await page.locator('[data-app-shell-tab-controller="bottom"]').count()) ===
         0
       ) {
-        await page.getByRole("button", { name: "切换底部面板显示" }).last().click();
+        await page
+          .getByRole("button", { name: BOTTOM_PANEL_TOGGLE_NAME })
+          .last()
+          .click();
       }
       if (
         (await page.locator('[data-app-shell-tab-controller="bottom"][data-tab-id^="terminal:"]').count()) ===
@@ -445,7 +618,7 @@ test(
         (await page.locator('[data-app-shell-tab-controller="right"]').count()) ===
         0
       ) {
-        await page.getByTitle("显示/隐藏侧边栏").last().click();
+        await page.getByTitle(SIDE_PANEL_TOGGLE_TITLE).last().click();
       }
       if (
         (await page.locator('[data-app-shell-tab-controller="right"][data-tab-id^="terminal:"]').count()) ===
@@ -472,14 +645,20 @@ test(
       await writeTerminalMarkerToPanel(page, "bottom", bottomTabId, bottomMarker);
       await writeTerminalMarkerToPanel(page, "right", rightTabId, rightMarker);
 
-      await page.getByRole("button", { name: "切换底部面板显示" }).last().click();
+      await page
+        .getByRole("button", { name: BOTTOM_PANEL_TOGGLE_NAME })
+        .last()
+        .click();
       await waitForPanelSize(page, "bottom-panel", false);
-      await page.getByTitle("显示/隐藏侧边栏").last().click();
+      await page.getByTitle(SIDE_PANEL_TOGGLE_TITLE).last().click();
       await waitForPanelSize(page, "right-panel", false);
 
-      await page.getByRole("button", { name: "切换底部面板显示" }).last().click();
+      await page
+        .getByRole("button", { name: BOTTOM_PANEL_TOGGLE_NAME })
+        .last()
+        .click();
       await waitForPanelSize(page, "bottom-panel", true);
-      await page.getByTitle("显示/隐藏侧边栏").last().click();
+      await page.getByTitle(SIDE_PANEL_TOGGLE_TITLE).last().click();
       await waitForPanelSize(page, "right-panel", true);
 
       assert.match(

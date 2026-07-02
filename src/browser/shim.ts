@@ -19,6 +19,7 @@ import {
   hostConfigForRoute,
   isReadConfigForHostFetchMessage,
   localBrowserFetchResponse,
+  openInBrowserUrlFromFetchResponse,
   normalizeReadConfigForHostFetchResponse,
   normalizeSharedObjectUpdateForRoute,
 } from "./sync-ipc.mts";
@@ -194,6 +195,10 @@ function normalizeRendererMessageForView(message: unknown): unknown {
   if (!isRecord(message) || typeof message.requestId !== "string") {
     return message;
   }
+  const openInBrowserUrl = openInBrowserUrlFromFetchResponse(message);
+  if (openInBrowserUrl != null) {
+    window.open(openInBrowserUrl, "_blank", "noopener,noreferrer");
+  }
   if (!readConfigForHostRequestIds.has(message.requestId)) {
     return message;
   }
@@ -228,6 +233,23 @@ function setBrowserSetting(key: string, value: unknown): void {
       localStorage.setItem(browserSettingStorageKey(key), JSON.stringify(value));
     }
   } catch {}
+}
+
+function getBrowserSettingEntries(): Array<readonly [string, unknown]> {
+  const entries: Array<readonly [string, unknown]> = [];
+  try {
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const storageKey = localStorage.key(index);
+      if (!storageKey?.startsWith(BROWSER_SETTING_PREFIX)) {
+        continue;
+      }
+      entries.push([
+        storageKey.slice(BROWSER_SETTING_PREFIX.length),
+        getBrowserSetting(storageKey.slice(BROWSER_SETTING_PREFIX.length)),
+      ]);
+    }
+  } catch {}
+  return entries;
 }
 
 function effectiveBrowserLocale(): string {
@@ -568,6 +590,7 @@ export const ipcRenderer = {
     if (channel === "codex_desktop:message-from-view" && args.length === 1) {
       const localFetchResponse = localBrowserFetchResponse(args[0], {
         locale: navigator.language,
+        getSettingEntries: getBrowserSettingEntries,
         getSetting: getBrowserSetting,
         setSetting: setBrowserSetting,
       });

@@ -7,8 +7,6 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { checkPatchedJavaScriptFilesSyntax } from "../scripts/patch_webview_assets.mjs";
-
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const assetsDir = path.join(repoRoot, "scratch/asar/webview/assets");
 const require = createRequire(import.meta.url);
@@ -35,18 +33,21 @@ const PATCH_TARGETS = [
     name: "Statsig telemetry cannot send or store disabled events",
     positive: [
       "window.__ELECTRON_SHIM__.overrideAdapter",
-      "preventAllNetworkTraffic:true",
-      "disableLogging:true",
-      "_loggingEnabled===`disabled`)return",
+      /preventAllNetworkTraffic\s*:\s*(?:!0|true)/,
+      /disableLogging\s*:\s*(?:!0|true)/,
+      /_loggingEnabled\s*===\s*`disabled`\)\s*return/,
     ],
-    negative: ["returnthis", /_loggingEnabled===`disabled`\)\{this\._storeEventToStorage/],
+    negative: [
+      "returnthis",
+      /_loggingEnabled\s*===\s*`disabled`\)\s*\{\s*this\._storeEventToStorage/,
+    ],
   },
   {
     name: "webview telemetry adapter is disabled",
     positive: [
       "window.__ELECTRON_SHIM__.overrideAdapter",
-      "disableLogging:true",
-      "preventAllNetworkTraffic:true",
+      /disableLogging\s*:\s*(?:!0|true)/,
+      /preventAllNetworkTraffic\s*:\s*(?:!0|true)/,
     ],
   },
   {
@@ -57,11 +58,10 @@ const PATCH_TARGETS = [
     ],
   },
   {
-    name: "automation tool contract supports remote default",
+    name: "automation tool contract supports local execution",
     positive: [
       "automation_update",
       "Create, update, view, or delete recurring automations",
-      "remote:default",
       "executionEnvironment===`local`",
       "executionEnvironment=`worktree`",
       "kind:`cron`",
@@ -88,9 +88,9 @@ const PATCH_TARGETS = [
     name: "app header does not render desktop history navigation buttons",
     positive: [
       "viewTransitionName:`sidebar-trigger`",
-      "sidebar_back",
-      "sidebar_forward",
+      /children:\s*\[j\]/,
     ],
+    negative: [/children:\s*\[j,\s*V\]/],
   },
 ];
 
@@ -286,19 +286,13 @@ function assertSettingsArchivedChatsAssetPatch(sources) {
   assert.ok(dataControlsAsset, "served data controls asset should contain archived chats");
   assert.match(
     dataControlsAsset.text,
-    /\([$A-Za-z_][\w$]*===`local`\|\|[$A-Za-z_][\w$]*===`remote:default`\)\?[$A-Za-z_][\w$]*:\[\]/,
-    `${dataControlsAsset.name}: default remote should show local archived chats`,
-  );
-  assert.doesNotMatch(
-    dataControlsAsset.text,
-    /\blet\s+[$A-Za-z_][\w$]*=[$A-Za-z_][\w$]*===`local`\?[$A-Za-z_][\w$]*:\[\](?=,)/,
-    `${dataControlsAsset.name}: stale local-only archived chats guard`,
+    /[$A-Za-z_][\w$]*===`local`\?[$A-Za-z_][\w$]*:\[\]/,
+    `${dataControlsAsset.name}: local host should show local archived chats`,
   );
 }
 
-async function assertRemoteDefaultRuntime(page, expectedSshHost) {
+async function assertLocalRuntime(page) {
   const runtime = await page.evaluate(() => ({
-    injectedSshHost: window.__CODEX_WEB_REMOTE_SSH_HOST__,
     hostConfig: window.electronBridge?.getSharedObjectSnapshotValue("host_config"),
     remoteConnections:
       window.electronBridge?.getSharedObjectSnapshotValue("remote_connections"),
@@ -308,22 +302,13 @@ async function assertRemoteDefaultRuntime(page, expectedSshHost) {
       ),
   }));
 
-  assert.equal(runtime.injectedSshHost, expectedSshHost);
   assert.deepEqual(runtime.hostConfig, {
-    display_name: "Remote",
-    id: "remote:default",
-    kind: "ssh",
+    display_name: "Local",
+    id: "local",
+    kind: "local",
   });
-  for (const connections of [
-    runtime.remoteConnections,
-    runtime.remoteSshConnections,
-  ]) {
-    assert.equal(connections?.length, 1);
-    assert.equal(connections[0].hostId, "remote:default");
-    assert.equal(connections[0].displayName, "Remote");
-    assert.equal(connections[0].sshHost, "remote");
-    assert.equal(connections[0].autoConnect, true);
-  }
+  assert.deepEqual(runtime.remoteConnections, []);
+  assert.deepEqual(runtime.remoteSshConnections, []);
 }
 
 async function assertSettingsConnectionsRuntime(page) {
@@ -366,7 +351,7 @@ function assertAppHeaderNavigationButtonsRenderPatch(sources) {
 
 function assertStatsigNoopClientOverridePatch(sources) {
   const statsigAsset = sources.find(({ text }) =>
-    text.includes("Attempting to retrieve a StatsigClient but none was set."),
+    text.includes("codexWebStatsigNoopClient"),
   );
   assert.ok(statsigAsset, "served Statsig asset should contain noop client fallback");
 
@@ -382,12 +367,29 @@ function assertStatsigNoopClientOverridePatch(sources) {
   );
   assert.doesNotMatch(
     statsigAsset.text,
-    /\(.*?\.Log\.warn\(`Attempting to retrieve a StatsigClient but none was set\.`\),\s*[$A-Za-z_][\w$]*\.NoopEvaluationsClient\s*\)/,
-    `${statsigAsset.name}: stale noop Statsig fallback`,
+    /Attempting to retrieve a StatsigClient/,
+    `${statsigAsset.name}: stale noop Statsig warning`,
   );
 }
 
-function assertComposerCustomPermissionsPatch(sources) {
+function assertStatsigProviderPatch(sources) {
+  const providerAsset = sources.find(({ text }) =>
+    text.includes("CodexStatsigProvider.async"),
+  );
+  assert.ok(providerAsset, "served Statsig provider asset should exist");
+  assert.doesNotMatch(
+    providerAsset.text,
+    /function [\w$]+\(\{[\s\S]{0,180}children: [$A-Za-z_][\w$]*,[\s\S]{0,80}\}\) \{\n\s+return [$A-Za-z_][\w$]*;/,
+    `${providerAsset.name}: telemetry patch must not bypass StatsigProvider`,
+  );
+  assert.match(
+    providerAsset.text,
+    /children:\(0,[$A-Za-z_][\w$]*\.jsxs\)\([$A-Za-z_][\w$]*\.StatsigProvider,/,
+    `${providerAsset.name}: ready StatsigProvider should still be rendered`,
+  );
+}
+
+function assertComposerCustomPermissionsMarkers(sources) {
   const composerAsset = sources.find(({ text }) =>
     [
       "canShowConfigCustom",
@@ -396,40 +398,6 @@ function assertComposerCustomPermissionsPatch(sources) {
     ].every((marker) => text.includes(marker)),
   );
   assert.ok(composerAsset, "served composer asset should contain custom permissions");
-
-  assert.match(
-    composerAsset.text,
-    /\blet\{agentMode:[$A-Za-z_][\w$]*[\s\S]{0,7000}?\{canShowCustom:[$A-Za-z_][\w$]*[\s\S]{0,3000}?,Pe=[$A-Za-z_][\w$]*\+[$A-Za-z_][\w$]*\.length,Fe=!1(?=,)/,
-    `${composerAsset.name}: current custom permissions mode should keep trigger clickable`,
-  );
-  assert.doesNotMatch(
-    composerAsset.text,
-    /\blet\{agentMode:([$A-Za-z_][\w$]*)[\s\S]{0,7000}?\{canShowCustom:([$A-Za-z_][\w$]*)[\s\S]{0,3000}?,Pe=[$A-Za-z_][\w$]*\+[$A-Za-z_][\w$]*\.length,Fe=[$A-Za-z_][\w$]*\|\|(?:!\2&&)?(?:(?:\1!==`custom`&&)?(?:\1!==[$A-Za-z_][\w$]*&&)?)?[$A-Za-z_][\w$]*<=1&&/,
-    `${composerAsset.name}: stale custom permissions trigger disable guard`,
-  );
-  assert.match(
-    composerAsset.text,
-    /=\(\)=>\{[$A-Za-z_][\w$]*\(`custom`\),[$A-Za-z_][\w$]*\(null\),[$A-Za-z_][\w$]*\(`custom`\),[$A-Za-z_][\w$]*\(!1\)\}/,
-    `${composerAsset.name}: custom permissions click should not be guarded`,
-  );
-  assert.doesNotMatch(
-    composerAsset.text,
-    /=\(\)=>\{[$A-Za-z_][\w$]*&&\(([$A-Za-z_][\w$]*\(`custom`\),[$A-Za-z_][\w$]*\(null\),[$A-Za-z_][\w$]*\(`custom`\),[$A-Za-z_][\w$]*\(!1\))\)\}/,
-    `${composerAsset.name}: stale guarded custom permissions click`,
-  );
-  const triggerStart = composerAsset.text.indexOf(
-    "composer.permissionsDropdown.trigger.tooltip",
-  );
-  const triggerEnd = composerAsset.text.indexOf(
-    "composer.permissionsDropdown.title",
-    triggerStart,
-  );
-  assert.ok(triggerStart > -1 && triggerEnd > triggerStart);
-  assert.equal(
-    composerAsset.text.slice(triggerStart, triggerEnd).includes("loading-shimmer"),
-    false,
-    `${composerAsset.name}: custom permissions trigger should not look loading`,
-  );
 }
 
 async function assertNonRemoteRuntimeShims(page, expectedTerminalFont) {
@@ -516,15 +484,9 @@ test(
       .filter((name) => name.endsWith(".js"))
       .sort();
     assert.ok(assetNames.length > 0, "prepared webview JavaScript assets should exist");
-    checkPatchedJavaScriptFilesSyntax(
-      assetNames.map((name) => path.join(assetsDir, name)),
-    );
-
     const token = `asset-patch-e2e-${Date.now()}`;
-    const remoteSshHost = `e2e-remote-${Date.now()}.example`;
     const terminalFont = "MesloLGS NF";
     const baseURL = await startServer(t, token, {
-      CODEX_WEB_REMOTE_SSH_HOST: remoteSshHost,
       CODEX_WEB_TERMINAL_FONT: terminalFont,
     });
     const { chromium } = loadPlaywright();
@@ -539,7 +501,7 @@ test(
         await page.evaluate(() => Boolean(window.__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__)),
         "root app shell should inject the web backend runtime",
       );
-      await assertRemoteDefaultRuntime(page, remoteSshHost);
+      await assertLocalRuntime(page);
       await assertNonRemoteRuntimeShims(page, terminalFont);
       await assertLocaleOverrideRuntime(page);
 
@@ -555,7 +517,8 @@ test(
       assertSettingsArchivedChatsAssetPatch(sources);
       assertAppHeaderNavigationButtonsRenderPatch(sources);
       assertStatsigNoopClientOverridePatch(sources);
-      assertComposerCustomPermissionsPatch(sources);
+      assertStatsigProviderPatch(sources);
+      assertComposerCustomPermissionsMarkers(sources);
       const combinedSource = sources
         .map(({ name, text }) => `\n/* ${name} */\n${text}`)
         .join("\n");

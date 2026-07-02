@@ -1,0 +1,11 @@
+diff --git a/app-shell/sidebar-navigation-controls.tsx b/app-shell/sidebar-navigation-controls.tsx
+--- a/app-shell/sidebar-navigation-controls.tsx
++++ b/app-shell/sidebar-navigation-controls.tsx
+@@ -258,7 +258,6 @@ export function SidebarNavigationControls(
+   return (
+     <div className="flex items-center gap-1">
+       {sidebarTrigger}
+-      {navigationButtons}
+     </div>
+   );
+ }

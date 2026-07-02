@@ -62,9 +62,11 @@ function preloadChannelConstants(preloadSource) {
   return new Map(
     [
       ...preloadSource.matchAll(
-        /([A-Za-z_$][\w$]*)\s*=\s*`(codex_desktop:[^`]+)`/g,
+        /([A-Za-z_$][\w$]*)\s*=\s*(?:`([^`]+)`|"([^"]+)"|'([^']+)')/g,
       ),
-    ].map((match) => [match[1], match[2]]),
+    ]
+      .map((match) => [match[1], match[2] ?? match[3] ?? match[4]])
+      .filter(([, value]) => value?.startsWith("codex_desktop:")),
   );
 }
 
@@ -191,12 +193,12 @@ export function extractPreloadStaticProfile(preloadSource) {
 
 function preloadHookAnalysisMethod() {
   return [
-    "Generate webview-preload.patch from upstream webview/index.html after stripping any previous generated hook lines.",
-    "Extract upstream preload requirements from .vite/build/preload.js: Electron APIs, main-world keys, process defines, sync/invoke/on/postMessage channels, and dynamic worker channel templates.",
-    "Extract upstream preload static profile: ipcRenderer call sites, payload shapes, local value definitions, exposed electronBridge method contracts, and exposeInMainWorld targets.",
-    "Trace renderer assets with preload-exposed bridge methods only; direct window.electronBridge calls are trusted, aliases are followed only near their binding and stop on reassignment.",
+    "Generate webview-preload.patch from ref webview/index.html after stripping any previous generated hook lines.",
+    "Extract preload requirements from restored main/preload/electron-bridge-preload.ts, falling back to ref .vite/build/preload.js when restored is missing.",
+    "Extract preload static profile from the same restored-first source: ipcRenderer call sites, payload shapes, local value definitions, exposed electronBridge method contracts, and exposeInMainWorld targets.",
+    "Trace restored renderer sources first, falling back to ref renderer assets only when restored sources are missing.",
     "Extract renderer-side interface evidence: bridge method raw arguments, argument counts, literal values, object keys, return-value field reads, message payload keys, shared object keys, vscode://codex URLs, message event types, worker IDs, and unresolved expressions.",
-    "Validate the current shim/sync/vite support and static contract review against extracted upstream requirements; report gaps for human review instead of blindly generating TypeScript shims.",
+    "Validate the current shim/sync/vite support and static contract review against the extracted preload requirements; report gaps for human review instead of blindly generating TypeScript shims.",
   ];
 }
 
@@ -418,11 +420,87 @@ function normalizeAssetSources(assets) {
   return assets;
 }
 
+function listFilesRecursive(dir) {
+  if (!fs.existsSync(dir)) {
+    return [];
+  }
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const entryPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      return listFilesRecursive(entryPath);
+    }
+    return entry.isFile() ? [entryPath] : [];
+  });
+}
+
 function rendererAssetNames(assetsDir) {
   if (!fs.existsSync(assetsDir)) {
     return [];
   }
   return fs.readdirSync(assetsDir).filter((name) => name.endsWith(".js"));
+}
+
+function restoredRendererSources(restoredDir, mainWorldKeys) {
+  if (!fs.existsSync(restoredDir)) {
+    return {};
+  }
+  const needles = ["electronBridge", ...mainWorldKeys];
+  return Object.fromEntries(
+    listFilesRecursive(restoredDir)
+      .filter((filePath) => /\.(?:[cm]?[jt]sx?)$/.test(filePath))
+      .map((filePath) => [
+        path.relative(restoredDir, filePath).split(path.sep).join("/"),
+        fs.readFileSync(filePath, "utf8"),
+      ])
+      .filter(([, source]) => needles.some((needle) => source.includes(needle))),
+  );
+}
+
+function selectPreloadSource({ asarDir, restoredDir }) {
+  const restoredPreloadPath = path.join(
+    restoredDir,
+    "main",
+    "preload",
+    "electron-bridge-preload.ts",
+  );
+  if (fs.existsSync(restoredPreloadPath)) {
+    return {
+      preloadPath: restoredPreloadPath,
+      preloadSource: fs.readFileSync(restoredPreloadPath, "utf8"),
+      preloadSourceKind: "restored",
+    };
+  }
+
+  const refPreloadPath = path.join(asarDir, ".vite", "build", "preload.js");
+  if (!fs.existsSync(refPreloadPath)) {
+    throw new Error(`Missing restored or ref preload source: ${refPreloadPath}`);
+  }
+  return {
+    preloadPath: refPreloadPath,
+    preloadSource: fs.readFileSync(refPreloadPath, "utf8"),
+    preloadSourceKind: "ref",
+  };
+}
+
+function selectRendererSources({ asarDir, mainWorldKeys, restoredDir }) {
+  const restoredSources = restoredRendererSources(restoredDir, mainWorldKeys);
+  if (Object.keys(restoredSources).length > 0) {
+    return {
+      rendererSourceKind: "restored",
+      rendererSources: restoredSources,
+    };
+  }
+
+  const rendererAssetsDir = path.join(asarDir, "webview", "assets");
+  if (rendererAssetNames(rendererAssetsDir).length === 0) {
+    throw new Error(
+      `Missing restored renderer sources and ref renderer assets: ${rendererAssetsDir}`,
+    );
+  }
+  return {
+    rendererSourceKind: "ref",
+    rendererSources: rendererAssetsDir,
+  };
 }
 
 function extractBridgeMethodCalls(
@@ -1525,7 +1603,10 @@ export function deriveStaticContractReview({
   };
   return {
     ...review,
-    ok: Object.values(review).every((items) => items.length === 0),
+    ok:
+      unresolvedBridgeReturns.length === 0 &&
+      unresolvedIpcPayloads.length === 0 &&
+      rendererAssetProfile.unsupportedBridgeMethodCalls.length === 0,
   };
 }
 
@@ -1553,30 +1634,32 @@ export function generatePreloadHookPatch({
   asarDir = path.join(process.cwd(), "scratch", "asar"),
   patchPath = path.join(process.cwd(), "patches", "webview-preload.patch"),
   reportPath = path.join(process.cwd(), "scratch", "preload-hook-report.json"),
+  restoredDir,
 } = {}) {
+  restoredDir ??= path.join(path.dirname(asarDir), "restored");
   const indexPath = path.join(asarDir, "webview", "index.html");
-  const preloadPath = path.join(asarDir, ".vite", "build", "preload.js");
-  const rendererAssetsDir = path.join(asarDir, "webview", "assets");
 
   if (!fs.existsSync(indexPath)) {
-    throw new Error(`Missing upstream webview index: ${indexPath}`);
-  }
-  if (!fs.existsSync(preloadPath)) {
-    throw new Error(`Missing upstream preload artifact: ${preloadPath}`);
-  }
-  if (rendererAssetNames(rendererAssetsDir).length === 0) {
-    throw new Error(`Missing upstream renderer assets: ${rendererAssetsDir}`);
+    throw new Error(`Missing ref webview index: ${indexPath}`);
   }
 
   const originalHtml = stripPreloadHookFromIndexHtml(
     fs.readFileSync(indexPath, "utf8"),
   );
   const patchedHtml = injectPreloadHookIntoIndexHtml(originalHtml);
-  const preloadSource = fs.readFileSync(preloadPath, "utf8");
+  const { preloadPath, preloadSource, preloadSourceKind } = selectPreloadSource({
+    asarDir,
+    restoredDir,
+  });
   const requirements = extractPreloadRequirements(preloadSource);
   const staticProfile = extractPreloadStaticProfile(preloadSource);
+  const { rendererSourceKind, rendererSources } = selectRendererSources({
+    asarDir,
+    mainWorldKeys: staticProfile.mainWorldExposures.map((item) => item.key),
+    restoredDir,
+  });
   const rendererAssetProfile = extractRendererAssetStaticProfile(
-    rendererAssetsDir,
+    rendererSources,
     {
       allowedBridgeMethods: staticProfile.electronBridgeMethods,
       mainWorldKeys: staticProfile.mainWorldExposures.map((item) => item.key),
@@ -1615,9 +1698,11 @@ export function generatePreloadHookPatch({
       analysisMethod: preloadHookAnalysisMethod(),
       patchPath,
       preloadPath,
+      preloadSourceKind,
       reportPath,
       requirements,
       rendererAssetProfile,
+      rendererSourceKind,
       staticProfile,
       staticReview: deriveStaticContractReview({
         rendererAssetProfile,
@@ -1637,7 +1722,7 @@ export function generatePreloadHookPatch({
 function printResult(result) {
   console.log(`wrote ${result.patchPath}`);
   console.log(`wrote ${result.reportPath}`);
-  console.log(`upstream preload: ${result.preloadPath}`);
+  console.log(`${result.preloadSourceKind} preload: ${result.preloadPath}`);
   console.log("");
   console.log("static analysis method:");
   for (const item of result.analysisMethod) {

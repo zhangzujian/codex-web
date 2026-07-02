@@ -16,21 +16,16 @@ flake-utils.lib.eachSystem systems (
   system:
   let
     pkgs = import nixpkgs { inherit system; };
-    appVersion = "26.623.42026";
-    codexZip = pkgs.fetchurl {
-      url = "https://persistent.oaistatic.com/codex-app-prod/Codex-darwin-arm64-${appVersion}.zip";
-      hash = "sha256-DYkLejGoP0hHkV7utsdCs7UtWJYnz7AGbo3/WKZdfJ8=";
-    };
     codex = self.packages.${system}.codex;
   in
   {
     devShells.default = pkgs.mkShell {
-      HOSTED_CODEX_APP_ZIP = codexZip;
-
       packages = [
         codex
+        pkgs.curl
+        pkgs.git
+        pkgs.gnutar
         pkgs.nodejs
-        pkgs.unzip
         pkgs.patch
       ];
     };
@@ -89,8 +84,6 @@ flake-utils.lib.eachSystem systems (
       in
       {
         default = pkgs.buildNpmPackage {
-          HOSTED_CODEX_APP_ZIP = codexZip;
-
           pname = "codex-web";
           version = "1.0.0";
           src = ./.;
@@ -103,7 +96,9 @@ flake-utils.lib.eachSystem systems (
           npmPruneFlags = [ "--ignore-scripts" ];
 
           nativeBuildInputs = [
-            pkgs.unzip
+            pkgs.curl
+            pkgs.git
+            pkgs.gnutar
             pkgs.patch
           ];
 

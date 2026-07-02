@@ -76,7 +76,71 @@ test("injectPreloadHookIntoIndexHtml preserves upstream indentation", () => {
   );
 });
 
-test("generatePreloadHookPatch writes a patch from upstream artifacts", () => {
+test("generatePreloadHookPatch prefers restored sources over ref artifacts", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "preload-hook-"));
+  const asarDir = path.join(dir, "asar");
+  const restoredDir = path.join(dir, "restored");
+  const patchPath = path.join(dir, "webview-preload.patch");
+  const reportPath = path.join(dir, "preload-hook-report.json");
+
+  try {
+    fs.mkdirSync(path.join(asarDir, "webview", "assets"), { recursive: true });
+    fs.mkdirSync(path.join(asarDir, ".vite", "build"), { recursive: true });
+    fs.mkdirSync(path.join(restoredDir, "main", "preload"), {
+      recursive: true,
+    });
+    fs.mkdirSync(path.join(restoredDir, "runtime"), { recursive: true });
+    fs.writeFileSync(
+      path.join(asarDir, "webview", "index.html"),
+      [
+        "<html>",
+        "  <head>",
+        "    <!-- PROD_BASE_TAG_HERE -->",
+        "    <!-- PROD_CSP_TAG_HERE -->",
+        "  </head>",
+        "</html>",
+        "",
+      ].join("\n"),
+    );
+    fs.writeFileSync(
+      path.join(asarDir, ".vite", "build", "preload.js"),
+      'ipcRenderer.sendSync("codex_desktop:old-ref-channel");',
+    );
+    fs.writeFileSync(path.join(asarDir, "webview", "assets", "main.js"), "");
+    fs.writeFileSync(
+      path.join(restoredDir, "main", "preload", "electron-bridge-preload.ts"),
+      [
+        'import { contextBridge, ipcRenderer } from "electron";',
+        'const CHANNEL = "codex_desktop:get-build-flavor";',
+        "const electronBridge = {",
+        "  getBuildFlavor: () => ipcRenderer.sendSync(CHANNEL),",
+        "};",
+        'contextBridge.exposeInMainWorld("electronBridge", electronBridge);',
+        "",
+      ].join("\n"),
+    );
+    fs.writeFileSync(
+      path.join(restoredDir, "runtime", "app-main-host-runtime.ts"),
+      "window.electronBridge?.getBuildFlavor?.();\n",
+    );
+
+    const result = generatePreloadHookPatch({
+      asarDir,
+      patchPath,
+      reportPath,
+      restoredDir,
+    });
+
+    assert.equal(result.preloadSourceKind, "restored");
+    assert.equal(result.rendererSourceKind, "restored");
+    assert.deepEqual(result.syncChannels, ["codex_desktop:get-build-flavor"]);
+    assert.ok(!JSON.stringify(result).includes("old-ref-channel"));
+  } finally {
+    fs.rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("generatePreloadHookPatch writes a patch from ref fallback artifacts", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "preload-hook-"));
   const asarDir = path.join(dir, "asar");
   const patchPath = path.join(dir, "webview-preload.patch");
@@ -111,7 +175,7 @@ test("generatePreloadHookPatch writes a patch from upstream artifacts", () => {
     assert.equal(result.reportPath, reportPath);
     assert.ok(
       result.analysisMethod.some((item) =>
-        item.includes("renderer assets with preload-exposed bridge methods"),
+        item.includes("Trace restored renderer sources first"),
       ),
     );
     assert.deepEqual(result.syncChannels, []);
@@ -160,7 +224,7 @@ test("generatePreloadHookPatch fails when renderer assets are missing", () => {
 
     assert.throws(
       () => generatePreloadHookPatch({ asarDir, patchPath }),
-      /Missing upstream renderer assets/,
+      /Missing restored renderer sources and ref renderer assets/,
     );
   } finally {
     fs.rmSync(dir, { force: true, recursive: true });

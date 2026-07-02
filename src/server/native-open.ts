@@ -2,8 +2,6 @@ import { execFile, spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import { remoteDefaultSshHost } from "./remote-default-config";
-
 const MESSAGE_FOR_VIEW_CHANNEL = "codex_desktop:message-for-view";
 const execFileAsync = promisify(execFile);
 
@@ -27,6 +25,7 @@ type OpenTarget = {
   labelKey?: string;
   target: string;
   appPath?: string;
+  icon?: string;
   kind?: "editor" | "native";
 };
 
@@ -73,6 +72,7 @@ type GitWebRemote = {
   id: "github" | "gitlab";
   label: "GitHub" | "GitLab";
   target: "github" | "gitlab";
+  icon: "apps/github.svg" | "apps/gitlab.svg";
   baseUrl: string;
 };
 
@@ -127,11 +127,12 @@ export async function createOpenInTargetsPayload(
     availableTargets.push("xsftp");
   }
 
-  if (gitWebRemote != null && systemOpenAvailable) {
+  if (gitWebRemote != null) {
     targets.push({
       id: gitWebRemote.id,
       label: gitWebRemote.label,
       target: gitWebRemote.target,
+      icon: gitWebRemote.icon,
       kind: "native",
     });
     availableTargets.push(gitWebRemote.target);
@@ -291,6 +292,15 @@ export async function handleNativeOpenFetchMessage(
       return true;
     }
 
+    const target = stringValue(body.target);
+    if (target === "github" || target === "gitlab") {
+      sendFetchResponse(environment, fetchMessage.requestId, 200, {
+        openInBrowser: true,
+        url: await createGitWebFileUrl(body, environment),
+      });
+      return true;
+    }
+
     const command = await createOpenFileCommand(body, environment);
     const spawnDetached = environment.spawnDetached ?? defaultSpawnDetached;
     spawnDetached(command.command, command.args);
@@ -352,7 +362,7 @@ function parseFetchBody(body: unknown): OpenFileRequest {
   if (!isRecord(parsed)) {
     throw new Error("Expected fetch body JSON to be an object");
   }
-  return parsed;
+  return isRecord(parsed.params) ? parsed.params : parsed;
 }
 
 function sendFetchResponse(
@@ -554,6 +564,7 @@ function parseGitWebRemote(
     id: provider,
     label: provider === "github" ? "GitHub" : "GitLab",
     target: provider,
+    icon: provider === "github" ? "apps/github.svg" : "apps/gitlab.svg",
     baseUrl: `${parsed.protocol}://${parsed.host}/${repoPath}`,
   };
 }
@@ -820,9 +831,7 @@ function remoteSshAuthority(request: OpenFileRequest): string | null {
   if (sshHost != null && sshHost.length > 0) {
     return `ssh-remote+${encodeURIComponent(sshHost)}`;
   }
-  return stringValue(request.hostId) === "remote:default"
-    ? `ssh-remote+${encodeURIComponent(remoteDefaultSshHost())}`
-    : null;
+  return null;
 }
 
 async function resolveCodeCommand(

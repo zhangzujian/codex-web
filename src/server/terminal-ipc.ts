@@ -61,8 +61,8 @@ export function createTerminalIpcMessageHandler(
 
     closeSession(sessionId);
 
-    const cwd = resolveCwd(stringValue(message.cwd));
     try {
+      const cwd = resolveCwd(stringValue(message.cwd));
       const session = factory.createSession({
         cols: positiveInteger(message.cols) ?? DEFAULT_COLS,
         cwd,
@@ -162,7 +162,22 @@ export function createTerminalIpcMessageHandler(
     if (message.type === "terminal-run-action") {
       const command = stringValue(message.command);
       if (managed && command) {
-        managed.session.write(`${command}\r`);
+        try {
+          const cwd = stringValue(message.cwd);
+          const resolvedCwd = cwd ? resolveCwd(cwd) : managed.cwd;
+          const cdPrefix =
+            resolvedCwd === managed.cwd
+              ? ""
+              : `cd -- ${shellQuote(resolvedCwd)}\r`;
+          managed.cwd = resolvedCwd;
+          managed.session.write(`${cdPrefix}${command}\r`);
+        } catch (error) {
+          respond({
+            type: "terminal-error",
+            sessionId,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
       return true;
     }
@@ -181,4 +196,8 @@ function stringValue(value: unknown): string | undefined {
 
 function positiveInteger(value: unknown): number | undefined {
   return Number.isInteger(value) && Number(value) > 0 ? Number(value) : undefined;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
 }

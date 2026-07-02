@@ -6,19 +6,19 @@ import {
   handleRemoteDefaultMcpMessage,
 } from "../src/server/remote-default-mcp.js";
 
-test("remote default mcp override no-ops config reads", async () => {
+test("remote default mcp override is disabled", async () => {
   const messages = [];
   const request = {
     jsonrpc: "2.0",
     id: "config-request-1",
     method: "config/read",
-    params: { hostId: "remote:default" },
+    params: { hostId: "local" },
   };
 
   const handled = await handleRemoteDefaultMcpMessage(
     {
       type: "mcp-request",
-      hostId: "remote:default",
+      hostId: "local",
       request,
     },
     { respond: (message) => messages.push(message) },
@@ -28,7 +28,7 @@ test("remote default mcp override no-ops config reads", async () => {
   assert.deepEqual(messages, []);
 });
 
-test("remote default mcp override ignores non-default hosts", () => {
+test("remote default mcp override ignores local hosts", () => {
   assert.equal(
     canHandleRemoteDefaultMcpMessage({
       type: "mcp-request",

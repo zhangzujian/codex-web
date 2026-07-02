@@ -1,20 +1,15 @@
 # Repository Notes
 
-When updating the upstream Codex Desktop app version, update all of these:
+This repository uses `JimLiu/decode-codex` at commit
+`ddbb7ea19cd71b97e4e923befd7586633b19fe95`. `prepare_asar` resolves:
 
-- `scripts/resolve_codex_app_zip`: `APP_VERSION`
-- `default.nix`: `appVersion` and the `codexZip.hash` for that zip
-- `tests/prepare-cache.test.mjs`: `appVersion` test fixture
+- default source cache: `.cache/decode-codex/<commit>`
+- required source dirs: `ref/` and `restored/`
+- optional override: `CODEX_DECODE_CODEX_DIR=/path/to/decode-codex`
+- low-level ref override: `CODEX_APP_BASE_DIR=/path/to/ref`, only when the
+  sibling or `CODEX_DECODE_CODEX_DIR` provides `restored/`
 
-To find the latest upstream Codex Desktop app version, check the Sparkle
-appcast first and use Homebrew Cask as a cross-check:
-
-```bash
-curl -fsSL -A 'Mozilla/5.0' https://persistent.oaistatic.com/codex-app-prod/appcast.xml |
-  sed -n 's|.*<sparkle:shortVersionString>\(.*\)</sparkle:shortVersionString>.*|\1|p' |
-  head -1
-
-curl -fsSL https://formulae.brew.sh/api/cask/codex-app.json | jq -r '.version'
-```
-
-If they differ, prefer the appcast; it is the source used by the app updater.
+Bundle edits must be ordinary git patches, not JavaScript scripts that search
+bundled source and mutate files. Patch `patches/restored/*.patch` first when
+`restored/` has the corresponding file or code. Use `patches/asar/*.patch` only
+when the code is still only present in `ref/`.

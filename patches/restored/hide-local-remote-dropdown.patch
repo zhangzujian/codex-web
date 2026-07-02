@@ -1,0 +1,11 @@
+diff --git a/thread-summary/local-remote-dropdown-parts/local-remote-dropdown.tsx b/thread-summary/local-remote-dropdown-parts/local-remote-dropdown.tsx
+--- a/thread-summary/local-remote-dropdown-parts/local-remote-dropdown.tsx
++++ b/thread-summary/local-remote-dropdown-parts/local-remote-dropdown.tsx
+@@ -43,6 +43,7 @@ export function LocalRemoteDropdown({
+   triggerVariant = "composer",
+   worktreeLabelOnly = false,
+ }: LocalRemoteDropdownProps): JSX.Element | null {
++  return null;
+   let intl = useIntl(),
+     conversationCwd = useScopedValue<string | null | undefined>(
+       conversationCwdSignal,

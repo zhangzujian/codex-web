@@ -24,6 +24,7 @@ export type SharedObjectSnapshot = {
 
 type BrowserLocalFetchEnvironment = {
   locale: string;
+  getSettingEntries?: () => Iterable<readonly [string, unknown]>;
   getSetting: (key: string) => unknown;
   setSetting: (key: string, value: unknown) => void;
 };
@@ -37,16 +38,10 @@ type FetchResponseMessage = {
   bodyJsonString: string;
 };
 
-export const REMOTE_DEFAULT_HOST_ID = "remote:default";
 export const LOCAL_HOST_CONFIG = {
   id: "local",
   display_name: "Local",
   kind: "local",
-};
-export const REMOTE_DEFAULT_HOST_CONFIG = {
-  id: REMOTE_DEFAULT_HOST_ID,
-  display_name: "Remote",
-  kind: "ssh",
 };
 
 export function handleSyncIpc(
@@ -87,9 +82,7 @@ export function hostConfigForRoute(route: string | undefined): {
   id: string;
   kind: string;
 } {
-  return isSettingsRoute(route)
-    ? { ...LOCAL_HOST_CONFIG }
-    : { ...REMOTE_DEFAULT_HOST_CONFIG };
+  return { ...LOCAL_HOST_CONFIG };
 }
 
 export function normalizeSharedObjectUpdateForRoute(
@@ -232,16 +225,34 @@ export function normalizeReadConfigForHostFetchResponse(
         ...localeConfig,
         features: {
           ...features,
-          remote_connections: true,
-          remote_ssh_connections: true,
+          remote_connections: false,
+          remote_ssh_connections: false,
         },
       },
     }),
   };
 }
 
-function isSettingsRoute(route: string | undefined): boolean {
-  return route === "/settings" || route?.startsWith("/settings/");
+export function openInBrowserUrlFromFetchResponse(message: unknown): string | null {
+  if (
+    !isRecord(message) ||
+    message.type !== "fetch-response" ||
+    message.responseType !== "success" ||
+    typeof message.bodyJsonString !== "string"
+  ) {
+    return null;
+  }
+
+  try {
+    const body: unknown = JSON.parse(message.bodyJsonString);
+    return isRecord(body) &&
+      body.openInBrowser === true &&
+      typeof body.url === "string"
+      ? body.url
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -282,6 +293,13 @@ function effectiveBrowserLocale(env: BrowserLocalFetchEnvironment): string {
 }
 
 function readStoredSettingEntries(env: BrowserLocalFetchEnvironment) {
+  if (env.getSettingEntries) {
+    return Array.from(env.getSettingEntries()).filter(
+      (entry): entry is readonly [string, NonNullable<unknown>] =>
+        entry[1] != null,
+    );
+  }
+
   return ["localeOverride"]
     .map((key) => [key, env.getSetting(key)] as const)
     .filter((entry): entry is readonly [string, NonNullable<unknown>] =>
@@ -289,24 +307,11 @@ function readStoredSettingEntries(env: BrowserLocalFetchEnvironment) {
     );
 }
 
-function remoteDefaultConnection() {
-  return {
-    hostId: REMOTE_DEFAULT_HOST_ID,
-    displayName: "Remote",
-    source: "codex-web",
-    sshHost: "remote",
-    sshPort: null,
-    sshAlias: null,
-    identity: null,
-    autoConnect: true,
-  };
-}
-
 function sharedObjectSnapshot(route?: string): SharedObjectSnapshot {
   return {
     host_config: hostConfigForRoute(route),
-    remote_connections: [remoteDefaultConnection()],
-    remote_ssh_connections: [remoteDefaultConnection()],
+    remote_connections: [],
+    remote_ssh_connections: [],
     remote_control_connections: [],
     remote_control_connections_state: {
       available: false,
@@ -328,8 +333,8 @@ function sharedObjectSnapshot(route?: string): SharedObjectSnapshot {
       tool_search: true,
       tool_suggest: false,
       tool_call_mcp_elicitation: true,
-      remote_connections: true,
-      remote_ssh_connections: true,
+      remote_connections: false,
+      remote_ssh_connections: false,
       memories: false,
       realtime_conversation: false,
       enable_i18n: true,

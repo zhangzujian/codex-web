@@ -119,6 +119,7 @@ test("createOpenInTargetsPayload exposes GitHub for GitHub remotes", async () =>
   assert.equal(payload.targets[0].id, "github");
   assert.equal(payload.targets[0].label, "GitHub");
   assert.equal(payload.targets[0].target, "github");
+  assert.equal(payload.targets[0].icon, "apps/github.svg");
   assert.equal(payload.availableTargets.includes("github"), true);
 });
 
@@ -140,6 +141,7 @@ test("createOpenInTargetsPayload exposes GitLab for GitLab remotes", async () =>
   assert.equal(payload.targets[0].id, "gitlab");
   assert.equal(payload.targets[0].label, "GitLab");
   assert.equal(payload.targets[0].target, "gitlab");
+  assert.equal(payload.targets[0].icon, "apps/gitlab.svg");
   assert.equal(payload.availableTargets.includes("gitlab"), true);
 });
 
@@ -165,7 +167,7 @@ test("createOpenInTargetsPayload exposes configured self-hosted GitLab remotes",
   assert.equal(payload.availableTargets.includes("gitlab"), true);
 });
 
-test("createOpenInTargetsPayload hides Git web targets without a system opener", async () => {
+test("createOpenInTargetsPayload exposes Git web targets without a system opener", async () => {
   const payload = await createOpenInTargetsPayload(
     {
       commandExists: async () => false,
@@ -180,10 +182,10 @@ test("createOpenInTargetsPayload hides Git web targets without a system opener",
     },
   );
 
-  assert.equal(payload.availableTargets.includes("gitlab"), false);
+  assert.equal(payload.availableTargets.includes("gitlab"), true);
   assert.equal(
     payload.targets.some((target) => target.id === "gitlab"),
-    false,
+    true,
   );
 });
 
@@ -434,11 +436,11 @@ test("createOpenFileCommand opens VS Code at a file line and column", async () =
   });
 });
 
-test("createOpenFileCommand opens remote workspace mode at the workspace root", async () => {
+test("createOpenFileCommand opens explicit remote workspace mode at the workspace root", async () => {
   const command = await createOpenFileCommand(
     {
       cwd: "/repo",
-      hostId: "remote:default",
+      hostId: "remote:custom",
       openMode: "workspace",
       path: "/repo/src/index.ts",
       sshHost: "remote",
@@ -501,4 +503,83 @@ test("handleNativeOpenFetchMessage responds to open-in-targets requests", async 
   assert.equal(payload.responseType, "success");
   assert.equal(payload.status, 200);
   assert.equal(JSON.parse(payload.bodyJsonString).targets.length, 2);
+});
+
+test("handleNativeOpenFetchMessage returns wrapped GitHub open-file URLs", async () => {
+  const responses = [];
+  const spawned = [];
+  const handled = await handleNativeOpenFetchMessage(
+    {
+      body: JSON.stringify({
+        params: {
+          cwd: "/repo",
+          path: "/repo/src/index.ts",
+          target: "github",
+        },
+      }),
+      method: "POST",
+      requestId: "request-2",
+      type: "fetch",
+      url: "vscode://codex/open-file",
+    },
+    {
+      commandExists: async (command) => command === "xdg-open",
+      gitBranch: async () => "main",
+      gitRemoteUrl: async () => "git@github.com:owner/repo.git",
+      gitRoot: async () => "/repo",
+      platform: "linux",
+      respond: (message) => responses.push(message),
+      spawnDetached: (command, args) => spawned.push({ command, args }),
+    },
+  );
+
+  assert.equal(handled, true);
+  assert.deepEqual(spawned, []);
+  const payload = responses[0].args[0];
+  assert.equal(payload.responseType, "success");
+  assert.equal(payload.status, 200);
+  assert.deepEqual(JSON.parse(payload.bodyJsonString), {
+    openInBrowser: true,
+    url: "https://github.com/owner/repo/blob/main/src/index.ts",
+  });
+});
+
+test("handleNativeOpenFetchMessage returns wrapped GitLab open-file URLs", async () => {
+  const responses = [];
+  const spawned = [];
+  const handled = await handleNativeOpenFetchMessage(
+    {
+      body: JSON.stringify({
+        params: {
+          cwd: "/repo",
+          line: 9,
+          path: "/repo/src/index.ts",
+          target: "gitlab",
+        },
+      }),
+      method: "POST",
+      requestId: "request-3",
+      type: "fetch",
+      url: "vscode://codex/open-file",
+    },
+    {
+      commandExists: async (command) => command === "xdg-open",
+      gitBranch: async () => "main",
+      gitRemoteUrl: async () => "https://gitlab.example.com/group/repo.git",
+      gitRoot: async () => "/repo",
+      platform: "linux",
+      respond: (message) => responses.push(message),
+      spawnDetached: (command, args) => spawned.push({ command, args }),
+    },
+  );
+
+  assert.equal(handled, true);
+  assert.deepEqual(spawned, []);
+  const payload = responses[0].args[0];
+  assert.equal(payload.responseType, "success");
+  assert.equal(payload.status, 200);
+  assert.deepEqual(JSON.parse(payload.bodyJsonString), {
+    openInBrowser: true,
+    url: "https://gitlab.example.com/group/repo/-/blob/main/src/index.ts#L9",
+  });
 });

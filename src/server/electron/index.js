@@ -103,20 +103,10 @@ function extractVirtualPortIds(transfer) {
         : null)
         .filter((portId) => portId !== null) ?? []);
 }
-const GENERATED_PROJECTLESS_CWD_PATTERN = /^(.*(?:^|[\\/])Documents[\\/]+Codex)[\\/]+(?:\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]*|\d{4}-\d{2}-\d{2}[\\/]+[a-z0-9][a-z0-9-]*)[\\/]*$/;
 const mcpRequests = new Map();
 const proxiedMcpHosts = new Map();
 const localThreadIds = new Set();
 const fetchRequests = new Map();
-const remoteProjectState = {
-    workspaceRoots: [],
-    workspaceLabels: {},
-    remoteProjects: [],
-    localProjects: {},
-    writableRoots: {},
-    threadPaths: new Map(),
-    projectlessThreadIds: new Set(),
-};
 function isRecord(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -125,7 +115,7 @@ function remoteDefaultSharedObjectValue(key, value) {
         return (0, remote_default_config_1.remoteDefaultHostConfig)();
     }
     if (key === "remote_connections" || key === "remote_ssh_connections") {
-        return [(0, remote_default_config_1.remoteDefaultConnection)()];
+        return [];
     }
     if (key === "remote_wsl_connections") {
         return [];
@@ -136,8 +126,8 @@ function remoteDefaultSharedObjectValue(key, value) {
     if (key === "statsig_default_enable_features") {
         return {
             ...(isRecord(value) ? value : {}),
-            remote_connections: true,
-            remote_ssh_connections: true,
+            remote_connections: false,
+            remote_ssh_connections: false,
         };
     }
     return value;
@@ -464,24 +454,6 @@ function normalizeRemoteDefaultPayload(value) {
     let changed = false;
     const next = {};
     for (const [key, item] of Object.entries(value)) {
-        if (key === "hostId" && item === "local") {
-            changed = true;
-            next[key] = remote_default_config_1.REMOTE_DEFAULT_HOST_ID;
-            continue;
-        }
-        if (key === "PROJECTLESS_THREAD_IDS" || key === "projectlessThreadIds") {
-            for (const threadId of stringArray(item)) {
-                remoteProjectState.projectlessThreadIds.add(threadId);
-            }
-            if (Array.isArray(item) && item.length > 0) {
-                changed = true;
-                next[key] = [];
-            }
-            else {
-                next[key] = item;
-            }
-            continue;
-        }
         const normalized = normalizeRemoteDefaultPayload(item);
         changed ||= normalized !== item;
         next[key] = normalized;
@@ -495,13 +467,6 @@ function normalizeRemoteDefaultPayload(value) {
     return changed ? next : value;
 }
 function normalizeRemoteDefaultMcpResult(request, result) {
-    if (request.hostId === "local" && request.method === "thread/list") {
-        return emptyThreadListResult(result);
-    }
-    if (request.method === "workspace-root-options" && isRecord(result)) {
-        cacheWorkspaceRootOptions(result);
-        return { ...result, roots: [], labels: {} };
-    }
     if (request.method === "thread/list") {
         return normalizeThreadListResult(result);
     }
@@ -515,37 +480,11 @@ function normalizeRemoteDefaultMcpResult(request, result) {
         return normalizeDeveloperInstructionsResult(result);
     }
     if (request.method === "config/read") {
-        return exposeRemoteConnectionConfigFeatures(normalizeRemoteDefaultPayload(result));
-    }
-    if (request.method === "get-global-state" && isRecord(result)) {
-        const key = isRecord(request.params) ? request.params.key : null;
-        if (key === "REMOTE_PROJECTS") {
-            return { ...result, value: synthesizeRemoteProjects(result.value) };
-        }
-        if (key === "LOCAL_PROJECTS") {
-            remoteProjectState.localProjects = toRecord(result.value);
-            return { ...result, value: {} };
-        }
-        if (key === "PROJECT_WRITABLE_ROOTS") {
-            remoteProjectState.writableRoots = toRecord(result.value);
-            return { ...result, value: {} };
-        }
-        if (key === "PROJECTLESS_THREAD_IDS") {
-            for (const threadId of stringArray(result.value)) {
-                remoteProjectState.projectlessThreadIds.add(threadId);
-            }
-            return { ...result, value: [] };
-        }
-        if (key === "THREAD_PROJECT_ASSIGNMENTS") {
-            return {
-                ...result,
-                value: synthesizeThreadProjectAssignments(result.value),
-            };
-        }
+        return disableRemoteConnectionConfigFeatures(normalizeRemoteDefaultPayload(result));
     }
     return normalizeRemoteDefaultPayload(result);
 }
-function exposeRemoteConnectionConfigFeatures(result) {
+function disableRemoteConnectionConfigFeatures(result) {
     if (!isRecord(result) || !isRecord(result.config)) {
         return result;
     }
@@ -556,8 +495,8 @@ function exposeRemoteConnectionConfigFeatures(result) {
             ...result.config,
             features: {
                 ...features,
-                remote_connections: true,
-                remote_ssh_connections: true,
+                remote_connections: false,
+                remote_ssh_connections: false,
             },
         },
     };
@@ -592,45 +531,13 @@ function normalizeRemoteDefaultPayloadWithoutInstructionGuard(value) {
     return changed ? next : value;
 }
 function cacheRemoteDefaultGlobalStateWrite(params) {
-    if (!isRecord(params) || params.key !== "REMOTE_PROJECTS") {
-        return;
-    }
-    cacheRemoteDefaultProjectsWrite(params.value);
-}
-function cacheRemoteDefaultProjectsWrite(value) {
-    remoteProjectState.remoteProjects = Array.isArray(value)
-        ? value.flatMap((project) => {
-            const normalized = normalizeRemoteProject(project);
-            return normalized == null ? [] : [normalized];
-        })
-        : [];
+    void params;
 }
 function containsThreadResult(result) {
     if (!isRecord(result)) {
         return false;
     }
     return isRecord(result.thread) && looksLikeThread(result.thread);
-}
-function emptyThreadListResult(result) {
-    if (Array.isArray(result)) {
-        return [];
-    }
-    if (!isRecord(result)) {
-        return result;
-    }
-    const next = { ...result };
-    for (const key of ["threads", "conversations", "items", "data"]) {
-        if (Array.isArray(next[key])) {
-            next[key] = [];
-        }
-    }
-    return next;
-}
-function cacheWorkspaceRootOptions(result) {
-    if (Array.isArray(result.roots)) {
-        remoteProjectState.workspaceRoots = result.roots.filter((root) => typeof root === "string");
-    }
-    remoteProjectState.workspaceLabels = toStringRecord(result.labels);
 }
 function normalizeThreadListResult(result) {
     if (Array.isArray(result)) {
@@ -651,21 +558,9 @@ function normalizeThread(thread) {
     if (!isRecord(thread) || !looksLikeThread(thread)) {
         return thread;
     }
-    const id = threadId(thread);
-    const path = threadPath(thread);
-    if (id != null && path != null) {
-        remoteProjectState.threadPaths.set(id, path);
-    }
-    const isProjectless = path === "~" ||
-        thread.workspaceKind === "projectless" ||
-        (typeof thread.cwd === "string" && isGeneratedProjectlessCwd(thread.cwd));
-    if (id != null && isProjectless) {
-        remoteProjectState.projectlessThreadIds.add(id);
-    }
     return {
         ...thread,
         hostId: remote_default_config_1.REMOTE_DEFAULT_HOST_ID,
-        ...(path === "~" || isProjectless ? { workspaceKind: "workspace" } : {}),
     };
 }
 function looksLikeThread(value) {
@@ -686,150 +581,18 @@ function threadId(value) {
     }
     return null;
 }
-function threadPath(value) {
-    if (typeof value.cwd === "string" && value.cwd.trim().length > 0) {
-        if (isGeneratedProjectlessCwd(value.cwd)) {
-            return "~";
-        }
-        return value.cwd;
-    }
-    if (value.workspaceKind === "projectless") {
-        return "~";
-    }
-    return "~";
-}
-function isGeneratedProjectlessCwd(cwd) {
-    return GENERATED_PROJECTLESS_CWD_PATTERN.test(cwd.trim());
-}
-function synthesizeRemoteProjects(existingValue) {
-    const projects = new Map();
-    for (const project of [
-        ...(Array.isArray(existingValue) ? existingValue : []),
-        ...remoteProjectState.remoteProjects,
-    ]) {
-        const normalized = normalizeRemoteProject(project);
-        if (normalized != null) {
-            projects.set(String(normalized.remotePath), normalized);
-        }
-    }
-    for (const root of remoteProjectState.workspaceRoots) {
-        projects.set(root, remoteProject(root));
-    }
-    for (const [projectId, project] of Object.entries(remoteProjectState.localProjects)) {
-        projects.set(projectId, remoteProject(projectId, localProjectName(project)));
-    }
-    for (const [projectId, roots] of Object.entries(remoteProjectState.writableRoots)) {
-        for (const root of stringArray(roots)) {
-            projects.set(root, remoteProject(root, localProjectLabel(projectId)));
-        }
-    }
-    for (const path of remoteProjectState.threadPaths.values()) {
-        projects.set(path, remoteProject(path));
-    }
-    projects.set("~", remoteProject("~"));
-    return Array.from(projects.values());
-}
-function normalizeRemoteProject(project) {
-    if (!isRecord(project)) {
-        return null;
-    }
-    const path = typeof project.remotePath === "string"
-        ? project.remotePath
-        : typeof project.path === "string"
-            ? project.path
-            : typeof project.id === "string"
-                ? project.id
-                : null;
-    if (path == null) {
-        return null;
-    }
-    return {
-        ...project,
-        id: typeof project.id === "string" ? project.id : path,
-        hostId: remote_default_config_1.REMOTE_DEFAULT_HOST_ID,
-        path: typeof project.path === "string" ? project.path : path,
-        remotePath: path,
-    };
-}
-function synthesizeThreadProjectAssignments(existingValue) {
-    const assignments = {};
-    if (isRecord(existingValue)) {
-        for (const [threadId, assignment] of Object.entries(existingValue)) {
-            assignments[threadId] = normalizeProjectAssignment(assignment);
-        }
-    }
-    for (const [threadId, path] of remoteProjectState.threadPaths) {
-        assignments[threadId] ??= remoteProjectAssignment(path);
-    }
-    for (const threadId of remoteProjectState.projectlessThreadIds) {
-        assignments[threadId] ??= remoteProjectAssignment("~");
-    }
-    return assignments;
-}
 function normalizeProjectAssignment(assignment) {
     if (!isRecord(assignment)) {
         return assignment;
     }
     if (assignment.projectKind === "remote") {
-        return { ...assignment, hostId: remote_default_config_1.REMOTE_DEFAULT_HOST_ID };
+        return {
+            ...assignment,
+            projectKind: "local",
+            hostId: "local",
+        };
     }
-    const path = typeof assignment.path === "string"
-        ? assignment.path
-        : typeof assignment.cwd === "string"
-            ? assignment.cwd
-            : typeof assignment.projectId === "string"
-                ? assignment.projectId
-                : null;
-    return path == null ? assignment : remoteProjectAssignment(path);
-}
-function remoteProjectAssignment(path) {
-    return {
-        projectKind: "remote",
-        projectId: path,
-        hostId: remote_default_config_1.REMOTE_DEFAULT_HOST_ID,
-        path,
-    };
-}
-function remoteProject(path, label = localProjectLabel(path)) {
-    return {
-        id: path,
-        hostId: remote_default_config_1.REMOTE_DEFAULT_HOST_ID,
-        label,
-        path,
-        remotePath: path,
-    };
-}
-function localProjectLabel(path) {
-    return (remoteProjectState.workspaceLabels[path]?.trim() ||
-        localProjectName(remoteProjectState.localProjects[path]) ||
-        basename(path) ||
-        "Remote");
-}
-function localProjectName(project) {
-    return isRecord(project) && typeof project.name === "string"
-        ? project.name.trim()
-        : "";
-}
-function basename(path) {
-    const normalized = path.replace(/\/+$/, "");
-    if (normalized === "~") {
-        return "Remote";
-    }
-    return normalized.split(/[\\/]/).filter(Boolean).at(-1) ?? "";
-}
-function toRecord(value) {
-    return isRecord(value) ? value : {};
-}
-function toStringRecord(value) {
-    if (!isRecord(value)) {
-        return {};
-    }
-    return Object.fromEntries(Object.entries(value).filter((entry) => typeof entry[1] === "string"));
-}
-function stringArray(value) {
-    return Array.isArray(value)
-        ? value.filter((item) => typeof item === "string")
-        : [];
+    return assignment;
 }
 function normalizeRendererIpcMessage(channel, message) {
     if (channel === "codex_desktop:message-for-view" &&

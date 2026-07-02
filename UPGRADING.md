@@ -1,178 +1,22 @@
 # upgrading
 
-instructions for upgrading codex-web to point at a new version of upstream
-Codex Desktop.
+codex-web is based on `JimLiu/decode-codex` at commit
+`ddbb7ea19cd71b97e4e923befd7586633b19fe95`.
 
-if `npm install` needs to download Electron, using a mirror is usually faster
-and avoids upstream download failures:
-
-```bash
-ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/" npm install
-```
-
-## backing up
-
-we will start by generating a scratch directory and backing it up. first, let's
-get the `scratch` directory to a known state by running the following
+1. Update `DECODE_CODEX_COMMIT` in `scripts/resolve_decode_codex_source`.
+2. Run `npm run prepare:asar`.
+3. For upstream edits, first check `restored/`. If the corresponding file or
+   code exists there, generate an ordinary git patch under
+   `patches/restored/*.patch`.
+4. Use `patches/asar/*.patch` only for code that is still only present in
+   bundled `ref/` assets.
+5. Validate with:
 
 ```bash
-rm -rf scratch scratch-backup # remove existing past scratch directories to start from clean state
-DEV=1 nix develop --command yarn run prepare:asar
-mv scratch scratch-backup
+npm run prepare:asar
+npm run build:browser
+npm run build:server
+node --test tests/prepare-cache.test.mjs tests/desktop-adaptation-pipeline.test.mjs
 ```
 
-the `scratch-backup` directory holds the patched, working version of codex-web.
-we will use this when moving the patches over to the new version to understand
-the context the patches were being applied in.
-
-## updating urls
-
-there are a few places to update next.
-
-1. `appVersion` in default.nix and `hash` in `codexZip`.
-2. `APP_VERSION` in ./scripts/prepare
-
-## from-zero adaptation pipeline
-
-for a fresh upstream artifact, prefer the single entry point:
-
-```bash
-HOSTED_CODEX_APP_ZIP=/path/to/Codex.zip npm run adapt:desktop -- --prepare --smoke runtime
-```
-
-or, when the zip path should be passed explicitly:
-
-```bash
-npm run adapt:desktop -- --zip /path/to/Codex.zip --smoke runtime
-```
-
-the pipeline does the following:
-
-1. unpacks the upstream app with `scripts/prepare_asar`.
-2. generates `patches/webview-preload.patch` and
-   `scratch/preload-hook-report.json` from the upstream artifacts.
-3. fails if `support.ok` or `staticReview.ok` is not true.
-4. builds browser assets, including `webview/assets/preload.js`.
-5. runs the focused patch/static tests.
-6. runs the preload smoke probe.
-
-runtime smoke loads the generated `webview/index.html` in an Electron renderer
-and checks the preload bridge over CDP. on Linux, it needs `DISPLAY`,
-`WAYLAND_DISPLAY`, or an xvfb wrapper.
-in a non-graphical environment, run the same gate with preflight smoke:
-
-```bash
-npm run adapt:desktop -- --smoke preflight
-```
-
-`--smoke preflight` still verifies the generated preload report, patched
-`webview/index.html`, generated `webview/assets/preload.js`, and executes that
-preload bundle in a VM with browser/Electron shims. it does not launch Electron.
-use `--smoke runtime` before calling the upgrade complete.
-
-CI can run the non-graphical gate with:
-
-```bash
-npm run check:desktop-adaptation
-```
-
-the report gate is intentionally strict. if it fails, inspect:
-
-```bash
-node -e 'const r=require("./scratch/preload-hook-report.json"); console.log(r.support, r.staticReview)'
-```
-
-all static review arrays must be empty:
-
-- `unknownRendererArguments`
-- `unresolvedBridgeReturns`
-- `unresolvedIpcPayloads`
-- `unsupportedBridgeMethodCalls`
-
-after the report gate passes, do a short manual semantic review before calling
-the upgrade complete:
-
-- for each new `staticProfile.electronBridgeContracts[]` entry, confirm the
-  params, ipc channel, payload shape, and return kind match renderer usage.
-- for each new `rendererAssetProfile.bridgeMethodCalls[]` entry, confirm the
-  argument values are understood; do not accept identifier/expression gaps
-  without tracing the source.
-- for each event channel or worker id, confirm lifecycle and payload keys match
-  the browser shim.
-- for each main-world key, confirm whether it must be exposed in browser mode
-  or intentionally omitted.
-- run a simulated drift check by changing a fixture or upstream asset to call a
-  missing bridge method; `npm run adapt:desktop -- --smoke preflight` must fail.
-
-then temporarily comment out the patch lines in ./scripts/prepare_asar and run
-
-```bash
-DEV=1 nix develop --command yarn run prepare:asar
-cp -r scratch scratch-new-version-unmodified
-```
-
-## upgrading the codex-cli version
-
-this part can be run concurrently with the rest of the upgrade process. make
-sure to wait for its completion before doing validation. run it in a subagent.
-
-run the following to get the version of the new codex-cli
-
-```bash
-scratch/Codex.app/Contents/Resources/codex --version
-```
-
-then update the `nix/codex/default.nix` file's `version` field and hashes to
-point to the new version.
-
-## porting over patches
-
-now we have a few folders
-
-- `scratch-backup`: patches applied on top of old version of Codex Desktop
-- `scratch-new-version-unmodified`: plain extracted new version of Codex Desktop
-- `scratch`: working copy we will be modifying
-
-now carefully look at the patches in `patches/` and how they were applied in
-`scratch-backup` and bring the changes over to `scratch`. apply them directly
-in-tree first. don't worry immediately about updating the patches yet.
-
-## updating patches
-
-once the patches have been made in `scratch`, diff the changes in `scratch`
-against `scratch-new-version-unmodified` and update the patches in `patches/`.
-always generate the patches by running `diff` and always avoid writing the
-patches manually as it's very easy to get them wrong.
-
-once that is done, uncomment the patch lines in `scripts/prepare_asar` and run
-
-```bash
-mv scratch scratch-patched-inplace
-rm -rf scratch
-DEV=1 nix develop --command yarn run prepare:asar
-```
-
-then diff `./scratch-patched-inplace` with the resulting `./scratch` to validate
-the patches were applied as expected.
-
-## validation
-
-to validate things are still working, we'll first validate the server, then the
-client. before starting this step, make sure to wait for the
-`upgrading the codex-cli version` subagent to finish.
-
-to validate the server, run the following
-
-```bash
-nix develop --command yarn server
-```
-
-next validate the client by opening a browser window to `http://localhost:8214`
-and validating things show up on the page.
-
-look in the console for errors. also, look on the screen to see whether any
-error dialogs popped up. sometimes errors occur, but they're silent and exhibit
-as loading taking forever (more than 1m). look out for that case too.
-
-if there are errors, bring them to the users attention and we will decide how to
-proceed.
+Do not add hosted archive or search-and-mutate patcher paths back.

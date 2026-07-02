@@ -1,0 +1,19 @@
+diff --git a/main/ipc/view-message-ipc/view-message-handler.ts b/main/ipc/view-message-ipc/view-message-handler.ts
+index 83926ad..c4c0e68 100644
+--- a/main/ipc/view-message-ipc/view-message-handler.ts
++++ b/main/ipc/view-message-ipc/view-message-handler.ts
+@@ -258,12 +258,13 @@ export function registerViewMessageIpcHandler({
+ 
+       if (message.type === "open-in-new-window") {
+         if (!isValidAppRoute(message.path)) return;
+         hotkeyWindowLifecycleManager.hide();
+-        const targetWindow = await createFreshWindow(message.path);
++        const targetWindow = await ensureWindow();
+         if (targetWindow != null) {
+           showAndFocusWindow(targetWindow);
++          navigateToRoute(targetWindow, message.path);
+         }
+         return;
+       }
+ 
+       if (message.type === "show-settings") {

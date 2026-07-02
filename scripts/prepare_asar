@@ -1,12 +1,35 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
-HOSTED_CODEX_APP_ZIP="${HOSTED_CODEX_APP_ZIP:-"$("$BASH" ./scripts/resolve_codex_app_zip)"}"
+CODEX_APP_BASE_DIR="${CODEX_APP_BASE_DIR:-}"
+DECODE_CODEX_SOURCE_DIR="${CODEX_DECODE_CODEX_DIR:-}"
+if [[ -z "$CODEX_APP_BASE_DIR" ]]; then
+  DECODE_CODEX_SOURCE_DIR="${DECODE_CODEX_SOURCE_DIR:-"$("$BASH" ./scripts/resolve_decode_codex_source)"}"
+  if [[ ! -d "$DECODE_CODEX_SOURCE_DIR/ref" || ! -d "$DECODE_CODEX_SOURCE_DIR/restored" ]]; then
+    echo "missing decode-codex ref/restored under $DECODE_CODEX_SOURCE_DIR" >&2
+    exit 1
+  fi
+  CODEX_APP_BASE_DIR="$DECODE_CODEX_SOURCE_DIR/ref"
+elif [[ -z "$DECODE_CODEX_SOURCE_DIR" && -d "$(dirname "$CODEX_APP_BASE_DIR")/restored" ]]; then
+  DECODE_CODEX_SOURCE_DIR="$(dirname "$CODEX_APP_BASE_DIR")"
+fi
+if [[ -z "$CODEX_APP_BASE_DIR" || ! -d "$CODEX_APP_BASE_DIR" ]]; then
+  echo "missing decoded Codex app base: set CODEX_APP_BASE_DIR or CODEX_DECODE_CODEX_DIR" >&2
+  exit 1
+fi
+if [[ -z "$DECODE_CODEX_SOURCE_DIR" || ! -d "$DECODE_CODEX_SOURCE_DIR/restored" ]]; then
+  echo "missing decode-codex restored under $DECODE_CODEX_SOURCE_DIR" >&2
+  exit 1
+fi
 
-rm -rf scratch/Codex.app scratch/asar
-unzip -o "$HOSTED_CODEX_APP_ZIP" -d scratch/
-asar extract "scratch/Codex.app/Contents/Resources/app.asar" "scratch/asar"
+rm -rf scratch/Codex.app scratch/asar scratch/restored
+mkdir -p scratch/asar
+cp -R "$CODEX_APP_BASE_DIR"/. scratch/asar/
+mkdir -p scratch/restored
+cp -R "$DECODE_CODEX_SOURCE_DIR"/restored/. scratch/restored/
 cp assets/favicon.svg assets/manifest.json scratch/asar/webview/
+mkdir -p scratch/asar/webview/apps
+cp assets/apps/* scratch/asar/webview/apps/
 PWA_SOURCE_ICON="scratch/asar/webview/assets/app-D0g8sCle.png"
 PWA_TARGET_ICON="scratch/asar/webview/assets/pwa-icon-512.png"
 PWA_ICON_SIZE=512
@@ -16,7 +39,6 @@ PWA_PADDING_TOTAL=$((PWA_ICON_SIZE - PWA_CONTENT_SIZE))
 PWA_PADDING_BEFORE=$((PWA_PADDING_TOTAL / 2))
 PWA_PADDING_AFTER=$((PWA_PADDING_TOTAL - PWA_PADDING_BEFORE))
 sharp -i "$PWA_SOURCE_ICON" -o "$PWA_TARGET_ICON" -f png resize "$PWA_CONTENT_SIZE" "$PWA_CONTENT_SIZE" --fit inside -- flatten white -- extend "$PWA_PADDING_BEFORE" "$PWA_PADDING_AFTER" "$PWA_PADDING_BEFORE" "$PWA_PADDING_AFTER" --background white -- removeAlpha
-node scripts/adapt_preload_hook.mjs scratch/asar patches/webview-preload.patch scratch/preload-hook-report.json
 if [[ -n "${DEV:-}" ]]; then
   prettier --ignore-path /dev/null --ignore-unknown --write "scratch/asar"
 else
@@ -32,6 +54,81 @@ patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-rem
 patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-preload.patch
 patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-favicon.patch
 patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-pwa.patch
-node scripts/patch_webview_assets.mjs scratch/asar/webview/assets
-node scripts/patch_sentry_disable.mjs scratch/asar
+shopt -s nullglob
+
+materialize_restored_file() {
+  local restored_file="$1"
+  case "$restored_file" in
+    app-shell/sidebar-navigation-controls.tsx)
+      node scripts/generate_restored_runtime_chunk.mjs scratch/restored scratch/asar "$restored_file"
+      ;;
+    settings/settings-sections.ts)
+      node scripts/generate_restored_runtime_chunk.mjs scratch/restored scratch/asar "$restored_file"
+      ;;
+    vendor/remote-projects-app-shared-current-bundle.ts)
+      node scripts/generate_restored_runtime_chunk.mjs scratch/restored scratch/asar "$restored_file"
+      ;;
+    main/ipc/view-message-ipc/view-message-handler.ts)
+      node scripts/generate_restored_runtime_chunk.mjs scratch/restored scratch/asar "$restored_file"
+      ;;
+    app-shell/thread-app-shell-chrome/open-primary-target.tsx)
+      node scripts/generate_restored_runtime_chunk.mjs scratch/restored scratch/asar "$restored_file"
+      ;;
+    thread-summary/local-remote-dropdown-parts/local-remote-dropdown.tsx)
+      node scripts/generate_restored_runtime_chunk.mjs scratch/restored scratch/asar "$restored_file"
+      ;;
+    terminal/terminal-panel.tsx)
+      node scripts/generate_restored_runtime_chunk.mjs scratch/restored scratch/asar "$restored_file"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+restored_patches=(patches/restored/*.patch)
+for restored_patch in "${restored_patches[@]}"; do
+  if [[ ! -d scratch/restored ]]; then
+    echo "missing scratch/restored for $restored_patch" >&2
+    exit 1
+  fi
+  git apply --directory scratch/restored "$restored_patch"
+done
+if ((${#restored_patches[@]})); then
+  changed_restored_files="$(mktemp)"
+  for restored_patch in "${restored_patches[@]}"; do
+    git apply --numstat "$restored_patch" | cut -f3-
+  done >"$changed_restored_files"
+  sort -u -o "$changed_restored_files" "$changed_restored_files"
+  while IFS= read -r restored_file; do
+    [[ -n "$restored_file" ]] || continue
+    if [[ ! -e "scratch/asar/$restored_file" ]]; then
+      if materialize_restored_file "$restored_file"; then
+        continue
+      else
+        echo "restored patch changed $restored_file but scratch/asar/$restored_file does not exist; add a materialization step or use patches/asar only when restored has no corresponding code" >&2
+        exit 1
+      fi
+    fi
+    if [[ -f "scratch/restored/$restored_file" ]]; then
+      cp "scratch/restored/$restored_file" "scratch/asar/$restored_file"
+    else
+      rm -f "scratch/asar/$restored_file"
+    fi
+  done <"$changed_restored_files"
+  rm -f "$changed_restored_files"
+fi
+asar_patches=(patches/asar/*.patch)
+for asar_patch in "${asar_patches[@]}"; do
+  if [[ -d scratch/restored ]]; then
+    while IFS= read -r asar_file; do
+      [[ -n "$asar_file" ]] || continue
+      if [[ -e "scratch/restored/$asar_file" ]]; then
+        echo "asar patch $asar_patch targets $asar_file, but restored has the same path; patch patches/restored instead" >&2
+        exit 1
+      fi
+    done < <(awk '/^\+\+\+ b\//{sub(/^\+\+\+ b\//, ""); print}' "$asar_patch")
+  fi
+  git apply --directory scratch/asar "$asar_patch"
+done
 rm -rf scratch/asar/node_modules/better-sqlite3 scratch/asar/node_modules/node-pty

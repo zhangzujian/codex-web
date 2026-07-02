@@ -1,0 +1,83 @@
+diff --git a/vendor/remote-projects-app-shared-current-bundle.ts b/vendor/remote-projects-app-shared-current-bundle.ts
+--- a/vendor/remote-projects-app-shared-current-bundle.ts
++++ b/vendor/remote-projects-app-shared-current-bundle.ts
+@@ -238,6 +238,47 @@ function sn(e, t) {
+         (n[r[i]] = e[r[i]]);
+   return n;
+ }
++function codexWebStatsigNoopClient(e) {
++  return new Proxy(e, {
++    get(t, n, r) {
++      if (n === `getDynamicConfig`)
++        return (n, r) => {
++          let i = t.getDynamicConfig(n, r);
++          return (
++            window.__ELECTRON_SHIM__?.overrideAdapter?.getDynamicConfigOverride?.(
++              i,
++            ) ?? i
++          );
++        };
++      if (n === `getLayer`)
++        return (n, r) => {
++          let i = t.getLayer(n, r);
++          return (
++            window.__ELECTRON_SHIM__?.overrideAdapter?.getLayerOverride?.(i) ??
++            i
++          );
++        };
++      if (n === `getFeatureGate`)
++        return (n, r) => {
++          let i = t.getFeatureGate(n, r);
++          return (
++            window.__ELECTRON_SHIM__?.overrideAdapter?.getGateOverride?.(i) ?? i
++          );
++        };
++      if (n === `checkGate`)
++        return (n, r) => {
++          let i = t.checkGate(n, r);
++          return (
++            window.__ELECTRON_SHIM__?.overrideAdapter?.getGateOverride?.({
++              name: n,
++              value: i,
++            })?.value ?? i
++          );
++        };
++      return Reflect.get(t, n, r);
++    },
++  });
++}
+ function cn(e, t, n, r) {
+   function i(e) {
+     return e instanceof n
+@@ -6641,10 +6682,7 @@ var vo,
+         var t;
+         if (!this._shouldLogEvent(e)) return;
+         let n = this._normalizeEvent(e);
+-        if (this._loggingEnabled === `disabled`) {
+-          this._storeEventToStorage(n);
+-          return;
+-        }
++        if (this._loggingEnabled === `disabled`) return;
+         (this._initFlushCoordinator().addEvent(n),
+           (t = this._flushCoordinator) == null || t.checkQuickFlush());
+       }
+@@ -6657,6 +6695,7 @@ var vo,
+       }
+       start() {
+         let t = (0, u._isServerEnv)();
++        if (this._loggingEnabled === `disabled`) return;
+         if (t && this._options?.loggingEnabled !== `always`) return;
+         let n = this._initFlushCoordinator();
+         ((v[this._sdkKey] = this),
+@@ -9294,10 +9333,7 @@ var vo,
+         s = (0, t.useMemo)(
+           () =>
+             (0, r.isNoopClient)(e)
+-              ? (n.Log.warn(
+-                  `Attempting to retrieve a StatsigClient but none was set.`,
+-                ),
+-                r.NoopEvaluationsClient)
++              ? codexWebStatsigNoopClient(r.NoopEvaluationsClient)
+               : e,
+           [e, a],
+         ),

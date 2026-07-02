@@ -1,0 +1,32 @@
+diff --git a/terminal/terminal-panel.tsx b/terminal/terminal-panel.tsx
+index 4575082..c60971f 100644
+--- a/terminal/terminal-panel.tsx
++++ b/terminal/terminal-panel.tsx
+@@ -40,6 +40,13 @@ function fitAndResizeTerminal(
+   terminalSessionManager.resize(sessionId, terminal.cols, terminal.rows);
+ }
+ 
++function readBrowserTerminalFont(): string {
++  if (typeof window === "undefined") return "";
++  const value = (window as unknown as { __CODEX_WEB_TERMINAL_FONT__?: unknown })
++    .__CODEX_WEB_TERMINAL_FONT__;
++  return typeof value === "string" ? value.trim() : "";
++}
++
+ export function TerminalPanel(props: TerminalPanelProps) {
+   const key = props.sessionId ?? props.conversationId;
+   return (
+@@ -107,6 +117,12 @@ function TerminalPanelSurface({
+       : resolveChromeTheme(darkChromeThemeSetting, "dark");
+   const themeFont = resolvedChromeTheme.fonts.code?.trim() ?? "";
+-  const chosenFont = themeFont.length > 0 ? themeFont : fontSettings;
++  const browserTerminalFont = readBrowserTerminalFont();
++  const chosenFont =
++    browserTerminalFont.length > 0
++      ? browserTerminalFont
++      : themeFont.length > 0
++        ? themeFont
++        : fontSettings;
+   const fontSize = codeFontSizeSetting ?? 12;
+   const fontFamily = normalizeTerminalFontFamily(chosenFont);
+   const primaryFontFamily = chosenFont.split(",")[0]?.trim() ?? "";

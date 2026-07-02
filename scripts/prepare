@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
-HOSTED_CODEX_APP_ZIP="$("$BASH" ./scripts/resolve_codex_app_zip)"
-
-HOSTED_CODEX_APP_ZIP="$HOSTED_CODEX_APP_ZIP" bash ./scripts/prepare_asar
+bash ./scripts/prepare_asar

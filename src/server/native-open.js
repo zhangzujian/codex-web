@@ -11,7 +11,6 @@ const node_child_process_1 = require("node:child_process");
 const promises_1 = __importDefault(require("node:fs/promises"));
 const node_path_1 = __importDefault(require("node:path"));
 const node_util_1 = require("node:util");
-const remote_default_config_1 = require("./remote-default-config");
 const MESSAGE_FOR_VIEW_CHANNEL = "codex_desktop:message-for-view";
 const execFileAsync = (0, node_util_1.promisify)(node_child_process_1.execFile);
 async function createOpenInTargetsPayload(environment = {}, request = {}) {
@@ -50,11 +49,12 @@ async function createOpenInTargetsPayload(environment = {}, request = {}) {
         });
         availableTargets.push("xsftp");
     }
-    if (gitWebRemote != null && systemOpenAvailable) {
+    if (gitWebRemote != null) {
         targets.push({
             id: gitWebRemote.id,
             label: gitWebRemote.label,
             target: gitWebRemote.target,
+            icon: gitWebRemote.icon,
             kind: "native",
         });
         availableTargets.push(gitWebRemote.target);
@@ -169,6 +169,14 @@ async function handleNativeOpenFetchMessage(message, environment = {}) {
             sendFetchResponse(environment, fetchMessage.requestId, 200, await createOpenInTargetsPayload(environment, body));
             return true;
         }
+        const target = stringValue(body.target);
+        if (target === "github" || target === "gitlab") {
+            sendFetchResponse(environment, fetchMessage.requestId, 200, {
+                openInBrowser: true,
+                url: await createGitWebFileUrl(body, environment),
+            });
+            return true;
+        }
         const command = await createOpenFileCommand(body, environment);
         const spawnDetached = environment.spawnDetached ?? defaultSpawnDetached;
         spawnDetached(command.command, command.args);
@@ -220,7 +228,7 @@ function parseFetchBody(body) {
     if (!isRecord(parsed)) {
         throw new Error("Expected fetch body JSON to be an object");
     }
-    return parsed;
+    return isRecord(parsed.params) ? parsed.params : parsed;
 }
 function sendFetchResponse({ respond }, requestId, status, body) {
     respond?.({
@@ -366,6 +374,7 @@ function parseGitWebRemote(remoteUrl, environment) {
         id: provider,
         label: provider === "github" ? "GitHub" : "GitLab",
         target: provider,
+        icon: provider === "github" ? "apps/github.svg" : "apps/gitlab.svg",
         baseUrl: `${parsed.protocol}://${parsed.host}/${repoPath}`,
     };
 }
@@ -559,9 +568,7 @@ function remoteSshAuthority(request) {
     if (sshHost != null && sshHost.length > 0) {
         return `ssh-remote+${encodeURIComponent(sshHost)}`;
     }
-    return stringValue(request.hostId) === "remote:default"
-        ? `ssh-remote+${encodeURIComponent((0, remote_default_config_1.remoteDefaultSshHost)())}`
-        : null;
+    return null;
 }
 async function resolveCodeCommand(commandExists, configuredCommand = process.env.CODEX_WEB_VSCODE_CLI) {
     const configured = configuredCommand?.trim();

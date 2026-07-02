@@ -1,0 +1,19 @@
+diff --git a/settings/settings-sections.ts b/settings/settings-sections.ts
+--- a/settings/settings-sections.ts
++++ b/settings/settings-sections.ts
+@@ -8,7 +8,6 @@ export const SETTINGS_SECTION_IDS = [
+   "codex-micro",
+   "appshots",
+   "appearance",
+-  "pets",
+   "agent",
+   "git-settings",
+   "data-controls",
+@@ -33,7 +32,6 @@ export const SETTINGS_SECTIONS = [
+   { slug: "general-settings" },
+   { slug: "profile" },
+   { slug: "appearance" },
+-  { slug: "pets" },
+   { slug: "appshots" },
+   { slug: "git-settings" },
+   { slug: "connections" },

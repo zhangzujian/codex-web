@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import os from "node:os";
 import test from "node:test";
 
 import {
@@ -63,7 +62,7 @@ test("webContents.postMessage forwards transferred virtual port IDs", () => {
   ]);
 });
 
-test("renderer shared-object updates expose the default remote host", () => {
+test("renderer shared-object updates expose local host state", () => {
   const messages = captureRendererMessages();
   const window = new BrowserWindow();
 
@@ -76,7 +75,7 @@ test("renderer shared-object updates expose the default remote host", () => {
   assert.deepEqual(messages[0].args[0], {
     type: "shared-object-updated",
     key: "host_config",
-    value: { id: "remote:default", display_name: os.hostname(), kind: "ssh" },
+    value: { id: "local", display_name: "Local", kind: "local" },
   });
 
   window.webContents.send("codex_desktop:message-for-view", {
@@ -84,18 +83,7 @@ test("renderer shared-object updates expose the default remote host", () => {
     key: "remote_connections",
     value: [],
   });
-  assert.deepEqual(messages[1].args[0].value, [
-    {
-      hostId: "remote:default",
-      displayName: os.hostname(),
-      source: "codex-managed",
-      sshHost: os.hostname(),
-      sshPort: null,
-      sshAlias: null,
-      identity: null,
-      autoConnect: true,
-    },
-  ]);
+  assert.deepEqual(messages[1].args[0].value, []);
 
   window.webContents.send("codex_desktop:message-for-view", {
     type: "shared-object-updated",
@@ -103,8 +91,8 @@ test("renderer shared-object updates expose the default remote host", () => {
     value: {},
   });
   assert.deepEqual(messages[2].args[0].value, {
-    remote_connections: true,
-    remote_ssh_connections: true,
+    remote_connections: false,
+    remote_ssh_connections: false,
   });
 
   window.webContents.send("codex_desktop:message-for-view", {
@@ -122,7 +110,7 @@ test("renderer shared-object updates expose the default remote host", () => {
   assert.equal(messages[4].args[0].value, null);
 });
 
-test("config reads expose browser remote connection features", () => {
+test("config reads disable browser remote connection features", () => {
   const messages = captureRendererMessages();
   const window = new BrowserWindow();
   const bridge = globalThis.__codexElectronIpcBridge;
@@ -130,7 +118,7 @@ test("config reads expose browser remote connection features", () => {
   bridge.handleRendererSend("codex_desktop:message-from-view", [
     {
       type: "mcp-request",
-      hostId: "remote:default",
+      hostId: "local",
       request: {
         jsonrpc: "2.0",
         id: "config-request",
@@ -159,12 +147,12 @@ test("config reads expose browser remote connection features", () => {
 
   assert.deepEqual(messages[0].args[0].message.result.config.features, {
     existing: true,
-    remote_connections: true,
-    remote_ssh_connections: true,
+    remote_connections: false,
+    remote_ssh_connections: false,
   });
 });
 
-test("mcp responses present local projects and projectless threads as default remote", () => {
+test("mcp responses preserve local projects and projectless threads", () => {
   const messages = captureRendererMessages();
   const window = new BrowserWindow();
   const bridge = globalThis.__codexElectronIpcBridge;
@@ -172,7 +160,7 @@ test("mcp responses present local projects and projectless threads as default re
   bridge.handleRendererSend("codex_desktop:message-from-view", [
     {
       type: "mcp-request",
-      hostId: "remote:default",
+      hostId: "local",
       request: {
         jsonrpc: "2.0",
         id: "roots-request",
@@ -197,7 +185,7 @@ test("mcp responses present local projects and projectless threads as default re
   bridge.handleRendererSend("codex_desktop:message-from-view", [
     {
       type: "mcp-request",
-      hostId: "remote:default",
+      hostId: "local",
       request: {
         jsonrpc: "2.0",
         id: "threads-request",
@@ -227,7 +215,7 @@ test("mcp responses present local projects and projectless threads as default re
   bridge.handleRendererSend("codex_desktop:message-from-view", [
     {
       type: "mcp-request",
-      hostId: "remote:default",
+      hostId: "local",
       request: {
         jsonrpc: "2.0",
         id: "remote-projects-request",
@@ -268,40 +256,18 @@ test("mcp responses present local projects and projectless threads as default re
     },
   });
 
-  assert.deepEqual(messages[0].args[0].message.result.roots, []);
+  assert.deepEqual(messages[0].args[0].message.result.roots, ["/repo/alpha"]);
   assert.deepEqual(messages[1].args[0].message.result.threads[0], {
     id: "projectless-thread",
     cwd: "~",
-    hostId: "remote:default",
-    workspaceKind: "workspace",
+    hostId: "local",
+    workspaceKind: "projectless",
   });
-  assert.deepEqual(messages[2].args[0].message.result.value, [
-    {
-      id: "/repo/alpha",
-      hostId: "remote:default",
-      label: "Alpha",
-      path: "/repo/alpha",
-      remotePath: "/repo/alpha",
-    },
-    {
-      id: "~",
-      hostId: "remote:default",
-      label: "Remote",
-      path: "~",
-      remotePath: "~",
-    },
-  ]);
-  assert.deepEqual(messages[3].args[0].message.result.value, {
-    "projectless-thread": {
-      projectKind: "remote",
-      projectId: "~",
-      hostId: "remote:default",
-      path: "~",
-    },
-  });
+  assert.deepEqual(messages[2].args[0].message.result.value, []);
+  assert.deepEqual(messages[3].args[0].message.result.value, {});
 });
 
-test("projectless ids synthesize remote assignments before thread list is loaded", () => {
+test("projectless ids and assignments pass through unchanged", () => {
   const messages = captureRendererMessages();
   const window = new BrowserWindow();
   const bridge = globalThis.__codexElectronIpcBridge;
@@ -350,27 +316,13 @@ test("projectless ids synthesize remote assignments before thread list is loaded
     },
   });
 
-  assert.deepEqual(messages[0].args[0].message.result.value, []);
-  assert.deepEqual(
-    messages[1].args[0].message.result.value[
-      "projectless-before-thread-list"
-    ],
-    {
-      projectKind: "remote",
-      projectId: "~",
-      hostId: "remote:default",
-      path: "~",
-    },
-  );
-  assert.equal(
-    Object.values(messages[1].args[0].message.result.value).every(
-      (assignment) => assignment.hostId === "remote:default",
-    ),
-    true,
-  );
+  assert.deepEqual(messages[0].args[0].message.result.value, [
+    "projectless-before-thread-list",
+  ]);
+  assert.deepEqual(messages[1].args[0].message.result.value, {});
 });
 
-test("generated projectless cwd threads are assigned to remote home", () => {
+test("generated projectless cwd threads remain local", () => {
   const messages = captureRendererMessages();
   const window = new BrowserWindow();
   const bridge = globalThis.__codexElectronIpcBridge;
@@ -378,7 +330,7 @@ test("generated projectless cwd threads are assigned to remote home", () => {
   bridge.handleRendererSend("codex_desktop:message-from-view", [
     {
       type: "mcp-request",
-      hostId: "remote:default",
+      hostId: "local",
       request: {
         jsonrpc: "2.0",
         id: "generated-projectless-thread-request",
@@ -429,21 +381,12 @@ test("generated projectless cwd threads are assigned to remote home", () => {
   assert.deepEqual(messages[0].args[0].message.result.data[0], {
     conversationId: "generated-projectless-thread",
     cwd: "/home/user/Documents/Codex/2026-06-23-debug-win11",
-    hostId: "remote:default",
-    workspaceKind: "workspace",
+    hostId: "local",
   });
-  assert.deepEqual(
-    messages[1].args[0].message.result.value["generated-projectless-thread"],
-    {
-      projectKind: "remote",
-      projectId: "~",
-      hostId: "remote:default",
-      path: "~",
-    },
-  );
+  assert.deepEqual(messages[1].args[0].message.result.value, {});
 });
 
-test("thread summaries without cwd are assigned to remote home", () => {
+test("thread summaries without cwd remain local", () => {
   const messages = captureRendererMessages();
   const window = new BrowserWindow();
   const bridge = globalThis.__codexElectronIpcBridge;
@@ -451,7 +394,7 @@ test("thread summaries without cwd are assigned to remote home", () => {
   bridge.handleRendererSend("codex_desktop:message-from-view", [
     {
       type: "mcp-request",
-      hostId: "remote:default",
+      hostId: "local",
       request: {
         jsonrpc: "2.0",
         id: "summary-without-cwd-request",
@@ -504,21 +447,12 @@ test("thread summaries without cwd are assigned to remote home", () => {
     conversationId: "summary-without-cwd",
     title: "No project",
     updatedAt: messages[0].args[0].message.result.data[0].updatedAt,
-    hostId: "remote:default",
-    workspaceKind: "workspace",
+    hostId: "local",
   });
-  assert.deepEqual(
-    messages[1].args[0].message.result.value["summary-without-cwd"],
-    {
-      projectKind: "remote",
-      projectId: "~",
-      hostId: "remote:default",
-      path: "~",
-    },
-  );
+  assert.deepEqual(messages[1].args[0].message.result.value, {});
 });
 
-test("fetch responses present projectless conversations as remote workspace threads", () => {
+test("fetch responses preserve projectless conversations as local threads", () => {
   const messages = captureRendererMessages();
   const window = new BrowserWindow();
 
@@ -543,18 +477,18 @@ test("fetch responses present projectless conversations as remote workspace thre
   const body = JSON.parse(messages[0].args[0].bodyJsonString);
   assert.deepEqual(body, {
     data: [
-      {
-        id: "projectless-thread",
-        cwd: null,
-        hostId: "remote:default",
-        workspaceKind: "workspace",
-      },
-    ],
-    projectlessThreadIds: [],
+        {
+          id: "projectless-thread",
+          cwd: null,
+          hostId: "local",
+          workspaceKind: "projectless",
+        },
+      ],
+    projectlessThreadIds: ["projectless-thread"],
   });
 });
 
-test("send-cli fetch responses present projectless globals as remote assignments", () => {
+test("send-cli fetch responses preserve projectless globals", () => {
   const messages = captureRendererMessages();
   const window = new BrowserWindow();
   const bridge = globalThis.__codexElectronIpcBridge;
@@ -608,28 +542,18 @@ test("send-cli fetch responses present projectless globals as remote assignments
   });
 
   assert.deepEqual(JSON.parse(messages[0].args[0].bodyJsonString), {
-    value: [],
+    value: ["fetch-projectless-thread"],
   });
-  assert.deepEqual(
-    JSON.parse(messages[1].args[0].bodyJsonString).value[
-      "fetch-projectless-thread"
-    ],
-    {
-      projectKind: "remote",
-      projectId: "~",
-      hostId: "remote:default",
-      path: "~",
-    },
-  );
+  assert.deepEqual(JSON.parse(messages[1].args[0].bodyJsonString).value, {});
 });
 
-test("saved default remote projects are returned in direct global-state fetches", () => {
+test("direct global-state fetches pass through local project state", () => {
   const messages = captureRendererMessages();
   const window = new BrowserWindow();
   const bridge = globalThis.__codexElectronIpcBridge;
   const listener = (event, message) => {
     const body = JSON.parse(message.body);
-    assert.equal(body.value[0].hostId, "remote:default");
+    assert.equal(body.value[0].hostId, "local");
     event.reply("codex_desktop:message-for-view", {
       type: "fetch-response",
       requestId: message.requestId,
@@ -652,9 +576,9 @@ test("saved default remote projects are returned in direct global-state fetches"
           key: "REMOTE_PROJECTS",
           value: [
             {
-              id: "new-remote-project",
-              hostId: "remote:default",
-              remotePath: "/repo/new",
+              id: "new-local-project",
+              hostId: "local",
+              path: "/repo/new",
               label: "New",
             },
           ],
@@ -683,18 +607,10 @@ test("saved default remote projects are returned in direct global-state fetches"
     bodyJsonString: JSON.stringify({ value: [] }),
   });
 
-  assert.equal(
-    JSON.parse(messages[1].args[0].bodyJsonString).value.some(
-      (project) =>
-        project.id === "new-remote-project" &&
-        project.hostId === "remote:default" &&
-        project.remotePath === "/repo/new",
-    ),
-    true,
-  );
+  assert.deepEqual(JSON.parse(messages[1].args[0].bodyJsonString).value, []);
 });
 
-test("default remote mcp requests are served through the local app server", () => {
+test("local mcp requests are served through the local app server", () => {
   const messages = captureRendererMessages();
   const bridge = globalThis.__codexElectronIpcBridge;
   const window = new BrowserWindow();
@@ -724,7 +640,7 @@ test("default remote mcp requests are served through the local app server", () =
     bridge.handleRendererSend("codex_desktop:message-from-view", [
       {
         type: "mcp-request",
-        hostId: "remote:default",
+        hostId: "local",
         request: {
           jsonrpc: "2.0",
           id: "proxied-thread-list",
@@ -737,16 +653,15 @@ test("default remote mcp requests are served through the local app server", () =
     ipcMain.off("codex_desktop:message-from-view", listener);
   }
 
-  assert.equal(messages[0].args[0].hostId, "remote:default");
+  assert.equal(messages[0].args[0].hostId, "local");
   assert.deepEqual(messages[0].args[0].message.result.data[0], {
     conversationId: "proxied-thread",
     cwd: "/home/user/Documents/Codex/2026-06-23-proxied",
-    hostId: "remote:default",
-    workspaceKind: "workspace",
+    hostId: "local",
   });
 });
 
-test("default remote mcp responses are returned through the local app server", () => {
+test("local mcp responses are returned through the local app server", () => {
   captureRendererMessages();
   const bridge = globalThis.__codexElectronIpcBridge;
   const seen = [];
@@ -759,7 +674,7 @@ test("default remote mcp responses are returned through the local app server", (
     bridge.handleRendererSend("codex_desktop:message-from-view", [
       {
         type: "mcp-response",
-        hostId: "remote:default",
+        hostId: "local",
         response: {
           id: 0,
           result: {
@@ -780,7 +695,7 @@ test("default remote mcp responses are returned through the local app server", (
   assert.equal(seen[0].response.result.success, true);
 });
 
-test("default remote thread prewarm requests are served through the local app server", () => {
+test("local thread prewarm requests are served through the local app server", () => {
   const messages = captureRendererMessages();
   const bridge = globalThis.__codexElectronIpcBridge;
   const listener = (event, message) => {
@@ -811,12 +726,12 @@ test("default remote thread prewarm requests are served through the local app se
     bridge.handleRendererSend("codex_desktop:message-from-view", [
       {
         type: "thread-prewarm-start",
-        hostId: "remote:default",
+        hostId: "local",
         request: {
           jsonrpc: "2.0",
           id: "prewarm-thread-start",
           method: "thread/start",
-          params: { hostId: "remote:default", cwd: "/repo/alpha" },
+          params: { hostId: "local", cwd: "/repo/alpha" },
         },
       },
     ]);
@@ -824,10 +739,10 @@ test("default remote thread prewarm requests are served through the local app se
     ipcMain.off("codex_desktop:message-from-view", listener);
   }
 
-  assert.equal(messages[0].args[0].hostId, "remote:default");
+  assert.equal(messages[0].args[0].hostId, "local");
   assert.deepEqual(messages[0].args[0].message.result.thread, {
     id: "prewarmed-thread",
-    hostId: "remote:default",
+    hostId: "local",
     cwd: "/repo/alpha",
     title: "Prewarmed thread",
   });
@@ -921,7 +836,7 @@ test("local thread notifications stay on the local host", () => {
   );
 });
 
-test("default remote ipc fetch requests are served through the local app server", () => {
+test("local ipc fetch requests are served through the local app server", () => {
   const messages = captureRendererMessages();
   const bridge = globalThis.__codexElectronIpcBridge;
   const window = new BrowserWindow();
@@ -953,7 +868,7 @@ test("default remote ipc fetch requests are served through the local app server"
         url: "vscode://codex/ipc-request",
         body: JSON.stringify({
           method: "fs-read-directory",
-          params: { hostId: "remote:default", path: "/repo" },
+          params: { hostId: "local", path: "/repo" },
         }),
       },
     ]);
@@ -962,12 +877,12 @@ test("default remote ipc fetch requests are served through the local app server"
   }
 
   assert.deepEqual(JSON.parse(messages[0].args[0].bodyJsonString), {
-    hostId: "remote:default",
+    hostId: "local",
     entries: [],
   });
 });
 
-test("default remote codex fetch params are served through the local app server", () => {
+test("local codex fetch params are served through the local app server", () => {
   const messages = captureRendererMessages();
   const bridge = globalThis.__codexElectronIpcBridge;
   const window = new BrowserWindow();
@@ -994,7 +909,7 @@ test("default remote codex fetch params are served through the local app server"
         method: "POST",
         url: "vscode://codex/codex-home",
         body: JSON.stringify({
-          params: { hostId: "remote:default" },
+          params: { hostId: "local" },
         }),
       },
     ]);
@@ -1003,12 +918,12 @@ test("default remote codex fetch params are served through the local app server"
   }
 
   assert.deepEqual(JSON.parse(messages[0].args[0].bodyJsonString), {
-    hostId: "remote:default",
+    hostId: "local",
     codexHome: "/home",
   });
 });
 
-test("default remote start-conversation fetch localizes nested host ids", () => {
+test("local start-conversation fetch keeps local host ids", () => {
   const messages = captureRendererMessages();
   const bridge = globalThis.__codexElectronIpcBridge;
   const window = new BrowserWindow();
@@ -1036,13 +951,13 @@ test("default remote start-conversation fetch localizes nested host ids", () => 
         method: "POST",
         url: "vscode://codex/start-conversation",
         body: JSON.stringify({
-          hostId: "remote:default",
+          hostId: "local",
           input: [{ type: "text", text: "hello", text_elements: [] }],
           projectAssignment: {
-            projectKind: "remote",
+            projectKind: "local",
             projectId: "/repo",
             path: "/repo",
-            hostId: "remote:default",
+            hostId: "local",
           },
           preparePrimaryRuntimeForFirstTurn: true,
         }),
@@ -1092,7 +1007,7 @@ test("developer instructions guard Codex automations away from OS schedulers", (
   );
 });
 
-test("app-server notifications present local host payloads as default remote", () => {
+test("app-server notifications preserve local host payloads", () => {
   const messages = captureRendererMessages();
   const window = new BrowserWindow();
 
@@ -1107,16 +1022,16 @@ test("app-server notifications present local host payloads as default remote", (
     },
   });
 
-  assert.equal(messages[0].args[0].hostId, "remote:default");
+  assert.equal(messages[0].args[0].hostId, "local");
   assert.deepEqual(messages[0].args[0].conversation, {
     id: "notification-thread",
-    hostId: "remote:default",
+    hostId: "local",
     cwd: "/repo/alpha",
     title: "Notification thread",
   });
 });
 
-test("local pinned hydration keeps pinned summaries as default remote threads", () => {
+test("local pinned hydration keeps pinned summaries local", () => {
   const messages = captureRendererMessages();
   const window = new BrowserWindow();
   const bridge = globalThis.__codexElectronIpcBridge;
@@ -1156,7 +1071,7 @@ test("local pinned hydration keeps pinned summaries as default remote threads", 
     threads: [
       {
         conversationId: "pinned-thread",
-        hostId: "remote:default",
+        hostId: "local",
         cwd: "/repo/alpha",
         title: "Pinned thread",
       },
@@ -1164,7 +1079,7 @@ test("local pinned hydration keeps pinned summaries as default remote threads", 
   });
 });
 
-test("non-list mcp responses still normalize embedded thread payloads", () => {
+test("non-list mcp responses still keep embedded thread payloads local", () => {
   const messages = captureRendererMessages();
   const window = new BrowserWindow();
   const bridge = globalThis.__codexElectronIpcBridge;
@@ -1202,13 +1117,13 @@ test("non-list mcp responses still normalize embedded thread payloads", () => {
 
   assert.deepEqual(messages[0].args[0].message.result.threads[0], {
     conversationId: "hydrated-thread",
-    hostId: "remote:default",
+    hostId: "local",
     cwd: "/repo/alpha",
     title: "Hydrated thread",
   });
 });
 
-test("single-thread local mcp responses are routed as default remote", () => {
+test("single-thread local mcp responses stay local", () => {
   const messages = captureRendererMessages();
   const window = new BrowserWindow();
   const bridge = globalThis.__codexElectronIpcBridge;
@@ -1242,10 +1157,10 @@ test("single-thread local mcp responses are routed as default remote", () => {
     },
   });
 
-  assert.equal(messages[0].args[0].hostId, "remote:default");
+  assert.equal(messages[0].args[0].hostId, "local");
   assert.deepEqual(messages[0].args[0].message.result.thread, {
     id: "read-thread",
-    hostId: "remote:default",
+    hostId: "local",
     cwd: "/repo/alpha",
     title: "Read thread",
   });
@@ -1294,7 +1209,7 @@ test("ipcMain worker handlers can send responses back to renderer listeners", as
   ]);
 });
 
-test("git worker requests run default remote host operations through local app-server", async () => {
+test("git worker requests run local host operations through local app-server", async () => {
   const request = {
     type: "worker-request",
     workerId: "git",
@@ -1303,9 +1218,9 @@ test("git worker requests run default remote host operations through local app-s
       method: "availability",
       params: {
         hostConfig: {
-          id: "remote:default",
-          display_name: "idp-dev",
-          kind: "ssh",
+          id: "local",
+          display_name: "Local",
+          kind: "local",
         },
         operationSource: "local_conversation_thread",
       },

@@ -1,1 +1,1 @@
-{"version":3,"file":"remote-default-config.d.ts","sourceRoot":"","sources":["remote-default-config.ts"],"names":[],"mappings":"AAEA,eAAO,MAAM,sBAAsB,mBAAmB,CAAC;AAEvD,wBAAgB,oBAAoB,IAAI,MAAM,CAI7C;AAED,wBAAgB,uBAAuB;;;;EAMtC;AAED,wBAAgB,uBAAuB;;;;;;;;;EAYtC"}
+{"version":3,"file":"remote-default-config.d.ts","sourceRoot":"","sources":["remote-default-config.ts"],"names":[],"mappings":"AAAA,eAAO,MAAM,sBAAsB,UAAU,CAAC;AAE9C,wBAAgB,uBAAuB;;;;EAMtC"}

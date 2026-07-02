@@ -1,0 +1,47 @@
+diff --git a/webview/assets/app-initial~app-main~automations-page-Bc0ZtIBr.js b/webview/assets/app-initial~app-main~automations-page-Bc0ZtIBr.js
+index 51f1b37..8280ec0 100644
+--- a/webview/assets/app-initial~app-main~automations-page-Bc0ZtIBr.js
++++ b/webview/assets/app-initial~app-main~automations-page-Bc0ZtIBr.js
+@@ -20196,7 +20196,7 @@ var OG,
+   });
+ function PG({ appVersion: e, client: t, deviceId: n, enabled: r }) {
+   let { data: i, status: a } = Nv(),
+-    o = r && a === `success` && i === !0,
++    o = false,
+     s = (0, IG.useMemo)(() => FG(t), [t]),
+     c = (0, IG.useRef)(o),
+     l = (0, IG.useRef)(null),
+@@ -20397,6 +20397,7 @@ function BG({
+ }
+ var VG = e(() => {});
+ async function HG(e) {
++  return;
+   try {
+     switch (e.eventKind) {
+       case `turn_rating`:
+@@ -22088,10 +22090,13 @@ var xq,
+       (Mq = 5),
+       (Nq = 500),
+       (Pq = {
++        overrideAdapter: window.__ELECTRON_SHIM__.overrideAdapter,
++        disableLogging: true,
+         networkConfig: {
+           api: kq,
+           logEventUrl: OG,
+           sdkExceptionUrl: Aq,
++          preventAllNetworkTraffic: true,
+           networkOverrideFunc: nq,
+         },
+       }),
+diff --git a/webview/assets/app-initial~app-main~remote-conversation-page~new-thread-panel-page~appgen-library-page~hot~djo67r4n-CrVrqCBe.js b/webview/assets/app-initial~app-main~remote-conversation-page~new-thread-panel-page~appgen-library-page~hot~djo67r4n-CrVrqCBe.js
+index b5dc0b5..9fd1c9c 100644
+--- a/webview/assets/app-initial~app-main~remote-conversation-page~new-thread-panel-page~appgen-library-page~hot~djo67r4n-CrVrqCBe.js
++++ b/webview/assets/app-initial~app-main~remote-conversation-page~new-thread-panel-page~appgen-library-page~hot~djo67r4n-CrVrqCBe.js
+@@ -10414,6 +10414,7 @@ async function KO({
+   isReferralCta: r,
+   referralCtaText: i,
+ }) {
++  return false;
+   let a = { ...t },
+     s = {
+       eventType: e,

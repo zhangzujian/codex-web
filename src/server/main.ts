@@ -50,10 +50,7 @@ import {
   canHandleRemoteDefaultMcpMessage,
   handleRemoteDefaultMcpMessage,
 } from "./remote-default-mcp";
-import {
-  REMOTE_DEFAULT_HOST_ID,
-  remoteDefaultSshHost,
-} from "./remote-default-config";
+import { REMOTE_DEFAULT_HOST_ID } from "./remote-default-config";
 
 type ServerOptions = {
   auth?: {
@@ -576,11 +573,7 @@ export function canHandleWorkspaceDirectoryEntriesFetchMessage(
     return false;
   }
   const params = parseFetchBodyRecord(message.body);
-  return (
-    params.hostId == null ||
-    params.hostId === "local" ||
-    params.hostId === "remote:default"
-  );
+  return params.hostId == null || params.hostId === "local";
 }
 
 export async function handleWorkspaceDirectoryEntriesFetchMessage(
@@ -603,7 +596,9 @@ export async function handleWorkspaceDirectoryEntriesFetchMessage(
             ? params.directoryPath
             : null,
       },
-      params.hostId === "local" ? undefined : appServerClient,
+      params.hostId === "local" || params.hostId == null
+        ? undefined
+        : appServerClient,
     );
     sendFetchResponse(respond, message.requestId, 200, result);
   } catch (error) {
@@ -1672,7 +1667,7 @@ export function injectWebviewRuntimeScripts(
 ): string {
   const terminalFont = process.env.CODEX_WEB_TERMINAL_FONT?.trim() || null;
   const fontFace = terminalFontFaceStyle(terminalFont);
-  const scripts = `<script>${edgeFadeCustomPropertyBootstrapScript()}</script><script>${sidebarHistoryControlsBootstrapScript()}</script><script>${statsigOverrideBootstrapScript()}</script><script>window.__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__=${JSON.stringify(backendWebSocketToken)};window.__CODEX_WEB_REMOTE_SSH_HOST__=${JSON.stringify(remoteDefaultSshHost())};window.__CODEX_WEB_TERMINAL_FONT__=${JSON.stringify(terminalFont)};</script>`;
+  const scripts = `<script>${edgeFadeCustomPropertyBootstrapScript()}</script><script>${sidebarHistoryControlsBootstrapScript()}</script><script>${statsigOverrideBootstrapScript()}</script><script>window.__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__=${JSON.stringify(backendWebSocketToken)};window.__CODEX_WEB_TERMINAL_FONT__=${JSON.stringify(terminalFont)};</script>`;
   const preload =
     '<base href="/" /><script type="module" src="./assets/preload.js"></script>';
   const shellHtml = removeContentSecurityPolicyMeta(html)

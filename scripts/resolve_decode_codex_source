@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DECODE_CODEX_COMMIT="${DECODE_CODEX_COMMIT:-ddbb7ea19cd71b97e4e923befd7586633b19fe95}"
+DECODE_CODEX_ARCHIVE_URL="${DECODE_CODEX_ARCHIVE_URL:-https://github.com/JimLiu/decode-codex/archive/$DECODE_CODEX_COMMIT.tar.gz}"
+DECODE_CODEX_CACHE_DIR="${DECODE_CODEX_CACHE_DIR:-"$PWD/.cache/decode-codex"}"
+
+if [[ -n "${CODEX_DECODE_CODEX_DIR:-}" ]]; then
+  source_dir="$CODEX_DECODE_CODEX_DIR"
+else
+  source_dir="$DECODE_CODEX_CACHE_DIR/$DECODE_CODEX_COMMIT"
+fi
+
+if [[ ! -d "$source_dir/ref" || ! -d "$source_dir/restored" ]]; then
+  if [[ -n "${CODEX_DECODE_CODEX_DIR:-}" ]]; then
+    echo "missing decode-codex ref/restored under $source_dir" >&2
+    exit 1
+  fi
+
+  mkdir -p "$DECODE_CODEX_CACHE_DIR"
+  tmp_dir="$(mktemp -d "$DECODE_CODEX_CACHE_DIR/.download.XXXXXX")"
+  trap 'rm -rf "$tmp_dir"' EXIT
+
+  archive_path="$tmp_dir/decode-codex.tar.gz"
+  curl -fsSL "$DECODE_CODEX_ARCHIVE_URL" -o "$archive_path"
+  tar -xzf "$archive_path" -C "$tmp_dir" --strip-components=1 \
+    "decode-codex-$DECODE_CODEX_COMMIT/ref" \
+    "decode-codex-$DECODE_CODEX_COMMIT/restored"
+  rm "$archive_path"
+
+  rm -rf "$source_dir"
+  mv "$tmp_dir" "$source_dir"
+  trap - EXIT
+fi
+
+if [[ ! -d "$source_dir/ref" || ! -d "$source_dir/restored" ]]; then
+  echo "missing decode-codex ref/restored under $source_dir" >&2
+  exit 1
+fi
+
+printf '%s\n' "$source_dir"

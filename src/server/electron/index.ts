@@ -1,6 +1,5 @@
 import {
   REMOTE_DEFAULT_HOST_ID,
-  remoteDefaultConnection,
   remoteDefaultHostConfig,
 } from "../remote-default-config";
 
@@ -186,8 +185,6 @@ function extractVirtualPortIds(transfer: unknown[] | undefined): string[] {
   );
 }
 
-const GENERATED_PROJECTLESS_CWD_PATTERN =
-  /^(.*(?:^|[\\/])Documents[\\/]+Codex)[\\/]+(?:\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]*|\d{4}-\d{2}-\d{2}[\\/]+[a-z0-9][a-z0-9-]*)[\\/]*$/;
 const mcpRequests = new Map<
   string,
   { hostId: string; method: string; params: unknown }
@@ -198,15 +195,6 @@ const fetchRequests = new Map<
   string,
   { route: string; method: string | null; params: unknown }
 >();
-const remoteProjectState = {
-  workspaceRoots: [] as string[],
-  workspaceLabels: {} as Record<string, string>,
-  remoteProjects: [] as Record<string, unknown>[],
-  localProjects: {} as Record<string, unknown>,
-  writableRoots: {} as Record<string, unknown>,
-  threadPaths: new Map<string, string>(),
-  projectlessThreadIds: new Set<string>(),
-};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -217,7 +205,7 @@ function remoteDefaultSharedObjectValue(key: string, value: unknown): unknown {
     return remoteDefaultHostConfig();
   }
   if (key === "remote_connections" || key === "remote_ssh_connections") {
-    return [remoteDefaultConnection()];
+    return [];
   }
   if (key === "remote_wsl_connections") {
     return [];
@@ -228,8 +216,8 @@ function remoteDefaultSharedObjectValue(key: string, value: unknown): unknown {
   if (key === "statsig_default_enable_features") {
     return {
       ...(isRecord(value) ? value : {}),
-      remote_connections: true,
-      remote_ssh_connections: true,
+      remote_connections: false,
+      remote_ssh_connections: false,
     };
   }
   return value;
@@ -634,25 +622,6 @@ function normalizeRemoteDefaultPayload(value: unknown): unknown {
   let changed = false;
   const next: Record<string, unknown> = {};
   for (const [key, item] of Object.entries(value)) {
-    if (key === "hostId" && item === "local") {
-      changed = true;
-      next[key] = REMOTE_DEFAULT_HOST_ID;
-      continue;
-    }
-
-    if (key === "PROJECTLESS_THREAD_IDS" || key === "projectlessThreadIds") {
-      for (const threadId of stringArray(item)) {
-        remoteProjectState.projectlessThreadIds.add(threadId);
-      }
-      if (Array.isArray(item) && item.length > 0) {
-        changed = true;
-        next[key] = [];
-      } else {
-        next[key] = item;
-      }
-      continue;
-    }
-
     const normalized = normalizeRemoteDefaultPayload(item);
     changed ||= normalized !== item;
     next[key] = normalized;
@@ -672,15 +641,6 @@ function normalizeRemoteDefaultMcpResult(
   request: { hostId: string; method: string; params: unknown },
   result: unknown,
 ): unknown {
-  if (request.hostId === "local" && request.method === "thread/list") {
-    return emptyThreadListResult(result);
-  }
-
-  if (request.method === "workspace-root-options" && isRecord(result)) {
-    cacheWorkspaceRootOptions(result);
-    return { ...result, roots: [], labels: {} };
-  }
-
   if (request.method === "thread/list") {
     return normalizeThreadListResult(result);
   }
@@ -697,42 +657,15 @@ function normalizeRemoteDefaultMcpResult(
   }
 
   if (request.method === "config/read") {
-    return exposeRemoteConnectionConfigFeatures(
+    return disableRemoteConnectionConfigFeatures(
       normalizeRemoteDefaultPayload(result),
     );
-  }
-
-  if (request.method === "get-global-state" && isRecord(result)) {
-    const key = isRecord(request.params) ? request.params.key : null;
-    if (key === "REMOTE_PROJECTS") {
-      return { ...result, value: synthesizeRemoteProjects(result.value) };
-    }
-    if (key === "LOCAL_PROJECTS") {
-      remoteProjectState.localProjects = toRecord(result.value);
-      return { ...result, value: {} };
-    }
-    if (key === "PROJECT_WRITABLE_ROOTS") {
-      remoteProjectState.writableRoots = toRecord(result.value);
-      return { ...result, value: {} };
-    }
-    if (key === "PROJECTLESS_THREAD_IDS") {
-      for (const threadId of stringArray(result.value)) {
-        remoteProjectState.projectlessThreadIds.add(threadId);
-      }
-      return { ...result, value: [] };
-    }
-    if (key === "THREAD_PROJECT_ASSIGNMENTS") {
-      return {
-        ...result,
-        value: synthesizeThreadProjectAssignments(result.value),
-      };
-    }
   }
 
   return normalizeRemoteDefaultPayload(result);
 }
 
-function exposeRemoteConnectionConfigFeatures(result: unknown): unknown {
+function disableRemoteConnectionConfigFeatures(result: unknown): unknown {
   if (!isRecord(result) || !isRecord(result.config)) {
     return result;
   }
@@ -743,8 +676,8 @@ function exposeRemoteConnectionConfigFeatures(result: unknown): unknown {
       ...result.config,
       features: {
         ...features,
-        remote_connections: true,
-        remote_ssh_connections: true,
+        remote_connections: false,
+        remote_ssh_connections: false,
       },
     },
   };
@@ -784,19 +717,7 @@ function normalizeRemoteDefaultPayloadWithoutInstructionGuard(
 }
 
 function cacheRemoteDefaultGlobalStateWrite(params: unknown): void {
-  if (!isRecord(params) || params.key !== "REMOTE_PROJECTS") {
-    return;
-  }
-  cacheRemoteDefaultProjectsWrite(params.value);
-}
-
-function cacheRemoteDefaultProjectsWrite(value: unknown): void {
-  remoteProjectState.remoteProjects = Array.isArray(value)
-    ? value.flatMap((project) => {
-        const normalized = normalizeRemoteProject(project);
-        return normalized == null ? [] : [normalized];
-      })
-    : [];
+  void params;
 }
 
 function containsThreadResult(result: unknown): boolean {
@@ -804,31 +725,6 @@ function containsThreadResult(result: unknown): boolean {
     return false;
   }
   return isRecord(result.thread) && looksLikeThread(result.thread);
-}
-
-function emptyThreadListResult(result: unknown): unknown {
-  if (Array.isArray(result)) {
-    return [];
-  }
-  if (!isRecord(result)) {
-    return result;
-  }
-  const next: Record<string, unknown> = { ...result };
-  for (const key of ["threads", "conversations", "items", "data"]) {
-    if (Array.isArray(next[key])) {
-      next[key] = [];
-    }
-  }
-  return next;
-}
-
-function cacheWorkspaceRootOptions(result: Record<string, unknown>): void {
-  if (Array.isArray(result.roots)) {
-    remoteProjectState.workspaceRoots = result.roots.filter(
-      (root): root is string => typeof root === "string",
-    );
-  }
-  remoteProjectState.workspaceLabels = toStringRecord(result.labels);
 }
 
 function normalizeThreadListResult(result: unknown): unknown {
@@ -853,23 +749,9 @@ function normalizeThread(thread: unknown): unknown {
     return thread;
   }
 
-  const id = threadId(thread);
-  const path = threadPath(thread);
-  if (id != null && path != null) {
-    remoteProjectState.threadPaths.set(id, path);
-  }
-  const isProjectless =
-    path === "~" ||
-    thread.workspaceKind === "projectless" ||
-    (typeof thread.cwd === "string" && isGeneratedProjectlessCwd(thread.cwd));
-  if (id != null && isProjectless) {
-    remoteProjectState.projectlessThreadIds.add(id);
-  }
-
   return {
     ...thread,
     hostId: REMOTE_DEFAULT_HOST_ID,
-    ...(path === "~" || isProjectless ? { workspaceKind: "workspace" } : {}),
   };
 }
 
@@ -895,181 +777,18 @@ function threadId(value: Record<string, unknown>): string | null {
   return null;
 }
 
-function threadPath(value: Record<string, unknown>): string | null {
-  if (typeof value.cwd === "string" && value.cwd.trim().length > 0) {
-    if (isGeneratedProjectlessCwd(value.cwd)) {
-      return "~";
-    }
-    return value.cwd;
-  }
-  if (value.workspaceKind === "projectless") {
-    return "~";
-  }
-  return "~";
-}
-
-function isGeneratedProjectlessCwd(cwd: string): boolean {
-  return GENERATED_PROJECTLESS_CWD_PATTERN.test(cwd.trim());
-}
-
-function synthesizeRemoteProjects(existingValue: unknown): unknown[] {
-  const projects = new Map<string, Record<string, unknown>>();
-  for (const project of [
-    ...(Array.isArray(existingValue) ? existingValue : []),
-    ...remoteProjectState.remoteProjects,
-  ]) {
-    const normalized = normalizeRemoteProject(project);
-    if (normalized != null) {
-      projects.set(String(normalized.remotePath), normalized);
-    }
-  }
-
-  for (const root of remoteProjectState.workspaceRoots) {
-    projects.set(root, remoteProject(root));
-  }
-  for (const [projectId, project] of Object.entries(
-    remoteProjectState.localProjects,
-  )) {
-    projects.set(projectId, remoteProject(projectId, localProjectName(project)));
-  }
-  for (const [projectId, roots] of Object.entries(
-    remoteProjectState.writableRoots,
-  )) {
-    for (const root of stringArray(roots)) {
-      projects.set(root, remoteProject(root, localProjectLabel(projectId)));
-    }
-  }
-  for (const path of remoteProjectState.threadPaths.values()) {
-    projects.set(path, remoteProject(path));
-  }
-  projects.set("~", remoteProject("~"));
-
-  return Array.from(projects.values());
-}
-
-function normalizeRemoteProject(project: unknown): Record<string, unknown> | null {
-  if (!isRecord(project)) {
-    return null;
-  }
-  const path =
-    typeof project.remotePath === "string"
-      ? project.remotePath
-      : typeof project.path === "string"
-        ? project.path
-        : typeof project.id === "string"
-          ? project.id
-          : null;
-  if (path == null) {
-    return null;
-  }
-  return {
-    ...project,
-    id: typeof project.id === "string" ? project.id : path,
-    hostId: REMOTE_DEFAULT_HOST_ID,
-    path: typeof project.path === "string" ? project.path : path,
-    remotePath: path,
-  };
-}
-
-function synthesizeThreadProjectAssignments(existingValue: unknown): unknown {
-  const assignments: Record<string, unknown> = {};
-  if (isRecord(existingValue)) {
-    for (const [threadId, assignment] of Object.entries(existingValue)) {
-      assignments[threadId] = normalizeProjectAssignment(assignment);
-    }
-  }
-
-  for (const [threadId, path] of remoteProjectState.threadPaths) {
-    assignments[threadId] ??= remoteProjectAssignment(path);
-  }
-  for (const threadId of remoteProjectState.projectlessThreadIds) {
-    assignments[threadId] ??= remoteProjectAssignment("~");
-  }
-  return assignments;
-}
-
 function normalizeProjectAssignment(assignment: unknown): unknown {
   if (!isRecord(assignment)) {
     return assignment;
   }
   if (assignment.projectKind === "remote") {
-    return { ...assignment, hostId: REMOTE_DEFAULT_HOST_ID };
+    return {
+      ...assignment,
+      projectKind: "local",
+      hostId: "local",
+    };
   }
-  const path =
-    typeof assignment.path === "string"
-      ? assignment.path
-      : typeof assignment.cwd === "string"
-        ? assignment.cwd
-        : typeof assignment.projectId === "string"
-          ? assignment.projectId
-          : null;
-  return path == null ? assignment : remoteProjectAssignment(path);
-}
-
-function remoteProjectAssignment(path: string): Record<string, unknown> {
-  return {
-    projectKind: "remote",
-    projectId: path,
-    hostId: REMOTE_DEFAULT_HOST_ID,
-    path,
-  };
-}
-
-function remoteProject(
-  path: string,
-  label = localProjectLabel(path),
-): Record<string, unknown> {
-  return {
-    id: path,
-    hostId: REMOTE_DEFAULT_HOST_ID,
-    label,
-    path,
-    remotePath: path,
-  };
-}
-
-function localProjectLabel(path: string): string {
-  return (
-    remoteProjectState.workspaceLabels[path]?.trim() ||
-    localProjectName(remoteProjectState.localProjects[path]) ||
-    basename(path) ||
-    "Remote"
-  );
-}
-
-function localProjectName(project: unknown): string {
-  return isRecord(project) && typeof project.name === "string"
-    ? project.name.trim()
-    : "";
-}
-
-function basename(path: string): string {
-  const normalized = path.replace(/\/+$/, "");
-  if (normalized === "~") {
-    return "Remote";
-  }
-  return normalized.split(/[\\/]/).filter(Boolean).at(-1) ?? "";
-}
-
-function toRecord(value: unknown): Record<string, unknown> {
-  return isRecord(value) ? value : {};
-}
-
-function toStringRecord(value: unknown): Record<string, string> {
-  if (!isRecord(value)) {
-    return {};
-  }
-  return Object.fromEntries(
-    Object.entries(value).filter(
-      (entry): entry is [string, string] => typeof entry[1] === "string",
-    ),
-  );
-}
-
-function stringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string")
-    : [];
+  return assignment;
 }
 
 function normalizeRendererIpcMessage(

@@ -1,0 +1,11 @@
+diff --git a/app-shell/thread-app-shell-chrome/open-primary-target.tsx b/app-shell/thread-app-shell-chrome/open-primary-target.tsx
+--- a/app-shell/thread-app-shell-chrome/open-primary-target.tsx
++++ b/app-shell/thread-app-shell-chrome/open-primary-target.tsx
+@@ -17,6 +17,7 @@ export function OpenPrimaryTargetButton({
+   openTargets = [],
+   preferredOpenTargetId,
+ }: OpenPrimaryTargetButtonProps) {
++  return null;
+   const [iconCache, setIconCache] = useState<Map<string, string> | null>(null);
+   const visibleTargets = useMemo(
+     () => openTargets.filter(isVisibleAvailableTarget),

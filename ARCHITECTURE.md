@@ -2,8 +2,16 @@
 
 a bit on how this whole thing is put together.
 
-the general approach here is to download the electron app, unpack it and apply
-as small a set of patches to it as possible to get it working.
+the general approach here is to start from
+[`JimLiu/decode-codex`](https://github.com/JimLiu/decode-codex) at commit
+`ddbb7ea19cd71b97e4e923befd7586633b19fe95`. that source provides two trees:
+
+- `ref/`: the runnable decoded Electron app layout.
+- `restored/`: reverse-engineered source reconstructed from the bundled app.
+
+`prepare_asar` copies both into `scratch/asar` and `scratch/restored`, applies
+small patches, then materializes patched restored files back into the runtime
+tree when needed.
 
 an electron app has two parts, a part which runs in the main process and a part
 which runs in the renderer process.
@@ -32,12 +40,17 @@ as a stand-in for electron in the renderer process, building that preload
 bundle with [vite.browser.config.ts](./vite.browser.config.ts), then injecting
 it from [main.ts](./src/server/main.ts) when serving the webview shell.
 
-next, we apply a series of patches to both code running in the main process and
-the renderer process. these are applied at postinstall time through the
-[`prepare_asar`](./scripts/prepare_asar) script. patches are located
-in [./patches](./patches) and applied ontop of the prettified code extracted
-from the upstream app. care was taken here to patch at installation time to
-avoid redistributing the original code.
+next, we apply a series of patches to code running in the main process and the
+renderer process. these are applied by [`prepare_asar`](./scripts/prepare_asar).
+patches are restored-first: if the corresponding file or code exists in
+`restored/`, the patch lives under `patches/restored` and is applied with
+`git apply` to `scratch/restored`. if the patched restored file does not exist
+at the same path in `scratch/asar`, `prepare_asar` regenerates the matching
+runtime chunk with
+[`generate_restored_runtime_chunk.mjs`](./scripts/generate_restored_runtime_chunk.mjs).
+`patches/asar` is only a fallback for code that is still only present in bundled
+`ref/` assets, and the script rejects an asar patch when restored has the same
+target path.
 the server also strips the upstream Electron CSP meta tag before sending the
 webview shell, so runtime bootstrap scripts can run without a static HTML patch.
 
@@ -48,8 +61,7 @@ bridge instead of upstream bundle rewrites.
 ## patch inventory
 
 static patches in [./patches](./patches) are applied by
-[prepare_asar](./scripts/prepare_asar) after the upstream app is extracted and
-prettified.
+[prepare_asar](./scripts/prepare_asar) after the decoded app base is copied.
 
 | patch                      | purpose                                                                                                   |
 | -------------------------- | --------------------------------------------------------------------------------------------------------- |
@@ -58,29 +70,31 @@ prettified.
 | `webview-pwa.patch`        | links the web app manifest.                                                                               |
 | `webview-remove-csp.patch` | removes the upstream Electron CSP meta tag so the hosted browser app can load its patched runtime assets. |
 
-dynamic patchers in [./scripts](./scripts) handle bundle shapes that are too
-fragile for a fixed diff. [patch_webview_assets.mjs](./scripts/patch_webview_assets.mjs)
-runs the webview asset patchers during `prepare_asar`; [patch_browser_build_assets.mjs](./scripts/patch_browser_build_assets.mjs)
-reuses the same set after `vite build` when upstream assets are present.
+restored patches in [./patches/restored](./patches/restored) are ordinary git
+diffs applied by `git apply`.
 
-| patcher                               | purpose                                                                                                                             |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `patch_browser_panel_iframe.mjs`      | replaces Electron `<webview>` browser panel hosts with iframe-compatible hosts and URL sync helpers.                                |
-| `patch_sentry_disable.mjs`            | disables Sentry in upstream shell, worker, and renderer bundles.                                                                    |
-| `patch_terminal_side_panel.mjs`       | keeps Terminal entries wired to the upstream native terminal opener and hides desktop-only sidebar navigation controls.             |
-| `patch_webview_automations_nav.mjs`   | keeps Automations navigation visible in remote/browser host contexts.                                                               |
-| `patch_webview_mobile_sidebar.mjs`    | makes the left sidebar behave as a floating overlay on narrow/touch viewports.                                                      |
-| `patch_webview_mobile_tab_layout.mjs` | reserves space so mobile tab actions and right-panel headers do not overlap.                                                        |
-| `patch_webview_telemetry_disable.mjs` | disables direct analytics helpers not covered by the Statsig network patch.                                                         |
-| `patch_webview_thread_delete*.mjs`    | adds the local thread delete menu item and its zh-CN strings.                                                                       |
-| `patch_webview_turn_streaming.mjs`    | prevents memoized turn rendering from reusing stale streaming turn items.                                                           |
-| `patch_webview_assets.mjs`            | runs the dynamic patchers, disables Statsig network traffic at initialization, and fixes one invalid CSS `@property` initial value. |
+| patch                                             | target restored source                                         | purpose                                                                 |
+| ------------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `disable-avatar-overlay.patch`                    | `main/ipc/view-message-ipc/view-message-handler.ts`            | disables the native pet/avatar overlay window path.                     |
+| `hide-app-header-navigation-buttons.patch`        | `app-shell/sidebar-navigation-controls.tsx`                    | removes the header back/forward buttons.                                |
+| `hide-settings-pets-entry.patch`                  | `settings/settings-sections.ts`                                | removes the pets settings entry.                                        |
+| `reuse-main-window-for-open-in-new-window.patch`  | `main/ipc/view-message-ipc/view-message-handler.ts`            | reuses the single browser window for upstream open-in-new-window events. |
+| `statsig-telemetry-disable.patch`                 | `vendor/remote-projects-app-shared-current-bundle.ts`          | disables Statsig telemetry from restored source where available.         |
+
+fallback patches in [./patches/asar](./patches/asar) are also ordinary git
+diffs, but `prepare_asar` rejects them if the target path already exists in
+`restored/`.
+
+| patch                             | purpose                                                               |
+| --------------------------------- | --------------------------------------------------------------------- |
+| `statsig-telemetry-disable.patch` | disables remaining Statsig calls in bundled runtime assets not covered by restored source. |
 
 to connect the ipc from the renderer process to the main process, we use a
-websocket for most messages intercepting and handing a small handful of messages
-directly (file picker, workspace picker). today, the remaining parts of shim are
-for connecting the in memory router to the browser history and setting up the
-sidebar behavior on mobile.
+websocket for most messages, while intercepting a small handful directly in the
+browser preload shim: local settings, file picker, workspace picker, browser-tab
+URL opens and route/shared-object normalization. today, the remaining parts of
+the shim connect the in-memory router to browser history and set up sidebar
+behavior on mobile.
 
 the ipc websocket is hosted by [main.ts](./src/server/main.ts). this process
 binds a port and listens for incoming websocket connections. it also shims
@@ -93,22 +107,10 @@ the renderer. this part is the most sloppy part of the codebase as i left codex
 to figure it out unattended. the parts around `__codexElectronIpcBridge` are the
 important bits related to wiring up the ipc bridge.
 
-browser panel support reuses the upstream renderer's browser sidebar and tab
-management code. since a normal browser cannot host Electron's native
-`<webview>` element, [`patch_browser_panel_iframe.mjs](./scripts/patch_browser_panel_iframe.mjs)
-rewrites the bundled browser sidebar manager during `prepare_asar` so browser
-panel hosts are iframes with a small Electron-webview compatibility surface.
-the web runtime in [main.ts](./src/server/main.ts) synthesizes browser sidebar
-state for URL navigation, back/forward history, reload/stop, zoom controls,
-annotation toolbar state and find UI state. this keeps browser panel pages
-visible and controllable in codex-web. native Electron-only actions such as
-real page screenshots, cross-origin find matching, devtools, printing and
-cross-origin annotation capture remain best-effort or unavailable.
-
-Terminal entry wiring still uses
-[`patch_terminal_side_panel.mjs`](./scripts/patch_terminal_side_panel.mjs)
-because the upstream sidebar menu does not expose an extension point for
-replacing those actions.
+browser mode uses the local host model. the browser preload reports the host as
+`local`, disables remote ssh connection features, stores browser-only settings
+in `localStorage`, and opens GitHub/GitLab links in the user's browser tab
+instead of asking the server to native-open them.
 
 [preload script]: https://www.electronjs.org/docs/latest/tutorial/tutorial-preload
 [`ipcRenderer`]: https://www.electronjs.org/docs/latest/api/ipc-renderer

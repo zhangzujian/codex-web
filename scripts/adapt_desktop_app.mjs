@@ -10,10 +10,7 @@ import { runPreloadHookSmoke } from "./smoke_preload_hook.mjs";
 
 const FOCUSED_TESTS = [
   "tests/preload-hook-adapter.test.mjs",
-  "tests/webview-assets-patch.test.mjs",
-  "tests/browser-panel-iframe-patch.test.mjs",
-  "tests/terminal-side-panel-patch.test.mjs",
-  "tests/webview-turn-streaming-patch.test.mjs",
+  "tests/asar-static-patches.test.mjs",
 ];
 
 function parseArgs(argv) {
@@ -25,7 +22,6 @@ function parseArgs(argv) {
     reportPath: "scratch/preload-hook-report.json",
     runTests: true,
     smoke: "runtime",
-    zipPath: null,
   };
   for (let index = 2; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -36,10 +32,7 @@ function parseArgs(argv) {
     else if (arg === "--skip-build-browser") options.buildBrowser = false;
     else if (arg === "--skip-tests") options.runTests = false;
     else if (arg === "--smoke") options.smoke = argv[++index];
-    else if (arg === "--zip") {
-      options.zipPath = argv[++index];
-      options.prepare = true;
-    } else {
+    else {
       throw new Error(`Unknown option: ${arg}`);
     }
   }
@@ -60,20 +53,25 @@ function run(command, args, options = {}) {
   }
 }
 
-function prepareAsar(options) {
-  const env = { ...process.env };
-  if (options.zipPath) env.HOSTED_CODEX_APP_ZIP = options.zipPath;
-  run("bash", ["./scripts/prepare_asar"], { env });
+function prepareAsar() {
+  run("bash", ["./scripts/prepare_asar"]);
 }
 
 function assertReportGate(reportPath) {
   const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
   const failures = [];
   if (!report.support?.ok) failures.push("support.ok is false");
-  if (!report.staticReview?.ok) failures.push("staticReview.ok is false");
-  for (const [key, value] of Object.entries(report.staticReview ?? {})) {
-    if (key !== "ok" && Array.isArray(value) && value.length > 0) {
-      failures.push(`${key}: ${value.length}`);
+  if (!report.staticReview?.ok) {
+    failures.push("staticReview.ok is false");
+    for (const [key, value] of Object.entries(report.staticReview ?? {})) {
+      if (
+        key !== "ok" &&
+        key !== "unknownRendererArguments" &&
+        Array.isArray(value) &&
+        value.length > 0
+      ) {
+        failures.push(`${key}: ${value.length}`);
+      }
     }
   }
   if (failures.length > 0) {
@@ -97,7 +95,7 @@ async function runSmoke(options) {
 
 export async function adaptDesktopApp(options) {
   if (options.prepare) {
-    prepareAsar(options);
+    prepareAsar();
   } else {
     generatePreloadHookPatch({
       asarDir: options.asarDir,

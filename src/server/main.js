@@ -331,9 +331,7 @@ function canHandleWorkspaceDirectoryEntriesFetchMessage(message) {
         return false;
     }
     const params = parseFetchBodyRecord(message.body);
-    return (params.hostId == null ||
-        params.hostId === "local" ||
-        params.hostId === "remote:default");
+    return params.hostId == null || params.hostId === "local";
 }
 async function handleWorkspaceDirectoryEntriesFetchMessage(message, appServerClient, respond) {
     if (!canHandleWorkspaceDirectoryEntriesFetchMessage(message)) {
@@ -346,7 +344,9 @@ async function handleWorkspaceDirectoryEntriesFetchMessage(message, appServerCli
             directoryPath: typeof params.directoryPath === "string"
                 ? params.directoryPath
                 : null,
-        }, params.hostId === "local" ? undefined : appServerClient);
+        }, params.hostId === "local" || params.hostId == null
+            ? undefined
+            : appServerClient);
         sendFetchResponse(respond, message.requestId, 200, result);
     }
     catch (error) {
@@ -1154,7 +1154,7 @@ async function sendWebviewIndex(reply, webviewRoot, backendWebSocketToken) {
 function injectWebviewRuntimeScripts(html, backendWebSocketToken) {
     const terminalFont = process.env.CODEX_WEB_TERMINAL_FONT?.trim() || null;
     const fontFace = terminalFontFaceStyle(terminalFont);
-    const scripts = `<script>${edgeFadeCustomPropertyBootstrapScript()}</script><script>${sidebarHistoryControlsBootstrapScript()}</script><script>${statsigOverrideBootstrapScript()}</script><script>window.__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__=${JSON.stringify(backendWebSocketToken)};window.__CODEX_WEB_REMOTE_SSH_HOST__=${JSON.stringify((0, remote_default_config_1.remoteDefaultSshHost)())};window.__CODEX_WEB_TERMINAL_FONT__=${JSON.stringify(terminalFont)};</script>`;
+    const scripts = `<script>${edgeFadeCustomPropertyBootstrapScript()}</script><script>${sidebarHistoryControlsBootstrapScript()}</script><script>${statsigOverrideBootstrapScript()}</script><script>window.__CODEX_WEB_BACKEND_WEBSOCKET_TOKEN__=${JSON.stringify(backendWebSocketToken)};window.__CODEX_WEB_TERMINAL_FONT__=${JSON.stringify(terminalFont)};</script>`;
     const preload = '<base href="/" /><script type="module" src="./assets/preload.js"></script>';
     const shellHtml = removeContentSecurityPolicyMeta(html)
         .replace('<link rel="manifest" href="/manifest.json" />', '<link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />')

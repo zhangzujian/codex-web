@@ -18,6 +18,7 @@ import {
   isReadConfigForHostFetchMessage,
   normalizeReadConfigForHostFetchResponse,
   normalizeSharedObjectUpdateForRoute,
+  openInBrowserUrlFromFetchResponse,
 } from "../src/browser/sync-ipc.mts";
 import { createStatsigOverrideAdapter } from "../src/browser/statsig-overrides.mts";
 import { exposedMainWorldValue } from "../src/browser/context-bridge.mts";
@@ -28,6 +29,21 @@ test("browser shim installs the Sentry IPC fetch no-op", async () => {
   );
 
   assert.match(shimSource, /installSentryIpcFetchNoop\(window\)/);
+});
+
+test("browser shim passes terminal renderer messages through unchanged", async () => {
+  const shimSource = await import("node:fs/promises").then((fs) =>
+    fs.readFile(new URL("../src/browser/shim.ts", import.meta.url), "utf8"),
+  );
+
+  assert.match(
+    shimSource,
+    /if \(message\.type === "ipc-main-event"\) \{\s*emitRendererEvent\(message\.channel, message\.args, message\.portIds\);/s,
+  );
+  assert.match(
+    shimSource,
+    /if \(!isRecord\(message\) \|\| typeof message\.requestId !== "string"\) \{\s*return message;\s*\}/s,
+  );
 });
 
 test("browser shim hides the unused application menu bridge", () => {
@@ -382,23 +398,12 @@ test("handleSyncIpc serves the synchronous preload channels used by Codex", () =
   assert.equal(
     handleSyncIpc("codex_desktop:get-shared-object-snapshot", env).host_config
       .id,
-    "remote:default",
+    "local",
   );
   assert.deepEqual(
     handleSyncIpc("codex_desktop:get-shared-object-snapshot", env)
       .remote_ssh_connections,
-    [
-      {
-        hostId: "remote:default",
-        displayName: "Remote",
-        source: "codex-web",
-        sshHost: "remote",
-        sshPort: null,
-        sshAlias: null,
-        identity: null,
-        autoConnect: true,
-      },
-    ],
+    [],
   );
 });
 
@@ -430,7 +435,7 @@ test("settings routes expose local host_config so Connections stays visible", ()
   );
 });
 
-test("browser host_config route mapping uses local only for settings", () => {
+test("browser host_config route mapping uses local for every route", () => {
   assert.deepEqual(hostConfigForRoute("/settings"), {
     id: "local",
     display_name: "Local",
@@ -442,9 +447,9 @@ test("browser host_config route mapping uses local only for settings", () => {
     kind: "local",
   });
   assert.deepEqual(hostConfigForRoute("/thread/abc"), {
-    id: "remote:default",
-    display_name: "Remote",
-    kind: "ssh",
+    id: "local",
+    display_name: "Local",
+    kind: "local",
   });
 });
 
@@ -477,7 +482,7 @@ test("host_config shared-object updates are scoped to the current route", () => 
     {
       type: "shared-object-updated",
       key: "host_config",
-      value: { id: "remote:default", display_name: "Remote", kind: "ssh" },
+      value: { id: "local", display_name: "Local", kind: "local" },
     },
   );
 });
@@ -492,14 +497,14 @@ test("non-host_config shared-object updates pass through unchanged", () => {
   assert.equal(normalizeSharedObjectUpdateForRoute(message, "/settings"), message);
 });
 
-test("read-config-for-host fetch responses expose browser remote connection features", () => {
+test("read-config-for-host fetch responses disable browser remote connection features", () => {
   assert.equal(
     isReadConfigForHostFetchMessage({
       type: "fetch",
       requestId: "request-1",
       method: "POST",
       url: "vscode://codex/read-config-for-host",
-      body: JSON.stringify({ hostId: "remote:default" }),
+      body: JSON.stringify({ hostId: "local" }),
     }),
     true,
   );
@@ -530,11 +535,38 @@ test("read-config-for-host fetch responses expose browser remote connection feat
       systemLocale: "zh-CN",
       features: {
         existing: true,
-        remote_connections: true,
-        remote_ssh_connections: true,
+        remote_connections: false,
+        remote_ssh_connections: false,
       },
     },
   });
+});
+
+test("browser fetch responses expose URLs that should open in the browser", () => {
+  assert.equal(
+    openInBrowserUrlFromFetchResponse({
+      type: "fetch-response",
+      requestId: "open-1",
+      responseType: "success",
+      status: 200,
+      bodyJsonString: JSON.stringify({
+        openInBrowser: true,
+        url: "https://github.com/owner/repo/blob/main/file.ts",
+      }),
+    }),
+    "https://github.com/owner/repo/blob/main/file.ts",
+  );
+
+  assert.equal(
+    openInBrowserUrlFromFetchResponse({
+      type: "fetch-response",
+      requestId: "open-2",
+      responseType: "success",
+      status: 200,
+      bodyJsonString: JSON.stringify({ url: "https://example.com" }),
+    }),
+    null,
+  );
 });
 
 test("read-config-for-host fetch responses add missing feature maps", () => {
@@ -559,8 +591,8 @@ test("read-config-for-host fetch responses add missing feature maps", () => {
       model: "gpt-5",
       systemLocale: "zh-CN",
       features: {
-        remote_connections: true,
-        remote_ssh_connections: true,
+        remote_connections: false,
+        remote_ssh_connections: false,
       },
     },
   });
@@ -667,6 +699,40 @@ test("browser local fetch responses persist settings from direct request bodies"
   );
 
   assert.equal(settings.get("localeOverride"), "zh-CN");
+});
+
+test("browser local get-settings returns all locally stored settings", () => {
+  const settings = new Map([
+    ["followUpQueueMode", "queue"],
+    ["composerEnterBehavior", "shiftEnter"],
+  ]);
+  const env = {
+    locale: "zh-CN",
+    getSettingEntries: () => settings.entries(),
+    getSetting: (key) => settings.get(key),
+    setSetting: (key, value) => settings.set(key, value),
+  };
+
+  const response = localBrowserFetchResponse(
+    {
+      type: "fetch",
+      requestId: "settings-all-1",
+      method: "POST",
+      url: "vscode://codex/get-settings",
+    },
+    env,
+  );
+
+  assert.deepEqual(JSON.parse(response.bodyJsonString), {
+    configuredValues: {
+      followUpQueueMode: "queue",
+      composerEnterBehavior: "shiftEnter",
+    },
+    values: {
+      followUpQueueMode: "queue",
+      composerEnterBehavior: "shiftEnter",
+    },
+  });
 });
 
 test("handleSyncIpc rejects unsupported synchronous channels with channel context", () => {

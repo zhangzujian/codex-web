@@ -1,0 +1,40 @@
+diff --git a/main/ipc/view-message-ipc/view-message-handler.ts b/main/ipc/view-message-ipc/view-message-handler.ts
+--- a/main/ipc/view-message-ipc/view-message-handler.ts
++++ b/main/ipc/view-message-ipc/view-message-handler.ts
+@@ -43,7 +43,7 @@ function desktopFeaturesFromMessage(
+   return {
+     ambientSuggestions: message.ambientSuggestions,
+     appshotsEnabled: message.appshotsEnabled,
+-    avatarOverlayNativeStack: message.avatarOverlayNativeStack,
++    avatarOverlayNativeStack: false,
+     inAppBrowserUse: message.inAppBrowserUse,
+     inAppBrowserUseAllowed: message.inAppBrowserUseAllowed,
+     defaultLinkOpenTargetPreference: message.defaultLinkOpenTargetPreference,
+@@ -144,12 +144,10 @@ export function registerViewMessageIpcHandler({
+     async (event, rawMessage: unknown) => {
+       if (!isTrustedIpcEvent(event) || !isViewMessage(rawMessage)) return;
+       const message = rawMessage as DesktopViewMessage;
+ 
+       if (message.type === "electron-avatar-overlay-restore-ready") {
+-        if (!avatarOverlayRestoreHandled) {
+-          avatarOverlayRestoreHandled = true;
+-          await restoreAvatarOverlayOpenState(event.sender);
+-        }
++        avatarOverlayRestoreHandled = true;
++        void event.sender;
+         return;
+       }
+ 
+@@ -171,11 +169,11 @@ export function registerViewMessageIpcHandler({
+       }
+ 
+       if (
+         message.type === "electron-avatar-overlay-feedback-diagnostics-changed"
+       ) {
+-        setAvatarOverlayFeedbackDiagnosticsEnabled(message.enabled);
++        void message.enabled;
+         return;
+       }
+ 
+       if (message.type === "electron-sparkle-gates-changed") {
+         setAutomaticBackgroundDownloadsEnabled(

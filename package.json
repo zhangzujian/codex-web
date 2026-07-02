@@ -17,7 +17,7 @@
     "check:desktop-adaptation": "npm run adapt:desktop -- --prepare --smoke preflight",
     "launch:unpacked": "NODE_ENV=development electron ./scratch/asar --remote-debugging-port=9222",
     "dev:browser": "vite --config vite.browser.config.ts",
-    "build:browser": "vite build --config vite.browser.config.ts && node scripts/patch_browser_build_assets.mjs scratch/asar/webview/assets",
+    "build:browser": "vite build --config vite.browser.config.ts",
     "build:server": "cd src/server && tsc",
     "prepare:asar": "./scripts/prepare_asar",
     "smoke:preload": "node scripts/smoke_preload_hook.mjs",

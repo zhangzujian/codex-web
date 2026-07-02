@@ -1,10 +1,3 @@
-type FetchMessage = {
-    type: "fetch";
-    requestId: string;
-    method?: unknown;
-    url?: unknown;
-    body?: unknown;
-};
 type MainToRendererMessage = {
     type: "ipc-main-event";
     channel: string;
@@ -13,7 +6,7 @@ type MainToRendererMessage = {
 type RemoteDefaultFetchEnvironment = {
     respond?: (message: MainToRendererMessage) => void;
 };
-export declare function handleRemoteDefaultFetchMessage(message: unknown, environment?: RemoteDefaultFetchEnvironment): Promise<boolean>;
-export declare function canHandleRemoteDefaultFetchMessage(message: unknown): message is FetchMessage;
+export declare function handleRemoteDefaultFetchMessage(_message: unknown, _environment?: RemoteDefaultFetchEnvironment): Promise<boolean>;
+export declare function canHandleRemoteDefaultFetchMessage(_message: unknown): boolean;
 export {};
 //# sourceMappingURL=remote-default-fetch.d.ts.map
